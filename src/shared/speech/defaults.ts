@@ -108,10 +108,11 @@ export function mergeWithDefaults(saved: unknown): AppConfig {
   const s = saved as Record<string, unknown>
   const merge = <T>(def: T, val: unknown): T => {
     if (val === undefined || val === null) return def
-    if (typeof def === 'object' && def !== null && !Array.isArray(def) && typeof val === 'object') {
+    if (typeof def === 'object' && def !== null && !Array.isArray(def) && typeof val === 'object' && !Array.isArray(val)) {
       const out: Record<string, unknown> = { ...(def as Record<string, unknown>) }
       for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
-        out[k] = k in out ? merge((def as Record<string, unknown>)[k], v) : v
+        if (k === '__proto__' || k === 'constructor' || k === 'prototype') throw new Error('Invalid configuration key')
+        out[k] = Object.hasOwn(out, k) ? merge((def as Record<string, unknown>)[k], v) : v
       }
       return out as T
     }

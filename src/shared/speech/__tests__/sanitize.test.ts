@@ -222,3 +222,12 @@ describe('pagination', () => {
     }
   })
 })
+
+describe('pagination adversarial inputs', () => {
+  it('rejects invalid split sizes rather than hanging', () => {
+    for (const size of [-1, NaN, Infinity, 0.5]) {
+      expect(() => forceSplitRanges('long text', size)).toThrow(RangeError)
+    }
+    expect(() => paginateText('long text', { enabled: true, fragment_size: NaN })).toThrow(RangeError)
+  })
+})

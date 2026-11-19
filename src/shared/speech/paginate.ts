@@ -103,6 +103,9 @@ const isCjkClauseDelimiter = (c: string): boolean =>
 export function forceSplitRanges(text: string, maxSize: number): Array<[number, number]> {
   const chars = Array.from(text)
   const len = chars.length
+  if (!Number.isFinite(maxSize) || maxSize < 0 || !Number.isInteger(maxSize)) {
+    throw new RangeError('maxSize must be a non-negative integer')
+  }
   if (maxSize === 0) return len === 0 ? [] : [[0, len]]
 
   const ranges: Array<[number, number]> = []
@@ -163,6 +166,9 @@ export function paginateText(text: string, config: PaginationConfig): TextFragme
   if (!config.enabled || text.length === 0) {
     return [{ text, index: 0, total: 1, source_start: 0, source_end: text.length }]
   }
+  if (!Number.isFinite(config.fragment_size) || config.fragment_size <= 0) {
+    throw new RangeError('fragment_size must be a positive finite number')
+  }
   const maxSize = Math.max(1, Math.floor(config.fragment_size))
   const chars = Array.from(text)
   if (chars.length <= maxSize) {
@@ -221,6 +227,9 @@ export function shouldPaginate(text: string, config: PaginationConfig): boolean 
 /** Number of fragments a text would produce (mirrors paginateText). */
 export function estimateFragmentCount(text: string, config: PaginationConfig): number {
   if (!config.enabled || text.length === 0) return 1
+  if (!Number.isFinite(config.fragment_size) || config.fragment_size <= 0) {
+    throw new RangeError('fragment_size must be a positive finite number')
+  }
   const maxSize = Math.max(1, Math.floor(config.fragment_size))
   const chars = Array.from(text)
   if (chars.length <= maxSize) return 1

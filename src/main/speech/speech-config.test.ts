@@ -52,3 +52,15 @@ describe('Voice configuration', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe('{broken')
   })
 })
+
+describe('adversarial config inputs', () => {
+  it('rejects malformed nested config and nonfinite numeric values', () => {
+    expect(() => replaceConfig({ hotkey: { enabled: true, shortcut: 9 } })).toThrow('invalid type')
+    expect(() => replaceConfig({ trigger: [] })).toThrow('object')
+    expect(() => updateConfig({ playback: { volume: NaN } } as Partial<AppConfig>)).toThrow('invalid type')
+  })
+  it('rejects prototype keys without changing Object prototype', () => {
+    expect(() => replaceConfig(JSON.parse('{"tts":{"__proto__":{"polluted":true}}}'))).toThrow('Invalid configuration key')
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+})

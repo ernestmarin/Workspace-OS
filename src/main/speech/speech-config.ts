@@ -25,10 +25,33 @@ function assertNoSecrets(value: unknown): void {
     return
   }
   for (const [key, entry] of Object.entries(value)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') throw new Error('Invalid configuration key')
     if (/^(api_?key|secret|token|password)$/i.test(key) && entry) {
       throw new Error('Credentials must be stored in the secure vault, not Voice config.')
     }
     assertNoSecrets(entry)
+  }
+}
+
+/** Reject malformed known fields before merging; tolerate additional forward-compatible fields. */
+function validateShape(template: unknown, value: unknown, field = 'config'): void {
+  if (template === null) return
+  if (Array.isArray(template)) {
+    if (!Array.isArray(value)) throw new Error(`Invalid Voice config: ${field} must be an array`)
+    return
+  }
+  if (typeof template === 'object') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`Invalid Voice config: ${field} must be an object`)
+    }
+    const obj = value as Record<string, unknown>
+    for (const [key, expected] of Object.entries(template as Record<string, unknown>)) {
+      if (Object.hasOwn(obj, key)) validateShape(expected, obj[key], `${field}.${key}`)
+    }
+    return
+  }
+  if (typeof value !== typeof template || (typeof value === 'number' && !Number.isFinite(value))) {
+    throw new Error(`Invalid Voice config: ${field} has an invalid type or value`)
   }
 }
 
@@ -46,6 +69,7 @@ export function getConfig(): AppConfig {
     return deepClone(initial)
   }
   assertNoSecrets(saved)
+  validateShape(defaultConfig(), saved)
   const loaded = mergeWithDefaults(saved)
   const errors = validateConfig(loaded)
   if (errors.length) throw new Error(`Invalid Voice config: ${errors.join(' ')}`)
@@ -71,13 +95,16 @@ function deepMerge<T>(base: T, patch: unknown): T {
   if (!isPlainObject(base) || !isPlainObject(patch)) return (patch === undefined ? base : (patch as T))
   const out: Record<string, unknown> = { ...base }
   for (const [k, v] of Object.entries(patch)) {
-    out[k] = k in out ? deepMerge((base as Record<string, unknown>)[k], v) : v
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') throw new Error('Invalid configuration key')
+    out[k] = Object.hasOwn(out, k) ? deepMerge((base as Record<string, unknown>)[k], v) : v
   }
   return out as T
 }
 
 export function updateConfig(patch: Partial<AppConfig>): AppConfig {
   const base = getConfig()
+  assertNoSecrets(patch)
+  validateShape(defaultConfig(), patch)
   const next = mergeWithDefaults(deepMerge(deepClone(base), patch))
   assertNoSecrets(next)
   const errors = validateConfig(next)
@@ -90,6 +117,7 @@ export function updateConfig(patch: Partial<AppConfig>): AppConfig {
 /** Replace the whole config (import). Validates by merging over defaults. */
 export function replaceConfig(next: unknown): AppConfig {
   assertNoSecrets(next)
+  validateShape(defaultConfig(), next)
   const config = mergeWithDefaults(next)
   const errors = validateConfig(config)
   if (errors.length) throw new Error(`Invalid Voice config: ${errors.join(' ')}`)
