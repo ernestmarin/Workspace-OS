@@ -197,7 +197,7 @@ describe('pagination', () => {
       expect(piece).not.toMatch(/^\S*$/) // never a partial word at boundaries…
     }
     // and every piece boundary lands on whitespace or the string edge
-    for (const [start, end] of forceSplitRanges(words, 50)) {
+    for (const [, end] of forceSplitRanges(words, 50)) {
       if (end < words.length) expect(/\s/.test(words[end]) || words[end - 1] === ' ').toBe(true)
     }
   })

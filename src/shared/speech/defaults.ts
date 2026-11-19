@@ -25,8 +25,8 @@ export function defaultKokoroProfile(): VoiceProfile {
 
 export function engineOptionsFor(engine: string): Record<string, EngineOptionValue> {
   switch (engine) {
-    case 'kokoro': return { lang_code: 'a', device: 'auto' }
-    case 'piper': return { gpu: false }
+    case 'kokoro': return { cuda: false }
+    case 'piper': return { cuda: false }
     case 'kitten': return {}
     case 'qwen': return {}
     case 'pocket': return {}
