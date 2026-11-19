@@ -64,7 +64,7 @@ export class ReadingController {
       if (!text.trim()) throw new Error('No speakable text remains after sanitization')
       const fragments = paginateText(text, job.config.pagination)
       const profile = job.config.tts.profiles.find((item) => item.id === job.config.tts.active_profile_id)
-      this.update(job, { speaking: true, synthesizing: true, engine: job.config.tts.active_backend, profileName: profile?.name ?? null, fragmentTotal: fragments.length, readingId: job.id, paused: false })
+      this.update(job, { speaking: true, synthesizing: true, engine: profile?.engine ?? job.config.tts.active_backend, profileName: profile?.name ?? null, fragmentTotal: fragments.length, readingId: job.id, paused: false })
       for (const fragment of fragments) {
         signal.throwIfAborted()
         this.update(job, { fragment: fragment.index + 1, synthesizing: true })
