@@ -79,7 +79,16 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
   })
   ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); controller.stop() })
   ipcHandle(ipc, IPC.SPEECH_STATUS, (event) => { assertOwner(event); return controller.getStatus() })
-  ipcHandle(ipc, IPC.SPEECH_CONFIG, (event) => { assertOwner(event); return getConfig() })
+  ipcHandle(ipc, IPC.SPEECH_CONFIG, (event) => {
+    assertOwner(event)
+    const cfg = getConfig()
+    // Only expose the fields the UI needs, not arbitrary commands, URLs or headers.
+    return {
+      trigger: { max_text_length: cfg.trigger.max_text_length },
+      tts: { active_profile_id: cfg.tts.active_profile_id, profiles: cfg.tts.profiles.map(({ id, engine, voice }) => ({ id, engine, voice })) },
+      hotkey: cfg.hotkey,
+    }
+  })
   ipcHandle(ipc, IPC.SPEECH_KEY_STATUS, (event) => { assertOwner(event); return speechKeyStatus() })
   ipcHandle(ipc, IPC.SPEECH_SET_KEY, (event, value) => {
     assertOwner(event)
@@ -96,7 +105,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     const id = `wos-${engine}`
     const profile: VoiceProfile = { ...defaultKokoroProfile(), id, name: engine === 'openai' ? 'OpenAI' : 'Kokoro', engine, voice, voice_label: null, engine_options: {} }
     const profiles = [...cfg.tts.profiles.filter((p) => p.id !== id), profile]
-    return updateConfig({ tts: { ...cfg.tts, profiles, active_profile_id: id, active_backend: engine } })
+    updateConfig({ tts: { ...cfg.tts, profiles, active_profile_id: id, active_backend: engine } })
   })
   ipcHandle(ipc, IPC.SPEECH_PLAYBACK_DONE, (event, id, ok) => {
     assertOwner(event)

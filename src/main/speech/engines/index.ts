@@ -4,6 +4,7 @@ import { speechEnginesDir } from '../paths'
 import { resolveSpeechKey } from '../secrets'
 import { synthesizeLocal } from './local'
 import { synthesizeOpenAi } from './openai'
+import { assertKokoroInstalled } from './kokoro'
 import type { PcmAudio } from './wav'
 
 export async function synthesizeFragment(text: string, config: AppConfig, signal: AbortSignal): Promise<PcmAudio> {
@@ -19,7 +20,9 @@ export async function synthesizeFragment(text: string, config: AppConfig, signal
     return { pcm, sampleRate: 24000, channels: 1, bitsPerSample: 16 }
   }
   if (engine === 'local' || engine === 'kokoro') {
-    return synthesizeLocal({ text, voice, command: config.tts.command, argsTemplate: config.tts.args_template, engineDir: speechEnginesDir(), signal })
+    const engineDir = speechEnginesDir()
+    if (engine === 'kokoro') assertKokoroInstalled(engineDir)
+    return synthesizeLocal({ text, voice, command: config.tts.command, argsTemplate: config.tts.args_template, engineDir, signal })
   }
   throw new Error(`Speech engine ${engine} is not implemented`)
 }

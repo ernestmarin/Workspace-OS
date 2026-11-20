@@ -64,3 +64,27 @@ describe('adversarial config inputs', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
   })
 })
+
+describe('config security regressions', () => {
+  it('rejects malformed profiles, command arguments and numeric ranges', () => {
+    expect(() => replaceConfig({ tts: { profiles: [null] } })).toThrow('profile must be an object')
+    expect(() => replaceConfig({ tts: { profiles: [{ id: 'x' }] } })).toThrow('profile')
+    expect(() => replaceConfig({ tts: { args_template: [null] } })).toThrow('only strings')
+    expect(() => replaceConfig({ playback: { volume: 101 } })).toThrow('Volume')
+    expect(() => replaceConfig({ playback: { on_retrigger: 'bogus' } })).toThrow('retrigger')
+  })
+  it('rejects credentials embedded in URLs without writing them', () => {
+    for (const url of ['https://user:private@example.test/path', 'https://example.test/path?access_token=private', 'https://example.test/?api_key=private']) {
+      expect(() => replaceConfig({ tts: { http: { url_template: url } } })).toThrow('secure vault')
+    }
+    expect(fs.existsSync(path.join(dir, 'copyspeech', 'config.json'))).toBe(false)
+  })
+  it('preserves an invalid on-disk file instead of silently overwriting it', () => {
+    const file = path.join(dir, 'copyspeech', 'config.json')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const raw = '{"tts":{"profiles":[null]}}'
+    fs.writeFileSync(file, raw)
+    expect(() => getConfig()).toThrow('profile')
+    expect(fs.readFileSync(file, 'utf8')).toBe(raw)
+  })
+})

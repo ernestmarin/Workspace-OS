@@ -1,6 +1,6 @@
 
 import type { AgentRunFailure } from '../../../shared/agentRun'
-import type { AppConfig, SpeechStatus } from '../../../shared/speech/types'
+import type { SpeechStatus, TtsEngine } from '../../../shared/speech/types'
 import type { PlaybackMessage, SpeechUiEvent } from '../../../shared/speech/playback'
 
 /** A case's numbers, computed from one CSV artifact (see main/case-insights). */
@@ -280,8 +280,8 @@ export interface WorkspaceApi {
     readClipboard(): Promise<{ readingId: number }>
     setHotkey(shortcut: string): Promise<{ shortcut: string }>
     status(): Promise<SpeechStatus>
-    config(): Promise<AppConfig>
-    selectEngine(engine: 'kokoro' | 'openai', voice: string): Promise<AppConfig>
+    config(): Promise<{ trigger: { max_text_length: number }; tts: { active_profile_id: string; profiles: { id: string; engine: TtsEngine; voice: string }[] }; hotkey: { enabled: boolean; shortcut: string } }>
+    selectEngine(engine: 'kokoro' | 'openai', voice: string): Promise<void>
     setOpenAiKey(value: string): Promise<Record<string, boolean>>
     keyStatus(): Promise<Record<string, boolean>>
     playbackDone(id: string, ok: boolean): Promise<boolean>

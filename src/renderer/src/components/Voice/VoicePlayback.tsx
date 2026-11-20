@@ -1,10 +1,17 @@
 import { useEffect } from 'react'
+import { toastError } from '../Landscape/toastStore'
 
 /** Global audio sink; it remains mounted while users change workspace surfaces. */
 export function VoicePlayback(): null {
   useEffect(() => {
     let active: { id: string; source: AudioBufferSourceNode; context: AudioContext } | null = null
     let disposed = false
+    const offEvents = window.workspace.speech.onEvent((event) => {
+      if (event.type === 'error') toastError(`Voice: ${event.message}`)
+      else if (event.type === 'result' && !event.result.finished && event.result.error !== 'Cancelled') {
+        toastError(`Voice: ${event.result.error ?? 'Speech failed'}`)
+      }
+    })
     const unsubscribe = window.workspace.speech.onPlayback((message) => {
       if (message.type === 'cancel') {
         if (active?.id === message.id) {
@@ -64,6 +71,7 @@ export function VoicePlayback(): null {
     return () => {
       disposed = true
       unsubscribe()
+      offEvents()
       if (active) {
         active.source.onended = null
         try { active.source.stop() } catch { /* already stopped */ }

@@ -22,11 +22,13 @@ export class PlaybackBroker {
         this.pending.delete(id)
         if (error) reject(error); else resolve()
       }
-      const abort = (): void => {
+      const cancel = (error: Error): void => {
+        if (done) return
         try { this.send(owner, { type: 'cancel', id }) } catch { /* already gone */ }
-        finish(new Error('Playback cancelled'))
+        finish(error)
       }
-      const timer = setTimeout(() => finish(new Error('Audio playback timed out')), Math.max(30_000, duration + 30_000))
+      const abort = (): void => cancel(new Error('Playback cancelled'))
+      const timer = setTimeout(() => cancel(new Error('Audio playback timed out')), Math.max(30_000, duration + 30_000))
       timer.unref()
       this.pending.set(id, { finish, owner })
       signal.addEventListener('abort', abort, { once: true })

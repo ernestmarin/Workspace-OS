@@ -36,3 +36,19 @@ describe('playback broker', () => {
     await expect(broken.play(4, audio, 'hello', 100, new AbortController().signal)).rejects.toThrow('unavailable')
   })
 })
+
+describe('playback timeout', () => {
+  it('cancels the renderer before rejecting, and ignores late acknowledgements', async () => {
+    vi.useFakeTimers()
+    try {
+      const send = vi.fn<(owner: number, message: PlaybackMessage) => void>()
+      const broker = new PlaybackBroker(send)
+      const result = broker.play(1, audio, 'hello', 100, new AbortController().signal).catch((e: Error) => e.message)
+      const id = send.mock.calls[0][1].id
+      await vi.advanceTimersByTimeAsync(31_000)
+      expect(await result).toBe('Audio playback timed out')
+      expect(send).toHaveBeenLastCalledWith(1, { type: 'cancel', id })
+      expect(broker.complete(1, id, true)).toBe(false)
+    } finally { vi.useRealTimers() }
+  })
+})
