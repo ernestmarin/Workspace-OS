@@ -69,7 +69,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     // An unavailable shortcut must not prevent the rest of the app from starting.
     console.warn('[speech] could not initialize voice shortcut:', error instanceof Error ? error.message : 'unknown error')
   }
-  ipcHandle(ipc, IPC.SPEECH_MICROPHONE_AUTHORIZE, async (event) => {
+  ipcHandle(ipc, IPC.SPEECH_MICROPHONE_AUTHORIZE, async (event, token) => {
     assertOwner(event)
     if (microphonePromptOpen) throw new Error('A microphone permission request is already open')
     const win = mainWindow()
@@ -78,8 +78,9 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     const frame = event.senderFrame
     if (!frame) throw new Error('Workspace frame is unavailable')
     const url = frame.url
+    if (typeof token !== 'string') throw new Error('Invalid microphone request identity')
+    microphoneGrant.begin(token)
     microphonePromptOpen = true
-    microphoneGrant.clear()
     try {
       const result = await dialog.showMessageBox(win, {
         type: 'question', buttons: ['Cancel', 'Allow once'], defaultId: 0, cancelId: 0, noLink: true,
@@ -90,14 +91,17 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
       if (result.response !== 1) return false
       assertOwner(event)
       if (win.isDestroyed() || mainWindow() !== win || event.sender.id !== owner || event.senderFrame !== frame || frame.url !== url || event.sender.getURL() !== url) throw new Error('Workspace window changed during microphone approval')
-      microphoneGrant.arm(owner, url)
-      return true
-    } finally { microphonePromptOpen = false }
+      return microphoneGrant.approve(token, owner, url)
+    } finally { microphoneGrant.revokePending(token); microphonePromptOpen = false }
   })
-  ipcHandle(ipc, IPC.SPEECH_MICROPHONE_REVOKE, (event) => { assertOwner(event); microphoneGrant.clear() })
+  ipcHandle(ipc, IPC.SPEECH_MICROPHONE_REVOKE, (event, token) => { assertOwner(event); microphoneGrant.revoke(token) })
   ipcHandle(ipc, IPC.SPEECH_STT_STATUS, (event) => { assertOwner(event); return { ...localSttStatus(), busy: stt.busy } })
-  ipcHandle(ipc, IPC.SPEECH_STT_TRANSCRIBE, (event, samples, language) => { assertOwner(event); return stt.transcribe(samples, language) })
-  ipcHandle(ipc, IPC.SPEECH_STT_CANCEL, (event) => { assertOwner(event); stt.cancel() })
+  ipcHandle(ipc, IPC.SPEECH_STT_TRANSCRIBE, (event, samples, language, id) => {
+    assertOwner(event)
+    if (typeof id !== 'string') throw new Error('Invalid transcription identity')
+    return stt.transcribe(samples, language, id)
+  })
+  ipcHandle(ipc, IPC.SPEECH_STT_CANCEL, (event, id) => { assertOwner(event); if (typeof id === 'string') stt.cancel(id) })
   ipcHandle(ipc, IPC.SPEECH_SPEAK, (event, text) => {
     assertOwner(event)
     if (typeof text !== 'string') throw new Error('Speech text must be a string')

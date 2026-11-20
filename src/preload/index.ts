@@ -10,11 +10,11 @@ import type { PlaybackMessage, SpeechUiEvent } from '../shared/speech/playback'
 contextBridge.exposeInMainWorld('workspace', {
   speech: {
     speak: (text: string) => ipcRenderer.invoke(IPC.SPEECH_SPEAK, text),
-    authorizeMicrophone: () => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_AUTHORIZE),
-    revokeMicrophone: () => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_REVOKE),
+    authorizeMicrophone: (token: string) => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_AUTHORIZE, token),
+    revokeMicrophone: (token: string) => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_REVOKE, token),
     sttStatus: () => ipcRenderer.invoke(IPC.SPEECH_STT_STATUS),
-    transcribeLocal: (samples: Float32Array, language: string) => ipcRenderer.invoke(IPC.SPEECH_STT_TRANSCRIBE, samples, language),
-    cancelTranscription: () => ipcRenderer.invoke(IPC.SPEECH_STT_CANCEL),
+    transcribeLocal: (samples: Float32Array, language: string, id: string) => ipcRenderer.invoke(IPC.SPEECH_STT_TRANSCRIBE, samples, language, id),
+    cancelTranscription: (id: string) => ipcRenderer.invoke(IPC.SPEECH_STT_CANCEL, id),
     stop: () => ipcRenderer.invoke(IPC.SPEECH_STOP),
     readClipboard: () => ipcRenderer.invoke(IPC.SPEECH_READ_CLIPBOARD),
     setHotkey: (shortcut: string) => ipcRenderer.invoke(IPC.SPEECH_SET_HOTKEY, shortcut),

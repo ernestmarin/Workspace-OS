@@ -38,6 +38,22 @@ describe('offline STT job lifecycle', () => {
     expect(worker.terminate).toHaveBeenCalledOnce()
     expect(stt.busy).toBe(false)
   })
+  it('ignores cancellation from another job and stale cancellation after completion', async () => {
+    const worker = new FakeWorker()
+    const stt = new LocalStt(() => worker)
+    const firstId = '11111111-1111-4111-8111-111111111111'
+    const nextId = '22222222-2222-4222-8222-222222222222'
+    const first = stt.transcribe(new Float32Array(1600), 'es', firstId)
+    stt.cancel(nextId)
+    expect(worker.terminate).not.toHaveBeenCalled()
+    worker.emit('message', { text: 'first' })
+    await expect(first).resolves.toBe('first')
+    const next = stt.transcribe(new Float32Array(1600), 'he', nextId)
+    stt.cancel(firstId)
+    expect(stt.busy).toBe(true)
+    stt.cancel(nextId)
+    await expect(next).rejects.toThrow('cancelled')
+  })
   it('fails closed on malformed worker results', async () => {
     const worker = new FakeWorker()
     const stt = new LocalStt(() => worker)

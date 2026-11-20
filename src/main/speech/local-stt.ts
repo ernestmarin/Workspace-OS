@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
 import { speechDataDir } from './paths'
@@ -29,12 +30,13 @@ type WorkerFactory = () => SttWorker
 
 /** One bounded offline recognition at a time; cancellation kills the worker. */
 export class LocalStt {
-  private pending: { cancel: () => void } | null = null
+  private pending: { id: string; cancel: () => void } | null = null
   constructor(private readonly createWorker: WorkerFactory = () => new Worker(new URL('./sttWorker.js', import.meta.url)), private readonly timeoutMs = 120_000) {}
   get busy(): boolean { return this.pending !== null }
-  cancel(): void { this.pending?.cancel() }
+  cancel(id?: string): void { if (id === undefined || this.pending?.id === id) this.pending?.cancel() }
 
-  async transcribe(samples: unknown, language: unknown): Promise<string> {
+  async transcribe(samples: unknown, language: unknown, id: string = randomUUID()): Promise<string> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new Error('Invalid transcription identity')
     if (this.pending) throw new Error('Local transcription is already running')
     if (!(samples instanceof Float32Array) || samples.length < 1600 || samples.length > STT_MAX_SAMPLES) throw new Error('Invalid audio length or format')
     if (typeof language !== 'string' || !/^[a-z]{2}$/.test(language)) throw new Error('Invalid transcription language')
@@ -56,7 +58,7 @@ export class LocalStt {
       }
       const timer = setTimeout(() => finish(undefined, 'Local transcription timed out'), this.timeoutMs)
       timer.unref?.()
-      this.pending = { cancel: () => finish(undefined, 'Local transcription cancelled') }
+      this.pending = { id, cancel: () => finish(undefined, 'Local transcription cancelled') }
       worker.once('message', (message) => {
         if (!message || typeof message !== 'object' || !('text' in message) || typeof message.text !== 'string' || message.text.length > 20_000) return finish(undefined, 'Local transcription failed; verify the installed model')
         finish(message.text.trim())
