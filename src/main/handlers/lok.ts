@@ -334,9 +334,10 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     const grid = coerceGrid(i.values)
     if (!grid) throw new IpcValidationError('Invalid range grid')
     if (typeof i.cell !== 'string' || !isValidA1(i.cell)) throw new IpcValidationError('Invalid anchor cell')
+    const anchorCell = i.cell
     const sheet = typeof i.sheet === 'string' ? i.sheet : ''
     return withMacroLock(() => {
-      fs.writeFileSync(lokXchg('wos-range-in.txt'), encodeGridPayload(sheet, i.cell, grid), 'utf8')
+      fs.writeFileSync(lokXchg('wos-range-in.txt'), encodeGridPayload(sheet, anchorCell, grid), 'utf8')
       return lokRunMacro('WosSetRangeBlock', '')
     })
   })

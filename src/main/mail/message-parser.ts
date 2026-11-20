@@ -40,9 +40,11 @@ export interface TriageHeaders {
   'auto-submitted'?: string
   'reply-to'?: string
   'x-auto-response-suppress'?: string
+  'in-reply-to'?: string
+  references?: string
 }
 
-/** The exact header keys we lift for triage. Kept small on purpose. */
+/** The exact header keys we lift for triage and threading. Kept small on purpose. */
 const TRIAGE_HEADER_KEYS: (keyof TriageHeaders)[] = [
   'list-unsubscribe',
   'list-id',
@@ -50,6 +52,8 @@ const TRIAGE_HEADER_KEYS: (keyof TriageHeaders)[] = [
   'auto-submitted',
   'reply-to',
   'x-auto-response-suppress',
+  'in-reply-to',
+  'references',
 ]
 
 export interface ParsedMessage {

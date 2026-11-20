@@ -63,7 +63,7 @@ export function parseAllDayDate(date: string): number | null {
  * list response), and anything without a usable start is skipped rather than
  * given a guessed time.
  */
-export function mapGoogleEvent(raw: unknown, sourceId: string): CalendarEvent | null {
+export function mapGoogleEvent(raw: unknown, sourceId: string): (CalendarEvent & { sourceId: string }) | null {
   const e = raw as Record<string, unknown>
   if (!e || typeof e !== 'object') return null
   if (e.status === 'cancelled') return null

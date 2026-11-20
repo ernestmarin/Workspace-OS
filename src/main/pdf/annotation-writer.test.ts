@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { PDFDocument, PDFName, rgb } from 'pdf-lib'
+import { PDFDict, PDFDocument, PDFName, rgb } from 'pdf-lib'
 /** Read one annotation's entry from a saved page. Assertions go through the
  *  reloaded object graph, never a raw-byte grep: pdf-lib writes object streams
  *  with Flate compression, so the text simply is not there to find. */
 function annotValue(doc: PDFDocument, page: number, index: number, key: string): string {
   const annots = doc.getPages()[page - 1].node.Annots()
   if (!annots) return ''
-  const dict = annots.lookup(index) as { get(k: PDFName): unknown }
+  const dict = annots.lookup(index, PDFDict)
   return String(dict.get(PDFName.of(key)) ?? '')
 }
 

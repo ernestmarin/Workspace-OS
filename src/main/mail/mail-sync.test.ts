@@ -287,7 +287,7 @@ describe('deepenBatch — batched connection path', () => {
 
   it('leaves a uid the server omitted shallow rather than recording a blank', async () => {
     const deps = fakeDeps({
-      async fetchMessages(_a, folder, uids) {
+      async fetchMessages(_a, _folder, uids) {
         // Server returns only the first uid of each batch.
         return ok([full({ uid: uids[0], messageId: `<${uids[0]}@x>` })])
       },

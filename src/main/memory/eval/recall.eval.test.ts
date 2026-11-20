@@ -32,6 +32,8 @@ interface M { id: string; kind: string; workspace: string; role: string; superse
 const set = JSON.parse(fs.readFileSync(path.join(__dirname, 'recall-v1.json'), 'utf8')) as { memories: M[]; queries: Q[] }
 const K = 5
 const MODEL_CACHE = process.env.WOS_MODEL_CACHE ?? path.join(os.homedir(), '.cache', 'workspace-os', 'models')
+const hasCachedMeaningModel = fs.existsSync(path.join(MODEL_CACHE, 'Xenova', 'multilingual-e5-small', 'onnx'))
+const runMeaningEval = hasCachedMeaningModel || process.env.WOS_LIVE === '1'
 let tmp: string
 const ctxs = new Map<string, MemoryContext>()
 const chunkOf = new Map<string, string>()
@@ -122,7 +124,7 @@ describe('memory recall (TerminalOS EN/DE set)', () => {
     expect(r.offTopic).toBeLessThanOrEqual(1) // o3: its fix matches fixed in another note
   })
 
-  it('by words and meaning', { timeout: 15 * 60_000 }, async () => {
+  it.skipIf(!runMeaningEval)('by words and meaning', { timeout: 15 * 60_000 }, async () => {
     const e = inProcessEmbedder(MODEL_CACHE)
     setEmbedder(e)
     for (const ctx of ctxs.values()) await embedPending(ctx)
