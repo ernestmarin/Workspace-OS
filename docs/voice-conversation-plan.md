@@ -13,6 +13,7 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 ## Progress
 - Turn lifecycle foundation exists as a pure, tested state machine; it is not wired to audio or the UI.
 - Agent bridge has typed assistant-text events for Claude and Codex, separate from terminal output. Routing finalized transcripts into the selected conversation and connecting playback remain unimplemented.
+- Agent terminal has an opt-in, per-tab completed-reply reader using existing Voice settings. It does not support the PTY broker, streaming speech or microphone input; switching tabs disarms future reply reading. A cloud voice sends reply text to its provider after the user enables the feature.
 - No real microphone, local STT or end-to-end conversation has been validated.
 
 ## Stages and gates

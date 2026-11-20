@@ -61,8 +61,15 @@ export function TerminalSession({
   const {
     attachTerminal, history, status, runningCount, lastExitCode, lastPrompt,
     canRevert, lastCheckpointId, reverted, mode, setMode, agentName, setAgentName,
-    ledger, artifacts, submit, cancelAll, rerun, revertLast,
+    ledger, artifacts, submit, speakReplies, setSpeakReplies, cancelAll, rerun, revertLast,
   } = session
+  // Switching away disarms future readings; it does not cancel an agent run or
+  // stop unrelated audio that may already be playing.
+  useEffect(() => { if (!active || runMode !== 'prompt') setSpeakReplies(false) }, [active, runMode, setSpeakReplies])
+  const toggleSpokenReplies = useCallback(() => {
+    if (speakReplies) { setSpeakReplies(false); return }
+    if (window.confirm('Read future agent replies aloud in this tab? The configured Voice engine will process the reply; a cloud engine sends its text to that provider. This does not enable the microphone.')) setSpeakReplies(true)
+  }, [speakReplies, setSpeakReplies])
   const budget = formatLedger(ledger)
   const [isDragOver, setIsDragOver] = useState(false)
   // Revert is never blind: the button opens a DiffSheet preview; the actual
@@ -173,6 +180,16 @@ export function TerminalSession({
           title="Switch to an interactive claude session with native permission prompts (broker v2)"
         >
           ⌨ Interactive
+        </button>
+
+        <button
+          className={styles.modeToggle}
+          type="button"
+          aria-pressed={speakReplies}
+          onClick={toggleSpokenReplies}
+          title="Opt in to reading completed agent replies using the configured Voice engine; no microphone"
+        >
+          {speakReplies ? '🔊 Replies on' : '🔇 Read replies'}
         </button>
 
         <span className={styles.statusArea} data-status={status}>

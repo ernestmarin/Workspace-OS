@@ -6,6 +6,7 @@ import { reviewStore } from '../Review/reviewStore'
 import { activityStore } from '../Review/activityStore'
 import { emptyLedger, recordRun, type SessionLedger } from './budgetLedger'
 import { claimRun, settleRun, steerTarget } from './codexSteer'
+import { SpokenReplies } from './spokenReplies'
 import type { AgentTermHandle } from './AgentXterm'
 import type { RunArtifact } from '../../types/workspace-api'
 import { basename as pathBase } from '../../lib/paths'
@@ -70,6 +71,8 @@ export interface AgentSession {
   /** Classified output files from recent runs (newest run first) → artifact cards. */
   artifacts: RunArtifactGroup[]
   submit: (raw: string) => void
+  speakReplies: boolean
+  setSpeakReplies: (enabled: boolean) => void
   cancelAll: () => void
   rerun: () => void
   revertLast: () => Promise<void>
@@ -104,6 +107,14 @@ export function useAgentSession(
   } | null>(null)
   const [ledger, setLedger] = useState<SessionLedger>(emptyLedger)
   const [artifacts, setArtifacts] = useState<RunArtifactGroup[]>([])
+  const [speakReplies, setSpeakRepliesState] = useState(false)
+  const speakRepliesRef = useRef(false)
+  const spokenReplies = useRef(new SpokenReplies())
+  const setSpeakReplies = useCallback((enabled: boolean) => {
+    speakRepliesRef.current = enabled
+    setSpeakRepliesState(enabled)
+    if (!enabled) spokenReplies.current.clear()
+  }, [])
 
   // Keep latest context in refs so the IPC listeners (set up once) read fresh values.
   const ctxRef = useRef({ activeFile, contextFiles, mode, agentName, model })
@@ -166,8 +177,14 @@ export function useAgentSession(
     const offOutput = window.workspace.agent.onOutput((runId, chunk) => {
       if (ownedRuns.current.has(runId)) write(chunk)
     })
+    const offAssistantText = window.workspace.agent.onAssistantText((runId, text) => {
+      if (speakRepliesRef.current && ownedRuns.current.has(runId)) spokenReplies.current.append(runId, text)
+    })
     const offDone = window.workspace.agent.onDone((runId, code, checkpointId) => {
       if (!ownedRuns.current.has(runId)) return
+      const reply = spokenReplies.current.finish(runId, code === 0 && speakRepliesRef.current)
+      if (reply) void window.workspace.speech.speak(reply).catch(() => write(fmtError('Unable to read the agent reply; check Voice settings.')))
+      ownedRuns.current.delete(runId)
       if (code !== 0) write(fmtError(`[agent exited with code ${code}]`))
       finishRun(runId, code, checkpointId)
       // The run is no longer live — drop its "what it's doing now" line.
@@ -205,6 +222,8 @@ export function useAgentSession(
     })
     return () => {
       offOutput()
+      offAssistantText()
+      spokenReplies.current.clear()
       offDone()
       offArtifact()
       offArtifacts()
@@ -247,6 +266,7 @@ export function useAgentSession(
       }
       const runId = newRunId()
       ownedRuns.current.add(runId)
+      if (speakRepliesRef.current) spokenReplies.current.begin(runId)
       claimRun(ownedCodexRuns.current, runId, ctxRef.current.model || personaModel || settings.agentModel)
       setRunningRunIds((prev) => [...prev, runId])
       setLastPrompt(rawInput)
@@ -271,6 +291,8 @@ export function useAgentSession(
         .then((result) => settleRun(ownedCodexRuns.current, runId, result.provider))
         .catch((err: Error) => {
           ownedCodexRuns.current.delete(runId)
+          ownedRuns.current.delete(runId)
+          spokenReplies.current.finish(runId, false)
           write(fmtError(`[error] ${err.message}`))
           finishRun(runId, null, null)
         })
@@ -348,6 +370,7 @@ export function useAgentSession(
 
   const cancelAll = useCallback(() => {
     for (const runId of runningRunIds) {
+      spokenReplies.current.finish(runId, false)
       window.workspace.agent.cancel(runId)
     }
     if (runningRunIds.length) write(fmtSystem('[stopped]'))
@@ -421,6 +444,8 @@ export function useAgentSession(
     ledger,
     artifacts,
     submit,
+    speakReplies,
+    setSpeakReplies,
     cancelAll,
     rerun,
     revertLast,
