@@ -88,3 +88,29 @@ describe('config security regressions', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe(raw)
   })
 })
+
+describe('strict config schema', () => {
+  it('rejects unknown fields, unsupported headers and request bodies', () => {
+    expect(() => replaceConfig({ tts: { openai: { unreviewed: 'secret' } } })).toThrow('unsupported field')
+    expect(() => replaceConfig({ tts: { http: { headers: [['X-Custom', 'secret']] } } })).toThrow('headers')
+    expect(() => replaceConfig({ tts: { http: { body_template: '{"key":"secret"}' } } })).toThrow('templates')
+    expect(() => replaceConfig({ tts: { http: { url_template: 'https://example.test/?signature=secret' } } })).toThrow('query')
+    expect(fs.existsSync(path.join(dir, 'copyspeech', 'config.json'))).toBe(false)
+  })
+  it('rejects unknown profile and engine option keys', () => {
+    const cfg = getConfig()
+    const profile = cfg.tts.profiles[0]
+    expect(() => replaceConfig({ tts: { profiles: [{ ...profile, private_data: 'secret' }] } })).toThrow('unsupported profile')
+    expect(() => replaceConfig({ tts: { profiles: [{ ...profile, engine_options: { private_data: 'secret' } }] } })).toThrow('unsupported engine option')
+  })
+  it('replaces history retention variants instead of merging incompatible keys', () => {
+    let cfg = updateConfig({ history: { enabled: true, auto_delete: { after_days: 30 } } })
+    expect(cfg.history.auto_delete).toEqual({ after_days: 30 })
+    resetConfigCache()
+    expect(getConfig().history.auto_delete).toEqual({ after_days: 30 })
+    cfg = updateConfig({ history: { enabled: true, auto_delete: 'never' } })
+    expect(cfg.history.auto_delete).toBe('never')
+    resetConfigCache()
+    expect(getConfig().history.auto_delete).toBe('never')
+  })
+})
