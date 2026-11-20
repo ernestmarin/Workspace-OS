@@ -13,8 +13,7 @@ not install `uv`, Python packages, or download any models. The status indicators
 show file existence only; they do not establish that a model or environment is
 valid.
 
-Install [uv](https://docs.astral.sh/uv/) and, from a terminal, run `uv sync`
-inside the project folder shown in Settings. This downloads and executes
+Install [uv](https://docs.astral.sh/uv/) and select **Install Python dependencies** in Voice settings. Alternatively, run `uv sync` from a terminal inside the project folder shown in Settings. This downloads and executes
 third-party Python dependencies, including a spaCy model wheel; inspect the
 manifest and upstream package terms before proceeding. `uv` must also be
 available on the Workspace OS process PATH.
@@ -25,9 +24,7 @@ Kokoro ONNX model is not sufficient. CopySpeech's upstream Kokoro installer
 builds the duration-capable model using its pinned exporter; see
 [CopySpeech installation scripts](https://github.com/ernestmarin/CopySpeech/tree/45767410e469ef464a7e07842813399cac9060d5/scripts)
 for the relevant platform-specific procedure and third-party downloads. Place
-those two files in the project's `models` directory. A complete automatic
-installer, model verification, and an in-app real-audio readiness test remain
-work to do.
+those two files in the project's `models` directory. Automatic model provisioning, model verification, and an in-app real-audio readiness test remain work to do. On Windows cancellation of uv is best-effort for descendant processes and needs platform validation.
 
 ## Privacy
 

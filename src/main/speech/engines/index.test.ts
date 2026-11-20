@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../../../shared/speech/defaults'
 import { synthesizeFragment } from './index'
+import { synthesizeLocal } from './local'
 
 vi.mock('./kokoro', () => ({ assertKokoroInstalled: vi.fn() }))
 vi.mock('../secrets', () => ({ resolveSpeechKey: () => 'test-key' }))
@@ -11,6 +12,7 @@ describe('engine dispatch', () => {
   it('dispatches the active local profile', async () => {
     const audio = await synthesizeFragment('hello', defaultConfig(), new AbortController().signal)
     expect(audio.sampleRate).toBe(24000)
+    expect(vi.mocked(synthesizeLocal).mock.calls.at(-1)?.[0].argsTemplate.slice(0, 2)).toEqual(['run', '--no-sync'])
   })
   it('returns a clear failure for unsupported engines', async () => {
     const cfg = defaultConfig()

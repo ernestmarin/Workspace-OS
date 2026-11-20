@@ -14,6 +14,7 @@ import { ReadingController } from './reading'
 import { VoiceHotkey } from './hotkey'
 import { speechEnginesDir } from './paths'
 import { kokoroFilesStatus, prepareKokoro } from './engines/kokoro-setup'
+import { KokoroDependencyInstaller } from './engines/kokoro-install'
 
 function assertOwner(event: IpcMainInvokeEvent): void {
   assertMainFrame(event)
@@ -21,6 +22,7 @@ function assertOwner(event: IpcMainInvokeEvent): void {
 }
 
 export function registerSpeechHandlers(ipc: IpcMain): void {
+  const installer = new KokoroDependencyInstaller()
   const broker = new PlaybackBroker((owner, message) => {
     const win = mainWindow()
     if (!win || win.webContents.id !== owner) throw new Error('Playback window is unavailable')
@@ -39,7 +41,10 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     onStatus: (status) => sendToWindow(IPC.SPEECH_EVENT, { type: 'state', status }),
   })
   const start = (text: string): { readingId: number } => {
-    const reading = controller.read(text, getConfig())
+    const config = getConfig()
+    const engine = config.tts.profiles.find((profile) => profile.id === config.tts.active_profile_id)?.engine ?? config.tts.active_backend
+    if (installer.busy && engine === 'kokoro') throw new Error('Wait for Kokoro dependency setup to finish before speaking')
+    const reading = controller.read(text, config)
     void reading.result.then((result) => sendToWindow(IPC.SPEECH_EVENT, { type: 'result', readingId: reading.id, result }))
     return { readingId: reading.id }
   }
@@ -81,6 +86,9 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     return { shortcut: hotkey.shortcut }
   })
   ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); controller.stop() })
+  ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_STATUS, (event) => { assertOwner(event); return { busy: installer.busy } })
+  ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_CANCEL, (event) => { assertOwner(event); installer.cancel() })
+  ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL, async (event) => { assertOwner(event); await installer.install(speechEnginesDir()); return kokoroFilesStatus(speechEnginesDir()) })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_STATUS, (event) => { assertOwner(event); return kokoroFilesStatus(speechEnginesDir()) })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_PREPARE, (event) => {
     assertOwner(event)
@@ -121,5 +129,5 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     if (typeof id !== 'string' || typeof ok !== 'boolean') throw new Error('Invalid playback result')
     return broker.complete(event.sender.id, id, ok)
   })
-  registerCleanup('speech', () => { hotkey.dispose(); controller.stop() })
+  registerCleanup('speech', async () => { hotkey.dispose(); controller.stop(); await installer.shutdown() })
 }
