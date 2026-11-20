@@ -1,5 +1,9 @@
 # Handoff
 
+## Checkpoint N+1c — 2026-11-20 (posterior a PR #14)
+
+Ver [lok-authorization-checkpoint-2026-11-20.md](lok-authorization-checkpoint-2026-11-20.md). Rama `arena/d4868d3a-workspace-os`, base `8a9cc7a`. Los 45 handlers de lok.ts exigen owner registrado vivo y su main frame actual; fallback de entrega no concede autoridad. Inventario: 243 con guard, 178 sin guard, 22 grant-checked, 30 push. Gates frescos: tsc main/renderer exit 0, ESLint 0/0, Vitest **4113 passed / 26 skipped**, build exit 0. Auditorías 35/40 moderate (exit 1). Sin aceptación Electron/LOK real ni NIVEL 3, sin push. Ver riesgos de lifecycle/Office, próximos contratos y evidencia RED/GREEN en el checkpoint.
+
 ## Checkpoint N+2c — 2026-11-20 (posterior al checkpoint post-N1)
 
 Ver [xlsx-snapshot-checkpoint-2026-11-20.md](xlsx-snapshot-checkpoint-2026-11-20.md). Rama `arena/ac9dd6a7-workspace-os`, base `859f777`. Ambos escritores XLSX validan/parsean el mismo snapshot, con límites acumulados y XML auxiliar cubierto. Gates frescos: tsc main/renderer exit 0, ESLint 0/0, Vitest **3793 passed / 26 skipped**, build exit 0. Auditorías siguen en 35/40 moderate (exit 1). No aceptación NIVEL 3, no push. IPC restante, presupuesto PPTX/ODS y voz siguen pendientes; ver límites y siguiente contrato en el checkpoint.

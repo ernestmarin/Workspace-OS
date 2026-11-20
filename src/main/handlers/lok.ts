@@ -3,11 +3,12 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'node:url'
 import { ipcHandle } from '../ipc-registry'
+import { assertMainFrame } from '../security'
 import { IpcValidationError, validateFilePath, validateOpenPath } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import { coerceGrid, encodeGridPayload, encodeTablePayload } from '../ranges'
 import { isValidA1 } from '../transclusions'
-import { sendToWindow, setMainWindow } from '../main-window'
+import { sendToWindow, setMainWindow, isMainWindowSender } from '../main-window'
 import {
   lokAvailable,
   lokOpen,
@@ -44,6 +45,14 @@ import {
 import { createOfficeClipboard, type OfficeClipboard } from '../office/officeClipboard'
 import { lokXchg } from '../office/lokTemp'
 import { IPC } from '../ipc-channels'
+
+/** Fail closed on stale/detached frames and non-owner windows before any work. */
+function assertLokSender(event: Electron.IpcMainInvokeEvent): void {
+  assertMainFrame(event)
+  if (!isMainWindowSender(event.sender) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
+    throw new Error('IPC call rejected: office sender is not the current main-window frame')
+  }
+}
 
 const EXPORT_FORMATS = new Set(['pdf', 'docx', 'odt', 'rtf', 'txt', 'html', 'epub', 'xlsx', 'ods', 'csv', 'pptx', 'odp', 'png', 'svg'])
 
@@ -106,9 +115,13 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     sendToWindow(IPC.LOK_CALLBACK, cb)
   })
 
-  ipcHandle(ipcMain, IPC.LOK_AVAILABLE, () => lokAvailable())
+  ipcHandle(ipcMain, IPC.LOK_AVAILABLE, (event) => {
+    assertLokSender(event)
+    return lokAvailable()
+  })
 
-  ipcHandle(ipcMain, IPC.LOK_OPEN, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_OPEN, async (event, filePath: unknown) => {
+    assertLokSender(event)
     // Opening a document the user explicitly picked is allowed from anywhere on
     // disk (Recent / a different folder / outside the open workspace) — see
     // validateOpenPath. This is independent of whether a workspace is open.
@@ -117,7 +130,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Create a new blank office document by extension, in the workspace root.
-  ipcHandle(ipcMain, IPC.LOK_NEW, async (_event, ext: unknown, fileName: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_NEW, async (event, ext: unknown, fileName: unknown) => {
+    assertLokSender(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     if (typeof ext !== 'string' || !(ext in FACTORY)) throw new IpcValidationError('Unsupported format')
@@ -151,7 +165,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return { ...result, path: resolved }
   })
 
-  ipcHandle(ipcMain, IPC.LOK_TILE, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_TILE, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = args as TileArgs
     const ints = [a?.cw, a?.ch, a?.tx, a?.ty, a?.tw, a?.th]
     if (ints.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
@@ -163,7 +178,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
 
   // Batched tiles — one IPC + one engine round-trip for a whole repaint,
   // instead of one per tile. Mirrors lok:tile's per-tile validation.
-  ipcHandle(ipcMain, IPC.LOK_TILES, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_TILES, async (event, args: unknown) => {
+    assertLokSender(event)
     if (!Array.isArray(args) || args.length === 0 || args.length > 256) {
       throw new IpcValidationError('Invalid tiles arguments')
     }
@@ -177,7 +193,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return tiles.map((t) => ({ cw: t.cw, ch: t.ch, bgra: t.bgra }))
   })
 
-  ipcHandle(ipcMain, IPC.LOK_PARTTILE, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_PARTTILE, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = args as TileArgs & { part?: number }
     const ints = [a?.part, a?.cw, a?.ch, a?.tx, a?.ty, a?.tw, a?.th]
     if (ints.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
@@ -187,7 +204,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return { cw: tile.cw, ch: tile.ch, bgra: tile.bgra }
   })
 
-  ipcHandle(ipcMain, IPC.LOK_KEY, async (_event, type: unknown, charCode: unknown, keyCode: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_KEY, async (event, type: unknown, charCode: unknown, keyCode: unknown) => {
+    assertLokSender(event)
     if ([type, charCode, keyCode].some((n) => typeof n !== 'number')) {
       throw new IpcValidationError('Invalid key event')
     }
@@ -200,7 +218,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return true
   })
 
-  ipcHandle(ipcMain, IPC.LOK_MOUSE, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_MOUSE, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = args as { type: number; x: number; y: number; count: number; buttons: number; modifier: number }
     const nums = [a?.type, a?.x, a?.y, a?.count, a?.buttons, a?.modifier]
     if (nums.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
@@ -210,7 +229,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return true
   })
 
-  ipcHandle(ipcMain, IPC.LOK_UNO, async (_event, command: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_UNO, async (event, command: unknown) => {
+    assertLokSender(event)
     if (typeof command !== 'string' || !command.startsWith('.uno:')) {
       throw new IpcValidationError('Invalid UNO command')
     }
@@ -231,7 +251,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Apply cell borders to the current selection (model-API via Basic macro).
-  ipcHandle(ipcMain, IPC.LOK_SETBORDER, async (_event, preset: unknown, color: unknown, width: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_SETBORDER, async (event, preset: unknown, color: unknown, width: unknown) => {
+    assertLokSender(event)
     const presets = new Set(['all', 'outer', 'inner', 'none', 'top', 'bottom', 'left', 'right'])
     if (typeof preset !== 'string' || !presets.has(preset)) throw new IpcValidationError('Invalid border preset')
     const c = typeof color === 'number' && Number.isFinite(color) ? Math.max(0, Math.min(0xffffff, Math.round(color))) : 0
@@ -240,7 +261,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // The last macro-inserted shape's bounds (1/100 mm) — see WosShapeInsert.
-  ipcHandle(ipcMain, IPC.LOK_LASTSHAPE, async () => {
+  ipcHandle(ipcMain, IPC.LOK_LASTSHAPE, async (event) => {
+    assertLokSender(event)
     let raw = ''
     try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim() } catch { return null }
     const n = raw.split('|').map((x) => Number(x))
@@ -249,19 +271,23 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Writer status line: page / pages / words / characters from the model.
-  ipcHandle(ipcMain, IPC.LOK_DOCSTATUS, async () => withMacroLock(async () => {
-    await lokRunMacro('WosDocStatus', '')
-    let raw = ''
-    try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim() } catch { return null }
-    const n = raw.split('|').map((x) => Number(x))
-    if (n.length < 4 || n.some((x) => Number.isNaN(x))) return null
-    return { page: n[0], pages: n[1], words: n[2], chars: n[3] }
-  }))
+  ipcHandle(ipcMain, IPC.LOK_DOCSTATUS, async (event) => {
+    assertLokSender(event)
+    return withMacroLock(async () => {
+      await lokRunMacro('WosDocStatus', '')
+      let raw = ''
+      try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim() } catch { return null }
+      const n = raw.split('|').map((x) => Number(x))
+      if (n.length < 4 || n.some((x) => Number.isNaN(x))) return null
+      return { page: n[0], pages: n[1], words: n[2], chars: n[3] }
+    })
+  })
 
   // Engine state queries the review panel needs: comments, tracked changes,
   // their authors. Allowlisted; the payload is parsed here so the renderer
   // never sees a raw engine string it has to trust.
-  ipcHandle(ipcMain, IPC.LOK_CMDVALUES, async (_event, command: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_CMDVALUES, async (event, command: unknown) => {
+    assertLokSender(event)
     const allowed = new Set(['.uno:ViewAnnotations', '.uno:AcceptTrackedChanges', '.uno:TrackedChangeAuthors'])
     if (typeof command !== 'string' || !allowed.has(command)) throw new IpcValidationError('Command values not allowed')
     const raw = await lokCommandValues(command)
@@ -270,13 +296,15 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Spreadsheet column/row geometry for drawing headers (.uno:SheetGeometryData).
-  ipcHandle(ipcMain, IPC.LOK_SHEETGEOMETRY, async () => {
+  ipcHandle(ipcMain, IPC.LOK_SHEETGEOMETRY, async (event) => {
+    assertLokSender(event)
     const v = await lokCommandValues('.uno:SheetGeometryData')
     return v ?? null
   })
 
   // Resize a column/row (model-API via Basic macro). size is 1/100 mm; 0 = autofit.
-  ipcHandle(ipcMain, IPC.LOK_SETSIZE, async (_event, kind: unknown, index: unknown, size: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_SETSIZE, async (event, kind: unknown, index: unknown, size: unknown) => {
+    assertLokSender(event)
     if (kind !== 'col' && kind !== 'row') throw new IpcValidationError('Invalid resize kind')
     if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) throw new IpcValidationError('Invalid index')
     const s = typeof size === 'number' && Number.isFinite(size) ? Math.max(0, Math.min(200000, Math.round(size))) : 0
@@ -285,7 +313,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
 
   // Run a seeded model-API macro (sheet/table ops). Name restricted to Wos*;
   // args are a single sanitized line ('|'-delimited, no control chars).
-  ipcHandle(ipcMain, IPC.LOK_MACRO, async (_event, name: unknown, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_MACRO, async (event, name: unknown, args: unknown) => {
+    assertLokSender(event)
     if (typeof name !== 'string' || !/^Wos[A-Za-z0-9]+$/.test(name)) throw new IpcValidationError('Invalid macro name')
     const a = typeof args === 'string' ? args.replace(/[\r\n]/g, ' ').slice(0, 1000) : ''
     return withMacroLock(() => lokRunMacro(name, a))
@@ -296,7 +325,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // literal '|' in the text can never collide with the flags delimiter. Returns
   // the match/replace count the macro writes back (>=0 on Writer/Calc; -1 when the
   // doc type is unsupported, e.g. Impress).
-  ipcHandle(ipcMain, IPC.LOK_FINDREPLACE, async (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_FINDREPLACE, async (event, input: unknown) => {
+    assertLokSender(event)
     const i = (input ?? {}) as {
       mode?: unknown; find?: unknown; replace?: unknown
       caseSensitive?: unknown; wholeWord?: unknown; regex?: unknown
@@ -313,24 +343,25 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     // Serialize the whole write→run→read: the shared /tmp/wos-*.txt files must
     // not interleave with a concurrent macro op (that clobbered notes before).
     return withMacroLock(async () => {
-      fs.writeFileSync(lokXchg('wos-fr-in.txt'), `${header}\n${findLine}\n${replLine}\n`, 'utf8')
-      // Remove any prior result first: if the macro aborts mid-way (e.g. a real
-      // Calc-replace fault, now no longer masked), we must NOT read a stale count
-      // from a previous run and report a phantom success.
-      try { fs.rmSync(lokXchg('wos-asset-out.txt'), { force: true }) } catch { /* best effort */ }
-      const ok = await lokRunMacro('WosFindReplace', '')
-      if (!ok) return { ok: false, count: -1 }
-      let raw = ''
-      try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim() } catch { return { ok: false, count: -1 } }
-      const count = Number.parseInt(raw, 10)
-      return { ok: true, count: Number.isFinite(count) ? count : 0 }
+        fs.writeFileSync(lokXchg('wos-fr-in.txt'), `${header}\n${findLine}\n${replLine}\n`, 'utf8')
+        // Remove any prior result first: if the macro aborts mid-way (e.g. a real
+        // Calc-replace fault, now no longer masked), we must NOT read a stale count
+        // from a previous run and report a phantom success.
+        try { fs.rmSync(lokXchg('wos-asset-out.txt'), { force: true }) } catch { /* best effort */ }
+        const ok = await lokRunMacro('WosFindReplace', '')
+        if (!ok) return { ok: false, count: -1 }
+        let raw = ''
+        try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim() } catch { return { ok: false, count: -1 } }
+        const count = Number.parseInt(raw, 10)
+        return { ok: true, count: Number.isFinite(count) ? count : 0 }
     })
   })
 
   // Live ranges: stamp a grid into the OPEN Calc doc as a block anchored at its
   // top-left cell (model-API macro). The grid travels via a payload file — a
   // grid is too big/rich for the single sanitized macro-arg line.
-  ipcHandle(ipcMain, IPC.LOK_SETRANGEBLOCK, async (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_SETRANGEBLOCK, async (event, input: unknown) => {
+    assertLokSender(event)
     const i = (input ?? {}) as { sheet?: unknown; cell?: unknown; values?: unknown }
     const grid = coerceGrid(i.values)
     if (!grid) throw new IpcValidationError('Invalid range grid')
@@ -347,7 +378,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // Writer/Impress doc (model-API macro). The grid travels via a payload file —
   // too big/rich for the single sanitized macro-arg line. `macro` is one of the
   // four table macros; the tag (wos-range-<id>) is the round-tripping anchor.
-  ipcHandle(ipcMain, IPC.LOK_SETTABLE, async (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_SETTABLE, async (event, input: unknown) => {
+    assertLokSender(event)
     const i = (input ?? {}) as { macro?: unknown; tag?: unknown; values?: unknown }
     const allowed = new Set(['WosInsertDocTable', 'WosSetDocTable', 'WosInsertSlideTable', 'WosSetSlideTable'])
     if (typeof i.macro !== 'string' || !allowed.has(i.macro)) throw new IpcValidationError('Invalid table macro')
@@ -363,18 +395,22 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Components (capture): serialize the current selection into element lines.
-  ipcHandle(ipcMain, IPC.LOK_CAPTURE, async () => withMacroLock(async () => {
-    await lokRunMacro('WosCapture', '')
-    let raw = ''
-    try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8') } catch { return null }
-    const lines = raw.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
-    if (lines.length < 2) return null
-    const head = lines[0].split('|')
-    return { w: Number(head[0]) || 0, h: Number(head[1]) || 0, elements: lines.slice(1, 60) }
-  }))
+  ipcHandle(ipcMain, IPC.LOK_CAPTURE, async (event) => {
+    assertLokSender(event)
+    return withMacroLock(async () => {
+      await lokRunMacro('WosCapture', '')
+      let raw = ''
+      try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8') } catch { return null }
+      const lines = raw.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
+      if (lines.length < 2) return null
+      const head = lines[0].split('|')
+      return { w: Number(head[0]) || 0, h: Number(head[1]) || 0, elements: lines.slice(1, 60) }
+    })
+  })
 
   // Components (build): write captured element lines + rebuild them as a group.
-  ipcHandle(ipcMain, IPC.LOK_BUILDCAPTURED, async (_event, elements: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_BUILDCAPTURED, async (event, elements: unknown) => {
+    assertLokSender(event)
     if (!Array.isArray(elements) || elements.length === 0) return false
     const safe = elements.filter((e): e is string => typeof e === 'string').slice(0, 60).map((e) => e.replace(/[\r\n]/g, ' '))
     return withMacroLock(() => {
@@ -385,25 +421,31 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
 
   // Component support: read back the selected shape's info (name|w|h|fill|text)
   // — the macro writes a temp file the main process reads (renderer fs is sandboxed).
-  ipcHandle(ipcMain, IPC.LOK_SELINFO, async () => withMacroLock(async () => {
-    await lokRunMacro('WosSelInfo', '')
-    let raw = ''
-    try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim() } catch { return null }
-    if (!raw) return null
-    const parts = raw.split('|')
-    return { name: parts[0] ?? '', w: Number(parts[1]) || 0, h: Number(parts[2]) || 0, fill: Number(parts[3]) || -1, text: parts.slice(4).join('|') }
-  }))
+  ipcHandle(ipcMain, IPC.LOK_SELINFO, async (event) => {
+    assertLokSender(event)
+    return withMacroLock(async () => {
+      await lokRunMacro('WosSelInfo', '')
+      let raw = ''
+      try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim() } catch { return null }
+      if (!raw) return null
+      const parts = raw.split('|')
+      return { name: parts[0] ?? '', w: Number(parts[1]) || 0, h: Number(parts[2]) || 0, fill: Number(parts[3]) || -1, text: parts.slice(4).join('|') }
+    })
+  })
 
   // Sheet / slide visibility for the tab strip and the slide rail: one
   // "name|visible" line per part from the model (hidden parts still count as
   // LOK parts, so the renderer needs this to draw them hidden).
-  ipcHandle(ipcMain, IPC.LOK_PARTINFO, async () => withMacroLock(async () => {
-    await lokRunMacro('WosPartInfo', '')
-    let raw = ''
-    try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8') } catch { return { visible: [] as boolean[] } }
-    const visible = raw.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 500).map((l) => l.split('|').pop() === '1')
-    return { visible }
-  }))
+  ipcHandle(ipcMain, IPC.LOK_PARTINFO, async (event) => {
+    assertLokSender(event)
+    return withMacroLock(async () => {
+      await lokRunMacro('WosPartInfo', '')
+      let raw = ''
+      try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8') } catch { return { visible: [] as boolean[] } }
+      const visible = raw.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 500).map((l) => l.split('|').pop() === '1')
+      return { visible }
+    })
+  })
 
   // Impress slide transitions (WosTransition) and shape animations (WosAnim):
   // both write one line per slide / effect to the asset-out file; the renderer's
@@ -425,7 +467,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // paragraph indents / tabs, page margins. Allowlisted by name; args are
   // sanitised like the ops above. Returns the macro's asset-out text.
   const OFFICE_MACROS = new Set(['WosOutline', 'WosShapeRects', 'WosTableGeom', 'WosSlideText', 'WosRulerInfo', 'WosParaFmt', 'WosPageMargins', 'WosInsertToc', 'WosUpdateIndexes', 'WosWatermark', 'WosViewInfo', 'WosSort'])
-  ipcHandle(ipcMain, IPC.LOK_OFFICEMACRO, async (_event, name: unknown, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_OFFICEMACRO, async (event, name: unknown, args: unknown) => {
+    assertLokSender(event)
     if (typeof name !== 'string' || !OFFICE_MACROS.has(name)) throw new IpcValidationError('Unknown office macro')
     const a = typeof args === 'string' ? args : ''
     // Slide text carries tabs and free text; everything else is a compact op string.
@@ -433,11 +476,13 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return withMacroLock(async () => ({ raw: await macroText(name, a) }))
   })
 
-  ipcHandle(ipcMain, IPC.LOK_TRANSITION, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_TRANSITION, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = safeOp(args)
     return withMacroLock(async () => ({ raw: await macroText('WosTransition', a || 'info') }))
   })
-  ipcHandle(ipcMain, IPC.LOK_ANIMATE, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_ANIMATE, async (event, args: unknown) => {
+    assertLokSender(event)
     let a = safeOp(args) || 'info'
     if (/^add\|[a-z0-9-]+\|[123]$/.test(a)) a += '|' + lokEffectsPath()
     else if (a.startsWith('add|')) throw new IpcValidationError('Invalid animation op')
@@ -447,26 +492,28 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // Impress speaker notes: read the current (or indexed) slide's presenter notes.
   // The macro writes the text to a temp file the main process reads (renderer fs
   // is sandboxed). `index` -1 (default) = current slide.
-  ipcHandle(ipcMain, IPC.LOK_GETNOTES, async (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_GETNOTES, async (event, input: unknown) => {
+    assertLokSender(event)
     const i = (input ?? {}) as { index?: unknown }
     const idx = Number.isInteger(i.index) ? (i.index as number) : -1
     return withMacroLock(async () => {
-      try { fs.rmSync(lokXchg('wos-asset-out.txt'), { force: true }) } catch { /* best effort */ }
-      // Pass the slide index as the macro arg (the host writes it to the generic
-      // file). Empty arg = current slide. WosGetNotes writes the notes text out.
-      const ok = await lokRunMacro('WosGetNotes', idx >= 0 ? String(idx) : '')
-      if (!ok) return null
-      let raw = ''
-      try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8') } catch { return null }
-      // The macro's Print appends a trailing newline; drop exactly one.
-      return { text: raw.replace(/\n$/, '') }
+        try { fs.rmSync(lokXchg('wos-asset-out.txt'), { force: true }) } catch { /* best effort */ }
+        // Pass the slide index as the macro arg (the host writes it to the generic
+        // file). Empty arg = current slide. WosGetNotes writes the notes text out.
+        const ok = await lokRunMacro('WosGetNotes', idx >= 0 ? String(idx) : '')
+        if (!ok) return null
+        let raw = ''
+        try { raw = fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8') } catch { return null }
+        // The macro's Print appends a trailing newline; drop exactly one.
+        return { text: raw.replace(/\n$/, '') }
     })
   })
 
   // Impress speaker notes: set the current (or indexed) slide's presenter notes.
   // Newlines within the note would break the line-delimited payload, so they are
   // collapsed to spaces. `index` -1 = current slide.
-  ipcHandle(ipcMain, IPC.LOK_SETNOTES, async (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_SETNOTES, async (event, input: unknown) => {
+    assertLokSender(event)
     const i = (input ?? {}) as { index?: unknown; text?: unknown }
     if (typeof i.text !== 'string' || i.text.length > 20000) throw new IpcValidationError('Invalid notes text')
     const idx = Number.isInteger(i.index) ? (i.index as number) : -1
@@ -480,7 +527,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // Insert an image: native picker → embed via .uno:InsertGraphic. The chosen
   // file is user-selected (outside the workspace is fine — InsertGraphic copies
   // the image into the document) and embedded, not linked.
-  ipcHandle(ipcMain, IPC.LOK_INSERTIMAGE, async () => {
+  ipcHandle(ipcMain, IPC.LOK_INSERTIMAGE, async (event) => {
+    assertLokSender(event)
     const result = await dialog.showOpenDialog(win, {
       title: 'Insert image',
       properties: ['openFile'],
@@ -495,7 +543,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
 
   // Insert an image as a slide shape (Impress) via the model-API macro — the
   // dispatch path above doesn't place a graphic on a slide headlessly.
-  ipcHandle(ipcMain, IPC.LOK_IMAGESHAPE, async () => {
+  ipcHandle(ipcMain, IPC.LOK_IMAGESHAPE, async (event) => {
+    assertLokSender(event)
     const result = await dialog.showOpenDialog(win, {
       title: 'Insert image',
       properties: ['openFile'],
@@ -513,7 +562,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // (WosInsertImage) so nothing on the frame is lost. Requires an OPEN Impress
   // deck (.pptx/.odp). Returns { ok, slide, native, images } — proof of what went
   // native vs image. ONE-WAY v1: live re-sync (frame as source-of-truth) is v2.
-  ipcHandle(ipcMain, IPC.CANVAS_FRAME_TO_SLIDE, async (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.CANVAS_FRAME_TO_SLIDE, async (event, input: unknown) => {
+    assertLokSender(event)
     const i = (input ?? {}) as { payload?: unknown; fallbackImages?: unknown }
     if (typeof i.payload !== 'string' || i.payload.length === 0) {
       throw new IpcValidationError('Missing slide payload')
@@ -526,32 +576,33 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     const native = payload.split('\n').filter((l) => l.trim().length > 0).length - 1
 
     return withMacroLock(async () => {
-      fs.writeFileSync(lokXchg('wos-slide-in.txt'), payload, 'utf8')
-      try { fs.rmSync(lokXchg('wos-asset-out.txt'), { force: true }) } catch { /* best effort */ }
-      const ok = await lokRunMacro('WosBuildSlide', '')
-      if (!ok) return { ok: false, slide: -1, native: 0, images: 0 }
-      let slide = -1
-      try { slide = parseInt(fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim(), 10) } catch { /* */ }
+        fs.writeFileSync(lokXchg('wos-slide-in.txt'), payload, 'utf8')
+        try { fs.rmSync(lokXchg('wos-asset-out.txt'), { force: true }) } catch { /* best effort */ }
+        const ok = await lokRunMacro('WosBuildSlide', '')
+        if (!ok) return { ok: false, slide: -1, native: 0, images: 0 }
+        let slide = -1
+        try { slide = parseInt(fs.readFileSync(lokXchg('wos-asset-out.txt'), 'utf8').trim(), 10) } catch { /* */ }
 
-      // Drop each unsupported shape as a picture onto the SAME (now-current) slide.
-      let images = 0
-      for (const im of fallbacks) {
-        const png = (im as { png?: unknown }).png
-        if (!(png instanceof Uint8Array) || png.byteLength === 0 || png.byteLength > 25 * 1024 * 1024) continue
-        const tmp = path.join(app.getPath('temp'), `wos-frame-fb-${Date.now()}-${images}.png`)
-        try {
-          fs.writeFileSync(tmp, Buffer.from(png))
-          if (await lokRunMacro('WosInsertImage', tmp)) images++
-        } finally {
-          try { fs.rmSync(tmp, { force: true }) } catch { /* */ }
+        // Drop each unsupported shape as a picture onto the SAME (now-current) slide.
+        let images = 0
+        for (const im of fallbacks) {
+          const png = (im as { png?: unknown }).png
+          if (!(png instanceof Uint8Array) || png.byteLength === 0 || png.byteLength > 25 * 1024 * 1024) continue
+          const tmp = path.join(app.getPath('temp'), `wos-frame-fb-${Date.now()}-${images}.png`)
+          try {
+            fs.writeFileSync(tmp, Buffer.from(png))
+            if (await lokRunMacro('WosInsertImage', tmp)) images++
+          } finally {
+            try { fs.rmSync(tmp, { force: true }) } catch { /* */ }
+          }
         }
-      }
-      return { ok: true, slide: Number.isFinite(slide) ? slide : -1, native: Math.max(0, native), images }
+        return { ok: true, slide: Number.isFinite(slide) ? slide : -1, native: Math.max(0, native), images }
     })
   })
 
   // Pick an image file and return its path (no insert) — for component authoring.
-  ipcHandle(ipcMain, IPC.LOK_PICKIMAGE, async () => {
+  ipcHandle(ipcMain, IPC.LOK_PICKIMAGE, async (event) => {
+    assertLokSender(event)
     const result = await dialog.showOpenDialog(win, {
       title: 'Choose image',
       properties: ['openFile'],
@@ -562,7 +613,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Print: render a temp PDF and open it in the system viewer (which prints).
-  ipcHandle(ipcMain, IPC.LOK_PRINT, async (_event, filePath) => {
+  ipcHandle(ipcMain, IPC.LOK_PRINT, async (event, filePath) => {
+    assertLokSender(event)
     if (lokCurrentPath() !== validateOpenPath(filePath)) {
       throw new Error('The requested document is not active in the office editor')
     }
@@ -576,7 +628,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Document properties for the open file.
-  ipcHandle(ipcMain, IPC.LOK_FILEINFO, async () => {
+  ipcHandle(ipcMain, IPC.LOK_FILEINFO, async (event) => {
+    assertLokSender(event)
     const p = lokCurrentPath()
     if (!p) return null
     try {
@@ -587,18 +640,26 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     }
   })
 
-  ipcHandle(ipcMain, IPC.LOK_SETPART, async (_event, n: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_SETPART, async (event, n: unknown) => {
+    assertLokSender(event)
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) {
       throw new IpcValidationError('Invalid part index')
     }
     return lokSetPart(n)
   })
 
-  ipcHandle(ipcMain, IPC.LOK_PARTS, async () => lokParts())
+  ipcHandle(ipcMain, IPC.LOK_PARTS, async (event) => {
+    assertLokSender(event)
+    return lokParts()
+  })
 
-  ipcHandle(ipcMain, IPC.LOK_SAVE, async () => lokSave())
+  ipcHandle(ipcMain, IPC.LOK_SAVE, async (event) => {
+    assertLokSender(event)
+    return lokSave()
+  })
 
-  ipcHandle(ipcMain, IPC.LOK_EXPORT, async (_event, format: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_EXPORT, async (event, format: unknown) => {
+    assertLokSender(event)
     if (typeof format !== 'string' || !EXPORT_FORMATS.has(format)) {
       throw new IpcValidationError('Unsupported export format')
     }
@@ -606,17 +667,22 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   })
 
   // Vector export of the loaded deck as one SVG (Impress only; null otherwise).
-  ipcHandle(ipcMain, IPC.LOK_SLIDESSVG, () => lokSlidesSvg())
+  ipcHandle(ipcMain, IPC.LOK_SLIDESSVG, (event) => {
+    assertLokSender(event)
+    return lokSlidesSvg()
+  })
 
   // ---- dialog windows (Phase F) ----
-  ipcHandle(ipcMain, IPC.LOK_WPAINT, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_WPAINT, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = args as { id: number; w: number; h: number }
     if ([a?.id, a?.w, a?.h].some((n) => typeof n !== 'number')) throw new IpcValidationError('Invalid window paint')
     const t = await lokWindowPaint(a.id, a.w, a.h)
     return { cw: t.cw, ch: t.ch, bgra: t.bgra }
   })
 
-  ipcHandle(ipcMain, IPC.LOK_WMOUSE, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_WMOUSE, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = args as { id: number; type: number; x: number; y: number; count: number; buttons: number; modifier: number }
     const nums = [a?.id, a?.type, a?.x, a?.y, a?.count, a?.buttons, a?.modifier]
     if (nums.some((n) => typeof n !== 'number' || !Number.isFinite(n))) throw new IpcValidationError('Invalid window mouse')
@@ -624,7 +690,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return true
   })
 
-  ipcHandle(ipcMain, IPC.LOK_WKEY, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_WKEY, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = args as { id: number; type: number; charCode: number; keyCode: number }
     if ([a?.id, a?.type, a?.charCode, a?.keyCode].some((n) => typeof n !== 'number')) throw new IpcValidationError('Invalid window key')
     await lokWindowKey(a.id, a.type, a.charCode, a.keyCode)
@@ -634,7 +701,8 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // JSDialog widget event → the engine's welded dialog (sendDialogEvent).
   // The event is re-serialised here from a validated shape: one line, no
   // newlines (the host protocol is line-framed), bounded size.
-  ipcHandle(ipcMain, IPC.LOK_DLGEVENT, async (_event, args: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_DLGEVENT, async (event, args: unknown) => {
+    assertLokSender(event)
     const a = args as { id: number; control: string; cmd: string; type: string; data?: string }
     if (typeof a?.id !== 'number' || !Number.isFinite(a.id)) throw new IpcValidationError('Invalid dialog id')
     for (const [k, v] of [['control', a?.control], ['cmd', a?.cmd], ['type', a?.type]] as const) {
@@ -647,13 +715,15 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
     return true
   })
 
-  ipcHandle(ipcMain, IPC.LOK_WCLOSE, async (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.LOK_WCLOSE, async (event, id: unknown) => {
+    assertLokSender(event)
     if (typeof id !== 'number') throw new IpcValidationError('Invalid window id')
     await lokWindowClose(id)
     return true
   })
 
-  ipcHandle(ipcMain, IPC.LOK_CLOSE, async () => {
+  ipcHandle(ipcMain, IPC.LOK_CLOSE, async (event) => {
+    assertLokSender(event)
     await lokClose()
     return true
   })

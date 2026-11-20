@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest'
  * que la clasificación sea exhaustiva y que los sensibles tengan guard.
  *
  * Sensible se define aquí como: cualquier canal cuyo handler deba verificar
- * origen del frame o confinar el filesystem antes de actuar. Tras N+1b hay 201
- * canales con guard y 220 pendientes de clasificación/autorización adicional;
+ * origen del frame o confinar el filesystem antes de actuar. Tras N+1c hay 243
+ * canales con guard y 178 pendientes de clasificación/autorización adicional;
  * la lista EXPLICITLY_NO_GUARD no demuestra que sean no sensibles.
  * Un nuevo canal que no esté en ninguna lista hace fallar esta
  * prueba — es un recordatorio de clasificar, no un permiso por defecto.
@@ -59,6 +59,7 @@ for (const file of mainSources(path.join(root, 'src/main'))) {
     const snippet = content.slice(start, nextIdx > 0 ? nextIdx : start + 5000)
     const hasGuard =
       snippet.includes('assertMainFrame') ||
+      snippet.includes('assertLokSender') ||
       snippet.includes('assertWorkspace') ||
       snippet.includes('validateFilePath') ||
       snippet.includes('validateOpenPath') ||
@@ -83,6 +84,50 @@ for (const [ch] of declared) if (!channelGuard.has(ch)) channelGuard.set(ch, fal
 // snippet contiene un guard hoy. Esta lista es la que la prueba exige que
 // MANTENGA el guard; si un nuevo canal sensible aparece, debe añadirse aquí.
 const MUST_HAVE_GUARD = new Set<string>([
+  // N+1c: owner-bound office handlers
+  'canvas:frame-to-slide',
+  'lok:animate',
+  'lok:available',
+  'lok:buildCaptured',
+  'lok:capture',
+  'lok:close',
+  'lok:cmdvalues',
+  'lok:dlgevent',
+  'lok:docstatus',
+  'lok:export',
+  'lok:fileinfo',
+  'lok:findReplace',
+  'lok:getNotes',
+  'lok:imageShape',
+  'lok:insertImage',
+  'lok:key',
+  'lok:lastshape',
+  'lok:macro',
+  'lok:mouse',
+  'lok:officeMacro',
+  'lok:partinfo',
+  'lok:parts',
+  'lok:parttile',
+  'lok:pickImage',
+  'lok:save',
+  'lok:selinfo',
+  'lok:setNotes',
+  'lok:setRangeBlock',
+  'lok:setTable',
+  'lok:setborder',
+  'lok:setpart',
+  'lok:setsize',
+  'lok:sheetgeometry',
+  'lok:slidessvg',
+  'lok:tile',
+  'lok:tiles',
+  'lok:transition',
+  'lok:uno',
+  'lok:wclose',
+  'lok:wkey',
+  'lok:wmouse',
+  'lok:wpaint',
+
   // accounts / brand / security
   'accounts:add',
   'accounts:list',
@@ -403,7 +448,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'bug:list',
   'bug:setRepo',
   'bug:status',
-  'canvas:frame-to-slide',
   'chat:upload',
   'checkpoint:diff',
   'checkpoint:list',
@@ -449,47 +493,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'links:outgoing',
   'links:related',
   'links:stubs',
-  'lok:animate',
-  'lok:available',
-  'lok:buildCaptured',
-  'lok:capture',
-  'lok:close',
-  'lok:cmdvalues',
-  'lok:dlgevent',
-  'lok:docstatus',
-  'lok:export',
-  'lok:fileinfo',
-  'lok:findReplace',
-  'lok:getNotes',
-  'lok:imageShape',
-  'lok:insertImage',
-  'lok:key',
-  'lok:lastshape',
-  'lok:macro',
-  'lok:mouse',
-  'lok:officeMacro',
-  'lok:partinfo',
-  'lok:parts',
-  'lok:parttile',
-  'lok:pickImage',
-  'lok:save',
-  'lok:selinfo',
-  'lok:setNotes',
-  'lok:setRangeBlock',
-  'lok:setTable',
-  'lok:setborder',
-  'lok:setpart',
-  'lok:setsize',
-  'lok:sheetgeometry',
-  'lok:slidessvg',
-  'lok:tile',
-  'lok:tiles',
-  'lok:transition',
-  'lok:uno',
-  'lok:wclose',
-  'lok:wkey',
-  'lok:wmouse',
-  'lok:wpaint',
   // mail — más de 50 canales, todos sin guard hoy (deuda P0, lote N+1b)
   // memory / menu / metric (parte) / office / pdf / projects / range / search...
   'memory:confirm',
