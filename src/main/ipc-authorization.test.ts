@@ -16,9 +16,10 @@ import { describe, it, expect } from 'vitest'
  * que la clasificación sea exhaustiva y que los sensibles tengan guard.
  *
  * Sensible se define aquí como: cualquier canal cuyo handler deba verificar
- * origen del frame o confinar el filesystem antes de actuar. Actualmente 82
- * canales cumplen ese criterio; el resto se documenta como no sensible o
- * grant-checked. Un nuevo canal que no esté en ninguna lista hace fallar esta
+ * origen del frame o confinar el filesystem antes de actuar. Tras N+1b hay 201
+ * canales con guard y 220 pendientes de clasificación/autorización adicional;
+ * la lista EXPLICITLY_NO_GUARD no demuestra que sean no sensibles.
+ * Un nuevo canal que no esté en ninguna lista hace fallar esta
  * prueba — es un recordatorio de clasificar, no un permiso por defecto.
  */
 
@@ -181,7 +182,11 @@ const MUST_HAVE_GUARD = new Set<string>([
   // Nota: la mayoría de speech:* son sensibles pero actualmente solo un subset
   // tiene guard explícito; los que sí lo tienen se listan aquí, el resto está
   // en EXPLICITLY_NO_GUARD como deuda documentada (próximo lote mueve).
-  // N+1b: main-frame authorization
+
+  // Lote N+1b — autorización real (assertMainFrame por handler)
+  // app
+  'app:start-on',
+  // apps
   'apps:brief',
   'apps:call',
   'apps:create',
@@ -200,7 +205,7 @@ const MUST_HAVE_GUARD = new Set<string>([
   'apps:test',
   'apps:testsWrite',
   'apps:windowFull',
-  // N+1b: main-frame authorization
+  // cases
   'cases:add-artifact',
   'cases:add-note',
   'cases:artifact-url',
@@ -221,7 +226,7 @@ const MUST_HAVE_GUARD = new Set<string>([
   'cases:terminal',
   'cases:view',
   'cases:work-folder',
-  // N+1b: main-frame authorization
+  // calendar
   'calendar:add',
   'calendar:connect-oauth',
   'calendar:create-event',
@@ -234,7 +239,7 @@ const MUST_HAVE_GUARD = new Set<string>([
   'calendar:update',
   'calendar:update-event',
   'calendar:write-targets',
-  // N+1b: main-frame authorization
+  // mail
   'mail:accounts-add',
   'mail:accounts-add-demo',
   'mail:accounts-list',
@@ -298,8 +303,7 @@ const MUST_HAVE_GUARD = new Set<string>([
   'mail:undoable',
   'mail:watch-start',
   'mail:watch-stop',
-  // N+1b: main-frame authorization
-  'app:start-on',
+  // projects
   'projects:create',
   'projects:list',
 ])
