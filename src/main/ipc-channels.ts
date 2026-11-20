@@ -3,6 +3,19 @@
  * Imported by both main process and preload — never hardcode channel strings elsewhere.
  */
 export const IPC = {
+  SPEECH_SPEAK: 'speech:speak',
+  SPEECH_STOP: 'speech:stop',
+  SPEECH_SET_HOTKEY: 'speech:set-hotkey',
+  SPEECH_READ_CLIPBOARD: 'speech:read-clipboard',
+  SPEECH_STATUS: 'speech:status',
+  SPEECH_CONFIG: 'speech:config',
+  SPEECH_SELECT_ENGINE: 'speech:select-engine',
+  SPEECH_SET_KEY: 'speech:set-key',
+  SPEECH_KEY_STATUS: 'speech:key-status',
+  SPEECH_PLAYBACK_DONE: 'speech:playback-done',
+  SPEECH_PLAYBACK: 'speech:playback',
+  SPEECH_EVENT: 'speech:event',
+
   // File system
   FS_READ_DIR: 'fs:read-dir',
   FS_READ_FILE: 'fs:read-file',

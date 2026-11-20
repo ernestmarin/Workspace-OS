@@ -29,7 +29,7 @@ function errorsIn(project) {
     return []
   } catch (e) {
     const out = `${e.stdout ?? ''}${e.stderr ?? ''}`
-    return out
+    const lines = out
       .split('\n')
       .filter((l) => l.includes('error TS'))
       .map((l) => {
@@ -37,6 +37,11 @@ function errorsIn(project) {
         const code = l.match(/error (TS\d+)/)?.[1] ?? 'TS?'
         return `${file}: ${code}`
       })
+    // A failed compiler launch, OOM, or killed process is not a clean check.
+    if ((e.status !== 1 && e.status !== 2) || e.signal || e.code || lines.length === 0) {
+      throw new Error(`TypeScript failed to run for ${project}: ${out.trim() || e.message}`)
+    }
+    return lines
   }
 }
 

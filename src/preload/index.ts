@@ -1,12 +1,35 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../main/ipc-channels'
 import type { AgentRunFailure } from '../shared/agentRun'
+import type { PlaybackMessage, SpeechUiEvent } from '../shared/speech/playback'
 
 /**
  * Exposes a strictly-typed, minimal API to the renderer.
  * The renderer has zero Node.js access — everything goes through these validated channels.
  */
 contextBridge.exposeInMainWorld('workspace', {
+  speech: {
+    speak: (text: string) => ipcRenderer.invoke(IPC.SPEECH_SPEAK, text),
+    stop: () => ipcRenderer.invoke(IPC.SPEECH_STOP),
+    readClipboard: () => ipcRenderer.invoke(IPC.SPEECH_READ_CLIPBOARD),
+    setHotkey: (shortcut: string) => ipcRenderer.invoke(IPC.SPEECH_SET_HOTKEY, shortcut),
+    status: () => ipcRenderer.invoke(IPC.SPEECH_STATUS),
+    config: () => ipcRenderer.invoke(IPC.SPEECH_CONFIG),
+    selectEngine: (engine: 'kokoro' | 'openai', voice: string) => ipcRenderer.invoke(IPC.SPEECH_SELECT_ENGINE, engine, voice),
+    setOpenAiKey: (value: string) => ipcRenderer.invoke(IPC.SPEECH_SET_KEY, value),
+    keyStatus: () => ipcRenderer.invoke(IPC.SPEECH_KEY_STATUS),
+    playbackDone: (id: string, ok: boolean) => ipcRenderer.invoke(IPC.SPEECH_PLAYBACK_DONE, id, ok),
+    onPlayback: (callback: (message: PlaybackMessage) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, message: PlaybackMessage): void => callback(message)
+      ipcRenderer.on(IPC.SPEECH_PLAYBACK, handler)
+      return () => ipcRenderer.removeListener(IPC.SPEECH_PLAYBACK, handler)
+    },
+    onEvent: (callback: (event: SpeechUiEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, value: Parameters<typeof callback>[0]): void => callback(value)
+      ipcRenderer.on(IPC.SPEECH_EVENT, handler)
+      return () => ipcRenderer.removeListener(IPC.SPEECH_EVENT, handler)
+    },
+  },
   print: {
     document: (title: string, html: string) => ipcRenderer.invoke('print:document', title, html),
   },

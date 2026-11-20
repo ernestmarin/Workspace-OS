@@ -20,6 +20,7 @@ export function CommandBar({ onClose, onOpenFile }: CommandBarProps): JSX.Elemen
   const [results, setResults] = useState<SearchResult[]>([])
   const [selected, setSelected] = useState(0)
   const [searching, setSearching] = useState(false)
+  const [commandError, setCommandError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   // The office menu bar's commands (empty when no document is active): the
   // palette runs them exactly like a menu click, so "double underline" or
@@ -34,7 +35,10 @@ export function CommandBar({ onClose, onOpenFile }: CommandBarProps): JSX.Elemen
   }, [])
   const q = query.trim().toLowerCase()
   const hits = q
-    ? commands.filter((c) => c.label.toLowerCase().includes(q) || c.path.toLowerCase().includes(q))
+    ? [...commands,
+      { id: 'voice.read-clipboard', label: 'Read clipboard aloud', path: 'Voice' },
+      { id: 'voice.stop', label: 'Stop reading aloud', path: 'Voice' },
+    ].filter((c) => c.label.toLowerCase().includes(q) || c.path.toLowerCase().includes(q))
       .sort((x, y) => (x.label.toLowerCase().startsWith(q) ? 0 : 1) - (y.label.toLowerCase().startsWith(q) ? 0 : 1))
       .slice(0, 8)
     : []
@@ -60,8 +64,14 @@ export function CommandBar({ onClose, onOpenFile }: CommandBarProps): JSX.Elemen
     onClose()
   }, [onOpenFile, onClose])
   const runCommand = useCallback((id: string) => {
-    void window.workspace.menu.runAction(id)
-    onClose()
+    if (id === 'voice.read-clipboard') {
+      void window.workspace.speech.readClipboard().then(() => onClose()).catch((error: Error) => setCommandError(error.message))
+    } else if (id === 'voice.stop') {
+      void window.workspace.speech.stop().then(() => onClose()).catch((error: Error) => setCommandError(error.message))
+    } else {
+      void window.workspace.menu.runAction(id)
+      onClose()
+    }
   }, [onClose])
   // Commands are listed first; the selection index runs across both lists.
   const total = hits.length + results.length
@@ -149,6 +159,7 @@ export function CommandBar({ onClose, onOpenFile }: CommandBarProps): JSX.Elemen
           </div>
         )}
 
+        {commandError && <div role="alert" className={styles.empty}>{commandError}</div>}
         <div className={styles.footer}>
           <span className={styles.hint}><kbd className={styles.kbd}>↑↓</kbd> navigate</span>
           <span className={styles.hint}><kbd className={styles.kbd}>↵</kbd> open</span>

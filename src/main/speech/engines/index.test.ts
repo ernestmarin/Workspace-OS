@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../../../shared/speech/defaults'
 import { synthesizeFragment } from './index'
 
+vi.mock('./kokoro', () => ({ assertKokoroInstalled: vi.fn() }))
 vi.mock('../secrets', () => ({ resolveSpeechKey: () => 'test-key' }))
 vi.mock('./openai', () => ({ synthesizeOpenAi: vi.fn(async () => Buffer.from([0, 0])) }))
 vi.mock('./local', () => ({ synthesizeLocal: vi.fn(async () => ({ pcm: Buffer.from([0, 0]), sampleRate: 24000, channels: 1, bitsPerSample: 16 })) }))

@@ -11,8 +11,23 @@ import { ensureSpeechDirs, speechConfigPath } from './paths'
 
 let cached: AppConfig | null = null
 
-/** Never store credentials supplied through an import or config update. */
+/** Reject common credential locations; credential storage belongs in the vault. */
 function assertNoSecrets(value: unknown): void {
+  if (typeof value === 'string') {
+    // HTTP templates may contain placeholders; URL still parses them as path/query data.
+    for (const match of value.matchAll(/https?:\/\/[^\s"'<>]+/gi)) {
+      try {
+        const url = new URL(match[0])
+        if (url.username || url.password || [...url.searchParams.keys()].some((key) => /^(?:api[_-]?key|access[_-]?token|token|secret|password|authorization)$/i.test(key))) {
+          throw new Error('Credentials must be stored in the secure vault, not Voice config.')
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('secure vault')) throw error
+        throw new Error('Invalid URL in Voice config')
+      }
+    }
+    return
+  }
   if (!value || typeof value !== 'object') return
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -38,6 +53,11 @@ function validateShape(template: unknown, value: unknown, field = 'config'): voi
   if (template === null) return
   if (Array.isArray(template)) {
     if (!Array.isArray(value)) throw new Error(`Invalid Voice config: ${field} must be an array`)
+    if (field === 'config.tts.profiles') {
+      for (const profile of value) validateProfile(profile)
+    } else if (field === 'config.tts.args_template' && value.some((arg) => typeof arg !== 'string')) {
+      throw new Error('Invalid Voice config: args_template must contain only strings')
+    }
     return
   }
   if (typeof template === 'object') {
@@ -52,6 +72,35 @@ function validateShape(template: unknown, value: unknown, field = 'config'): voi
   }
   if (typeof value !== typeof template || (typeof value === 'number' && !Number.isFinite(value))) {
     throw new Error(`Invalid Voice config: ${field} has an invalid type or value`)
+  }
+}
+
+const ENGINES = new Set(['local', 'http', 'openai', 'elevenlabs', 'cartesia', 'fish', 'xai', 'mistral', 'google', 'microsoft', 'kitten', 'qwen', 'piper', 'kokoro', 'pocket', 'tiny-voca'])
+const EFFECTS = new Set(['none', 'walkie_talkie', 'game_boy', 'cyberpunk'])
+
+function validateProfile(value: unknown): void {
+  if (!isPlainObject(value)) throw new Error('Invalid Voice config: profile must be an object')
+  for (const field of ['id', 'name', 'voice'] as const) {
+    if (typeof value[field] !== 'string' || value[field].length === 0 || value[field].length > 256) throw new Error(`Invalid Voice config: profile ${field}`)
+  }
+  for (const field of ['description', 'voice_label'] as const) {
+    if (value[field] !== null && typeof value[field] !== 'string') throw new Error(`Invalid Voice config: profile ${field}`)
+  }
+  if (typeof value.engine !== 'string' || !ENGINES.has(value.engine)) throw new Error('Invalid Voice config: profile engine')
+  for (const field of ['speed', 'pitch'] as const) {
+    const n = value[field]
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0.25 || n > 4) throw new Error(`Invalid Voice config: profile ${field}`)
+  }
+  if (!isPlainObject(value.effects) || typeof value.effects.enabled !== 'boolean' || typeof value.effects.active_effect !== 'string' || !EFFECTS.has(value.effects.active_effect)) {
+    throw new Error('Invalid Voice config: profile effects')
+  }
+  if (!isPlainObject(value.engine_options)) throw new Error('Invalid Voice config: profile options')
+  for (const option of Object.values(value.engine_options)) {
+    if (option !== null && typeof option !== 'string' && typeof option !== 'boolean' &&
+        !(typeof option === 'number' && Number.isFinite(option)) &&
+        !(Array.isArray(option) && option.every((v) => typeof v === 'string'))) {
+      throw new Error('Invalid Voice config: profile option')
+    }
   }
 }
 
@@ -138,6 +187,9 @@ function deepClone<T>(v: T): T {
 
 export function validateConfig(cfg: AppConfig): string[] {
   const errors: string[] = []
+  if (!ENGINES.has(cfg.tts.active_backend)) errors.push('Invalid active engine.')
+  if (!['interrupt', 'queue'].includes(cfg.playback.on_retrigger)) errors.push('Invalid retrigger mode.')
+  if (!Number.isFinite(cfg.playback.volume) || cfg.playback.volume < 0 || cfg.playback.volume > 100) errors.push('Volume must be between 0 and 100.')
   if (cfg.trigger.double_copy_window_ms < 100) errors.push('Double-copy window must be at least 100 ms.')
   if (cfg.trigger.max_text_length < 100) errors.push('Max text length must be at least 100 characters.')
   if (!(cfg.hud.opacity >= 0 && cfg.hud.opacity <= 1)) errors.push('HUD opacity must be between 0 and 1.')

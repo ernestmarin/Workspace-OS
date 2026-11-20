@@ -4,6 +4,7 @@ import { X, Check, AlertCircle, Sun, Moon, Monitor } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { useTheme } from '../../hooks/useTheme'
 import { BrandPanel } from './BrandPanel'
+import { VoiceSettings } from '../Voice/VoiceSettings'
 import styles from './SettingsPanel.module.css'
 import { keyLabel, SYSTEM_NAME, IS_WINDOWS } from '../../lib/platform'
 
@@ -127,6 +128,7 @@ const GROUPS = [
   { id: 'workspace', label: 'Workspace' },
   { id: 'agents', label: 'Agents' },
   { id: 'notifications', label: 'Notifications' },
+  { id: 'voice', label: 'Voice' },
   { id: 'brand', label: 'Brand' },
   { id: 'system', label: 'System' },
 ] as const
@@ -371,6 +373,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
 
             <GroupHead id="notifications" label="Notifications" />
             <NotificationsSection />
+            <GroupHead id="voice" label="Voice" />
+            <VoiceSettings />
 
             <GroupHead id="brand" label="Brand" />
             <BrandPanel />

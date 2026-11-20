@@ -6,12 +6,35 @@ import type { PcmAudio } from './engines/wav'
 
 export interface ReadingDependencies {
   synthesize(text: string, config: AppConfig, signal: AbortSignal): Promise<PcmAudio>
-  play(audio: PcmAudio, text: string, signal: AbortSignal): Promise<void>
+  play(audio: PcmAudio, text: string, signal: AbortSignal, config: AppConfig): Promise<void>
   onStatus(status: SpeechStatus): void
 }
 export type ReadingOutcome = { finished: true } | { finished: false; error: string }
 interface Job { id: number; text: string; config: AppConfig; resolve: (outcome: ReadingOutcome) => void }
 const MAX_QUEUE = 10
+const OPENAI_MAX_UTF16 = 4096
+
+/** Provider limits apply even when user pagination is disabled or a token is huge. */
+export function splitProviderText(text: string, limit: number): string[] {
+  if (!Number.isInteger(limit) || limit < 2) throw new RangeError('Invalid provider text limit')
+  const result: string[] = []
+  let start = 0
+  while (start < text.length) {
+    let end = Math.min(start + limit, text.length)
+    if (end < text.length) {
+      // Never split a UTF-16 surrogate pair.
+      const before = text.charCodeAt(end - 1)
+      const after = text.charCodeAt(end)
+      if (before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff) end--
+      const boundary = text.lastIndexOf(' ', end - 1)
+      if (boundary > start + limit / 2) end = boundary + 1
+    }
+    const part = text.slice(start, end).trim()
+    if (part) result.push(part)
+    start = end
+  }
+  return result
+}
 
 export class ReadingController {
   private active: { job: Job; abort: AbortController } | undefined
@@ -62,8 +85,12 @@ export class ReadingController {
     try {
       const text = sanitizeText(job.text, job.config.sanitization)
       if (!text.trim()) throw new Error('No speakable text remains after sanitization')
-      const fragments = paginateText(text, job.config.pagination)
       const profile = job.config.tts.profiles.find((item) => item.id === job.config.tts.active_profile_id)
+      const engine = profile?.engine ?? job.config.tts.active_backend
+      const parts = paginateText(text, job.config.pagination).flatMap((fragment) =>
+        engine === 'openai' ? splitProviderText(fragment.text, OPENAI_MAX_UTF16) : [fragment.text],
+      )
+      const fragments = parts.map((fragment, index) => ({ text: fragment, index }))
       this.update(job, { speaking: true, synthesizing: true, engine: profile?.engine ?? job.config.tts.active_backend, profileName: profile?.name ?? null, fragmentTotal: fragments.length, readingId: job.id, paused: false })
       for (const fragment of fragments) {
         signal.throwIfAborted()
@@ -71,7 +98,7 @@ export class ReadingController {
         const audio = await this.deps.synthesize(fragment.text, job.config, signal)
         signal.throwIfAborted()
         this.update(job, { synthesizing: false })
-        await this.deps.play(audio, fragment.text, signal)
+        await this.deps.play(audio, fragment.text, signal, job.config)
         signal.throwIfAborted()
       }
       outcome = { finished: true }
