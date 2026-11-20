@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import { IpcValidationError } from './ipc-validator'
 
 /**
  * The LIVE main window.
@@ -29,6 +30,14 @@ export function setMainWindow(win: BrowserWindow): void {
 export function isMainWindowSender(sender: Electron.WebContents): boolean {
   return !!registeredOwner && !registeredOwner.isDestroyed() &&
     !registeredOwner.webContents.isDestroyed() && registeredOwner.webContents === sender
+}
+
+/** Authorize an invocation, not a delivery fallback or a stale top-level frame. */
+export function assertMainWindowFrame(event: Electron.IpcMainInvokeEvent): void {
+  const frame = event?.senderFrame
+  if (!frame || frame.parent !== null || !isMainWindowSender(event.sender) || frame !== event.sender.mainFrame) {
+    throw new IpcValidationError('IPC call rejected: expected the current main-window frame')
+  }
 }
 
 /** The live main window, or null. Never returns a destroyed one. */

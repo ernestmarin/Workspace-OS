@@ -2,6 +2,7 @@ import { IpcMain, clipboard } from 'electron'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { assertMainWindowFrame } from '../main-window'
 import { IPC } from '../ipc-channels'
 import { ipcHandle } from '../ipc-registry'
 import { lokAvailable } from '../office/lokEngine'
@@ -38,9 +39,13 @@ export function registerSystemHandlers(ipcMain: IpcMain): void {
   // readText() rejects. That deny-all is deliberate and worth keeping, so the
   // renderer asks main instead. Electron's clipboard module needs no
   // permission and no user activation.
-  ipcHandle(ipcMain, IPC.CLIPBOARD_READ, (): string => clipboard.readText())
+  ipcHandle(ipcMain, IPC.CLIPBOARD_READ, (event): string => {
+    assertMainWindowFrame(event)
+    return clipboard.readText()
+  })
 
-  ipcHandle(ipcMain, IPC.CLIPBOARD_WRITE, (_e, text: unknown): boolean => {
+  ipcHandle(ipcMain, IPC.CLIPBOARD_WRITE, (event, text: unknown): boolean => {
+    assertMainWindowFrame(event)
     // Writing a non-string would stringify to "[object Object]" on the user's
     // pasteboard, silently replacing whatever they had. Refuse instead.
     if (typeof text !== 'string') return false

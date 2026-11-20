@@ -1,6 +1,24 @@
 # Handoff
 
-## Vigente — IPC-UPD-01 · 2026-11-20
+## Vigente — IPC-SYS-01 · 2026-11-20
+
+**Aceptado: nivel 2 requerido y demostrado**, no nivel 3. Rama `arena/3bd77f1e-workspace-os`, base del lote `a6a0bff`, árbol/índice limpios al iniciar. Agente local único, autorrevisión. `editRouter` usa el bridge de preload; ambos handlers de clipboard antes ignoraban el evento. Ahora comprueban la ventana registrada viva, WebContents exacto y frame principal actual antes de leer, escribir o validar el texto. Sin fallback de entrega, sin excepción para otra ventana principal. Registro y autorización reales, Electron y portapapeles simulados; no se accedió al portapapeles del usuario. No se afirma consentimiento por operación, seguridad de navegación ni cobertura de un renderer comprometido.
+
+| Evidencia (Linux, Node 22.22.3 ABI 127, npm 10.9.8) | Código / exit | Resultado |
+|---|---|---|
+| Vitest focal `ipc-authorization.test.ts` | base / 0 | 7 pasan; no baseline completo nuevo |
+| `handlers/system.clipboard.test.ts` | RED antes del fix / 1 | 17 resoluciones indebidas: 8 emisores por canal y escritura no-texto no autorizada; 1 control pasa |
+| Vitest clipboard + inventario + `editRouter` + `officeClipboard` | fix / 0 | 59/59; lectura, escritura Unicode/vacía y negativa no-texto preservadas tras recrear owner |
+| Mutación retrospectiva quitando las dos llamadas; restauración en finally | mutado / 1 | mismos 17 fallos, control verde |
+| tsc main + renderer; ESLint completo (comandos canónicos) | final restaurado / 0,0,0 | sin diagnósticos, lint 0/0 |
+| Vitest completo con 2 workers; npm run build | final / 0,0 | 350 archivos pasan + 3 omitidos; **4149 pasan + 26 omitidos**. +18 pruebas sobre el checkpoint anterior; tres bundles propios restaurados |
+| npm audit --omit=dev --json; npm audit --json | final / 1,1 | fallidos, 35/40 moderate; sin high/critical. Sin cambios de paquetes |
+
+Solo `clipboard:read` y `clipboard:write` cambian de conjunto: **473 = 247 guard + 174 pendientes en clasificación textual + 22 grants + 30 push**. `speech:read-clipboard` llama a un `assertOwner` propio: no inferir falta de autorización de su clasificación estructural; revisar aparte. `system:status` no se cambió. Sin instalación/rebuild, push ni servicios persistentes. El resto del inventario y riesgos del checkpoint N+1c y el lifecycle del updater siguen abiertos.
+
+**Próximo candidato IPC-TRASH-01 (P0 integridad):** `handlers/trash.ts`, especialmente `trash:empty` que llama directamente a `trash.empty()` sin evento. Agente local: revisar callers de lista/restauración/borrado/vaciado y contratos de persistencia antes de editar. Exigir fixtures sintéticas, rechazo sin pérdida ni modificación y control legítimo de recuperación; nivel 2, mutación, inventario y gates completos. No tocar papelera real. Parada al completar el ciclo acordado; verificar HEAD, árbol y ABI antes del siguiente lote.
+
+## Histórico — IPC-UPD-01 · 2026-11-20
 
 Base `863e42e` limpia, rama efectiva `arena/3bd77f1e-workspace-os` (no la de la ficha). Checkout shallow: el objeto HEAD identifica `286e1a680dc12afb70433a4196027250a0e15dbe` como segundo padre; no hay objeto padre para recorrerlo. Propietario/único revisor: agente local. Sin subagentes ni mutex global. Un lote por presupuesto conservador; ejecución serial, sin servicios persistentes. Los checkpoints siguientes son históricos.
 
