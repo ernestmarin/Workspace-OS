@@ -3,6 +3,7 @@ import path from 'path'
 import JSZip from 'jszip'
 import { coerceGrid, type RangeGrid } from './ranges'
 import { cellText } from './docx-table-writer'
+import { archiveWithinBudget, readEntryBounded } from './docx-zip'
 
 /**
  * Engine-free .pptx TABLE writer — the "closed-file" half of PowerPoint live
@@ -223,6 +224,7 @@ export async function setSlideTableCells(
     return skip('missing')
   }
   if (!stat.isFile()) return skip('not-a-file')
+  if (!archiveWithinBudget(filePath)) return skip('slide-too-large')
 
   let zip: JSZip
   const slides: { name: string; xml: string }[] = []
@@ -231,7 +233,12 @@ export async function setSlideTableCells(
     zip = await JSZip.loadAsync(buf)
     const parts = Object.keys(zip.files).filter(isSlidePart)
     for (const name of parts) {
-      slides.push({ name, xml: await zip.file(name)!.async('string') })
+      // Bounded + shape: same N+2b budget as pptx-shape-writer.
+      const read = await readEntryBounded(zip.file(name)!)
+      if (!read.ok) {
+        return skip(read.reason === 'too-large' ? 'slide-too-large' : read.reason === 'invalid-shape' ? 'invalid-xml-shape' : 'not-valid-pptx')
+      }
+      slides.push({ name, xml: read.text })
     }
   } catch {
     return skip('not-valid-pptx')
@@ -256,7 +263,9 @@ export async function setSlideTableCells(
     const verifyZip = await JSZip.loadAsync(fs.readFileSync(tmp))
     const vEntry = verifyZip.file(target.name)
     if (!vEntry) throw new Error('verify: slide missing')
-    const vXml = await vEntry.async('string')
+    const vRead = await readEntryBounded(vEntry)
+    if (!vRead.ok) throw new Error('verify: slide unreadable')
+    const vXml = vRead.text
     if (!vXml.includes(`name="${tag}"`)) throw new Error('verify: tag lost')
     const first = escapeXml(cellText(g[0][0]))
     if (first && !vXml.includes(`<a:t>${first}</a:t>`)) throw new Error('verify: value not present')

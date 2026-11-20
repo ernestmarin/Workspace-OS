@@ -6,6 +6,7 @@ import path from 'node:path'
 const hoisted = vi.hoisted(() => ({
   mockRoot: '',
   protocolHandler: null as ((req: Request) => Response | Promise<Response>) | null,
+  handlers: new Map<string, (event: any, ...args: any[]) => any>(),
 }))
 
 vi.mock('electron', () => ({
@@ -24,6 +25,11 @@ vi.mock('../workspace-root', () => ({
   getWorkspaceRoot: () => hoisted.mockRoot,
 }))
 
+vi.mock('../ipc-registry', () => ({
+  ipcHandle: (_ipc: unknown, channel: string, handler: any) => hoisted.handlers.set(channel, handler),
+}))
+
+import { IPC } from '../ipc-channels'
 import { registerAppsHandlers } from './apps'
 
 describe('wos-app://file/ symlink confinement (SEC-02)', () => {
@@ -56,5 +62,38 @@ describe('wos-app://file/ symlink confinement (SEC-02)', () => {
     const res = await hoisted.protocolHandler!(new Request('wos-app://file/?path=inside.html'))
     expect(res.status).toBe(200)
     expect(await res.text()).toContain('INSIDE OK')
+  })
+})
+
+/**
+ * Lote N+1b — autorización real por handler (apps:*).
+ *
+ * El guard es la primera línea del handler: un frame forjado se rechaza antes
+ * de tocar el workspace. Fixtures: senderFrame null y subframe.
+ */
+describe('apps:* — assertMainFrame rechaza frames forjados (N+1b)', () => {
+  const forgedNull = { senderFrame: null }
+  const forgedParent = { senderFrame: { parent: { routingId: 0 } } }
+  const call = (h: (event: any, ...args: any[]) => any, event: any, ...args: any[]) =>
+    Promise.resolve().then(() => h(event, ...args))
+
+  it('apps:install rechaza senderFrame null', async () => {
+    const h = hoisted.handlers.get(IPC.APPS_INSTALL)!
+    await expect(call(h, forgedNull, 'x')).rejects.toThrow(/non-main frame|detached/i)
+  })
+
+  it('apps:install rechaza subframe (parent no nulo)', async () => {
+    const h = hoisted.handlers.get(IPC.APPS_INSTALL)!
+    await expect(call(h, forgedParent, 'x')).rejects.toThrow(/non-main frame|detached/i)
+  })
+
+  it('apps:call rechaza senderFrame null', async () => {
+    const h = hoisted.handlers.get(IPC.APPS_CALL)!
+    await expect(call(h, forgedNull, 'x', 'ai.complete', {})).rejects.toThrow(/non-main frame|detached/i)
+  })
+
+  it('apps:manifest rechaza senderFrame null', async () => {
+    const h = hoisted.handlers.get(IPC.APPS_MANIFEST)!
+    await expect(call(h, forgedNull, 'x')).rejects.toThrow(/non-main frame|detached/i)
   })
 })

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -92,9 +92,6 @@ describe('Lote N+2 — presupuesto de shape OOXML', () => {
   it('los tres escritores reportan invalid-shape sin tocar el fichero', async () => {
     const dir = tmp()
     // Creamos un docx válido para table, cc y cards, pero con ENTITY para disparar shape
-    const goodTableXml = simpleXml(
-      '<w:tbl><w:tr><w:tc><w:p><w:t>a</w:t></w:p></w:tc></w:tr></w:tbl><w:bookmarkStart w:name="wos-range-myTag"/>'
-    )
     const badXml = `<?xml version="1.0"?><!DOCTYPE foo><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tr><w:tc><w:p><w:t>a</w:t></w:p></w:tc></w:tr></w:tbl><w:bookmarkStart w:name="wos-range-myTag"/></w:body></w:document>`
     const file = path.join(dir, 'shape.docx')
     await minimalDocx(badXml, file)

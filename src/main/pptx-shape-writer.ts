@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import JSZip from 'jszip'
+import { archiveWithinBudget, readEntryBounded } from './docx-zip'
 
 /**
  * Engine-free .pptx shape-text writer — the "closed-file" half of PowerPoint
@@ -141,6 +142,7 @@ export async function setShapeText(
     return skip('missing')
   }
   if (!stat.isFile()) return skip('not-a-file')
+  if (!archiveWithinBudget(filePath)) return skip('slide-too-large')
 
   let zip: JSZip
   let slides: { name: string; xml: string }[] = []
@@ -149,7 +151,13 @@ export async function setShapeText(
     zip = await JSZip.loadAsync(buf)
     const parts = Object.keys(zip.files).filter(isSlidePart)
     for (const name of parts) {
-      slides.push({ name, xml: await zip.file(name)!.async('string') })
+      // Bounded + shape: a slide XML can be a zip-bomb or carry
+      // ENTITY/deep-nesting abuse even at valid compressed size (N+2b).
+      const read = await readEntryBounded(zip.file(name)!)
+      if (!read.ok) {
+        return skip(read.reason === 'too-large' ? 'slide-too-large' : read.reason === 'invalid-shape' ? 'invalid-xml-shape' : 'not-valid-pptx')
+      }
+      slides.push({ name, xml: read.text })
     }
   } catch {
     return skip('not-valid-pptx')
@@ -178,7 +186,9 @@ export async function setShapeText(
     const verifyZip = await JSZip.loadAsync(fs.readFileSync(tmp))
     const vEntry = verifyZip.file(target.name)
     if (!vEntry) throw new Error('verify: slide missing')
-    const vXml = await vEntry.async('string')
+    const vRead = await readEntryBounded(vEntry)
+    if (!vRead.ok) throw new Error('verify: slide unreadable')
+    const vXml = vRead.text
     if (!vXml.includes(`name="${tag}"`) || !vXml.includes(`<a:t>${escapeXml(String(value))}</a:t>`)) {
       throw new Error('verify: value not present')
     }

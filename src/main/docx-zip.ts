@@ -182,3 +182,38 @@ export async function loadArchive(filePath: string): Promise<JSZip | null> {
     return null
   }
 }
+
+/**
+ * Pre-validation de shape para .xlsx antes de entregarlo a exceljs (N+2b).
+ *
+ * exceljs parsea el XML internamente (sax) sin presupuesto de shape: un
+ * worksheet con <!ENTITY>/<!DOCTYPE>, nesting profundo o CDATA abusivo pasa
+ * por el parser antes de que podamos rechazarlo. Aquí leemos cada
+ * `xl/worksheets/*.xml` y `xl/sharedStrings.xml` con `readEntryBounded`
+ * (techo 32 MiB + shape 256/50k/512k) y rechazamos sin tocar el fichero.
+ *
+ * Devuelve null cuando todo está dentro de presupuesto (o cuando no es un
+ * zip válido — el llamador lo reporta como `not-valid-xlsx`), o el motivo
+ * de rechazo (`invalid-xml-shape` / `sheet-too-large`).
+ */
+export async function validateXlsxShape(filePath: string): Promise<'invalid-xml-shape' | 'sheet-too-large' | null> {
+  if (!archiveWithinBudget(filePath)) return 'sheet-too-large'
+  let zip: JSZip
+  try {
+    zip = await JSZip.loadAsync(fs.readFileSync(filePath))
+  } catch {
+    return null
+  }
+  const isWorksheet = (name: string): boolean => /^xl\/worksheets\/[^/]+\.xml$/.test(name)
+  const isSharedStrings = (name: string): boolean => name === 'xl/sharedStrings.xml'
+  const parts = Object.keys(zip.files).filter((n) => isWorksheet(n) || isSharedStrings(n))
+  for (const name of parts) {
+    const entry = zip.file(name)
+    if (!entry) continue
+    const read = await readEntryBounded(entry)
+    if (!read.ok) {
+      return read.reason === 'invalid-shape' ? 'invalid-xml-shape' : 'sheet-too-large'
+    }
+  }
+  return null
+}

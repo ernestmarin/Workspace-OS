@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, IpcMain, protocol, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { ipcHandle } from '../ipc-registry'
+import { assertMainFrame } from '../security'
 import { IpcValidationError } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import * as apps from '../apps/apps-store'
@@ -220,13 +221,15 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   protocol.handle(APP_SCHEME, (req) => serve(req))
 
   /** What the host needs to check an app's requests (its permissions). */
-  ipcHandle(ipcMain, IPC.APPS_MANIFEST, (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_MANIFEST, (event, slug: unknown) => {
+    assertMainFrame(event)
     const m = apps.readManifest(requireRoot(), requireSlug(slug))
     if (!m) throw new IpcValidationError('No such app')
     return m
   })
 
-  ipcHandle(ipcMain, IPC.APPS_LIST, () => {
+  ipcHandle(ipcMain, IPC.APPS_LIST, (event) => {
+    assertMainFrame(event)
     const root = getWorkspaceRoot()
     if (!root) return []
     // A copy of a built-in app made before it had an icon.svg shows the built-in's icon.
@@ -234,14 +237,16 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     return apps.listApps(root).map((a) => (!a.icon && a.from && icons.get(a.from) ? { ...a, icon: icons.get(a.from)! } : a))
   })
 
-  ipcHandle(ipcMain, IPC.APPS_TEMPLATES, () => {
+  ipcHandle(ipcMain, IPC.APPS_TEMPLATES, (event) => {
+    assertMainFrame(event)
     const root = getWorkspaceRoot()
     const have = new Set(root ? apps.listApps(root).map((a) => a.from).filter(Boolean) : [])
     return templates().map((t) => ({ ...t, added: have.has(t.slug) }))
   })
 
   /** Add a built-in app to the workspace (a copy the person owns and can change). */
-  ipcHandle(ipcMain, IPC.APPS_INSTALL, (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_INSTALL, (event, id: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const t = templates().find((x) => x.slug === requireSlug(id))
     if (!t) throw new IpcValidationError('No such app in the gallery')
@@ -253,7 +258,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   /** A new, empty app for the builder to fill. */
-  ipcHandle(ipcMain, IPC.APPS_CREATE, (_e, name: unknown, description: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_CREATE, (event, name: unknown, description: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const n = typeof name === 'string' && name.trim() ? name.trim().slice(0, 60) : 'New app'
     const slug = apps.freeSlug(root, apps.slugify(n))
@@ -264,7 +270,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     return slug
   })
 
-  ipcHandle(ipcMain, IPC.APPS_DUPLICATE, (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_DUPLICATE, (event, slug: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const from = apps.appDir(root, requireSlug(slug))
     const copy = apps.freeSlug(root, `${slug}-copy`)
@@ -275,7 +282,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   // ── export and import (.wosapp: a zip of the app's own files, never its data) ──
-  ipcHandle(ipcMain, IPC.APPS_EXPORT, async (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_EXPORT, async (event, slug: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const s = requireSlug(slug)
     const m = apps.readManifest(root, s)
@@ -289,7 +297,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
 
   // Import, in two steps: read and check the file, show the person what it asks for, then add it.
   const pending = new Map<string, apps.AppPackage>()
-  ipcHandle(ipcMain, IPC.APPS_IMPORTPICK, async () => {
+  ipcHandle(ipcMain, IPC.APPS_IMPORTPICK, async (event) => {
+    assertMainFrame(event)
     requireRoot()
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Workspace OS app', extensions: ['wosapp', 'zip'] }] })
@@ -327,7 +336,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     pending.set(token, pkg)
     return { token, manifest: pkg.manifest, files: Object.keys(pkg.files).length, bytes: pkg.bytes }
   })
-  ipcHandle(ipcMain, IPC.APPS_IMPORTCONFIRM, (_e, token: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_IMPORTCONFIRM, (event, token: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const pkg = typeof token === 'string' ? pending.get(token) : undefined
     if (!pkg) throw new IpcValidationError('Pick the app file again')
@@ -336,22 +346,25 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   /** Whether the window is in macOS full screen (an app's Full screen then only covers it). */
-  ipcHandle(ipcMain, IPC.APPS_WINDOWFULL, (e) => BrowserWindow.fromWebContents(e.sender)?.isFullScreen() ?? false)
+  ipcHandle(ipcMain, IPC.APPS_WINDOWFULL, (event) => { assertMainFrame(event); return BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false })
 
   /** The design check (apps-store lintApp): run after each builder turn. */
-  ipcHandle(ipcMain, IPC.APPS_LINT, (_e, slug: unknown) => apps.lintApp(requireRoot(), requireSlug(slug)))
+  ipcHandle(ipcMain, IPC.APPS_LINT, (event, slug: unknown) => { assertMainFrame(event); return apps.lintApp(requireRoot(), requireSlug(slug)) })
 
-  ipcHandle(ipcMain, IPC.APPS_REVEAL, (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_REVEAL, (event, slug: unknown) => {
+    assertMainFrame(event)
     shell.showItemInFolder(path.join(apps.appDir(requireRoot(), requireSlug(slug)), 'app.json'))
   })
 
   /** The app as one sandboxable page. */
-  ipcHandle(ipcMain, IPC.APPS_LOAD, (_e, slug: unknown, theme: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_LOAD, (event, slug: unknown, theme: unknown) => {
+    assertMainFrame(event)
     return apps.composeApp(requireRoot(), requireSlug(slug), getKit(), theme === 'dark' ? 'dark' : 'light')
   })
 
   /** The harness, before the first build: the person's idea becomes Apps/<slug>/BRIEF.md. */
-  ipcHandle(ipcMain, IPC.APPS_BRIEF, async (_e, slug: unknown, idea: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_BRIEF, async (event, slug: unknown, idea: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const s = requireSlug(slug)
     if (typeof idea !== 'string' || !idea.trim()) throw new IpcValidationError('What should the app do?')
@@ -367,7 +380,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
    * The harness, after a turn: the running app against its brief. `rect` is
    * where the app's frame is in the window (CSS pixels), for the screenshot.
    */
-  ipcHandle(ipcMain, IPC.APPS_REVIEW, async (_e, slug: unknown, rect: unknown, tests: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_REVIEW, async (event, slug: unknown, rect: unknown, tests: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const s = requireSlug(slug)
     let shot: Buffer | null = null
@@ -386,7 +400,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   /** The harness, after a turn: the app's end-to-end tests (Apps/<slug>/TESTS.json), written or updated. */
-  ipcHandle(ipcMain, IPC.APPS_TESTSWRITE, async (_e, slug: unknown, request: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_TESTSWRITE, async (event, slug: unknown, request: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const s = requireSlug(slug)
     const page = path.join(apps.appDir(root, s), 'index.html')
@@ -396,7 +411,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
 
   /** The harness: runs the app's tests in its live preview beside the chat (null when it has none). */
   const testRuns = new Set<string>()
-  ipcHandle(ipcMain, IPC.APPS_TEST, async (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_TEST, async (event, slug: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const s = requireSlug(slug)
     const plan = readPlan(root, s)
@@ -412,7 +428,8 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   /** One request from a running app (see resources/apps-kit/bridge.js). */
-  ipcHandle(ipcMain, IPC.APPS_CALL, async (_e, slug: unknown, method: unknown, args: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_CALL, async (event, slug: unknown, method: unknown, args: unknown) => {
+    assertMainFrame(event)
     const root = requireRoot()
     const m = apps.readManifest(root, requireSlug(slug))
     if (!m) throw new IpcValidationError('No such app')

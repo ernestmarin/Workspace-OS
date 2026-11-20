@@ -1,5 +1,6 @@
 import { IpcMain, app } from 'electron'
 import { ipcHandle } from '../ipc-registry'
+import { assertMainFrame } from '../security'
 import { IpcValidationError } from '../ipc-validator'
 import { CalendarSourceStore } from '../calendar/account-store'
 import { safeSecretStore } from '../mail/safe-secret-store'
@@ -199,11 +200,12 @@ function assertRange(from: unknown, to: unknown): { from: number; to: number } {
 }
 
 export function registerCalendarHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.CALENDAR_SOURCES, async () => getStore().list())
+  ipcHandle(ipcMain, IPC.CALENDAR_SOURCES, async (event) => { assertMainFrame(event); return getStore().list() })
 
   // Verify BEFORE saving, so a typo reports itself instead of becoming an
   // account that silently never syncs.
-  ipcHandle(ipcMain, IPC.CALENDAR_TEST, async (_e, input: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_TEST, async (event, input: unknown) => {
+    assertMainFrame(event)
     const i = (input ?? {}) as Record<string, unknown>
     const kind = assertKind(i.kind)
     return testSource({
@@ -215,7 +217,8 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
     })
   })
 
-  ipcHandle(ipcMain, IPC.CALENDAR_ADD, async (_e, input: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_ADD, async (event, input: unknown) => {
+    assertMainFrame(event)
     const i = (input ?? {}) as Record<string, unknown>
     const kind = assertKind(i.kind)
     const enabled = Array.isArray(i.enabledCalendars)
@@ -232,7 +235,8 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
     })
   })
 
-  ipcHandle(ipcMain, IPC.CALENDAR_UPDATE, async (_e, id: unknown, patch: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_UPDATE, async (event, id: unknown, patch: unknown) => {
+    assertMainFrame(event)
     const p = (patch ?? {}) as Record<string, unknown>
     const out: Record<string, unknown> = {}
     if (p.displayName !== undefined) out.displayName = assertString(p.displayName, 'Name', 200)
@@ -242,14 +246,16 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
     return getStore().update(assertString(id, 'Id', 100), out)
   })
 
-  ipcHandle(ipcMain, IPC.CALENDAR_REMOVE, async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_REMOVE, async (event, id: unknown) => {
+    assertMainFrame(event)
     await getStore().remove(assertString(id, 'Id', 100))
     return { ok: true }
   })
 
   // The read the surface lives on. Returns per-source status alongside events so
   // one broken account degrades to a warning instead of an empty calendar.
-  ipcHandle(ipcMain, IPC.CALENDAR_EVENTS, async (_e, from: unknown, to: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_EVENTS, async (event, from: unknown, to: unknown) => {
+    assertMainFrame(event)
     const range = assertRange(from, to)
     const view = await readCalendar(getStore(), range.from, range.to, accessTokenFor)
     // Events this app owns, merged in beside the read-only feeds. They are the
@@ -278,12 +284,14 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
    * is one — is put while the person is still deciding, rather than after they
    * have been told the meeting is booked.
    */
-  ipcHandle(ipcMain, IPC.CALENDAR_WRITE_TARGETS, async () => {
+  ipcHandle(ipcMain, IPC.CALENDAR_WRITE_TARGETS, async (event) => {
+    assertMainFrame(event)
     const store = getStore()
     return resolveWriteTarget(store, await store.getDefaultTarget())
   })
 
-  ipcHandle(ipcMain, IPC.CALENDAR_SET_DEFAULT_TARGET, async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_SET_DEFAULT_TARGET, async (event, id: unknown) => {
+    assertMainFrame(event)
     await getStore().setDefaultTarget(typeof id === 'string' && id ? id : null)
     return { ok: true }
   })
@@ -300,7 +308,8 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
    * for attendees on a local write is refused rather than quietly dropped: a
    * meeting that silently invites nobody is the failure this is meant to end.
    */
-  ipcHandle(ipcMain, IPC.CALENDAR_CREATE_EVENT, async (_e, input: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_CREATE_EVENT, async (event, input: unknown) => {
+    assertMainFrame(event)
     const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
     const summary = typeof o.summary === 'string' ? o.summary.trim() : ''
     if (!summary) throw new IpcValidationError('An event needs a title.')
@@ -429,7 +438,8 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
    * (the rewrite is surgical) and SEQUENCE is bumped, so the server tells
    * everyone the meeting moved.
    */
-  ipcHandle(ipcMain, IPC.CALENDAR_UPDATE_EVENT, async (_e, ref: unknown, changes: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_UPDATE_EVENT, async (event, ref: unknown, changes: unknown) => {
+    assertMainFrame(event)
     const where = parseEventRef(ref)
     const edit = parseEdit(changes)
     const scope = parseScope(ref)
@@ -465,7 +475,8 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
   })
 
   /** Delete an event where it lives. On a server this is what sends cancellations. */
-  ipcHandle(ipcMain, IPC.CALENDAR_REMOVE_EVENT, async (_e, ref: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_REMOVE_EVENT, async (event, ref: unknown) => {
+    assertMainFrame(event)
     // The original shape was a bare uid for the local calendar; still honoured.
     const where = parseEventRef(typeof ref === 'string' ? { uid: ref } : ref)
     const scope = parseScope(ref)
@@ -491,7 +502,8 @@ export function registerCalendarHandlers(ipcMain: IpcMain): void {
    * A provider that returns no refresh token is rejected rather than saved: the
    * account would show a calendar once and then silently go stale.
    */
-  ipcHandle(ipcMain, IPC.CALENDAR_CONNECT_OAUTH, async (_e, provider: unknown, displayName: unknown) => {
+  ipcHandle(ipcMain, IPC.CALENDAR_CONNECT_OAUTH, async (event, provider: unknown, displayName: unknown) => {
+    assertMainFrame(event)
     if (provider !== 'google' && provider !== 'microsoft') throw new IpcValidationError('Unknown provider')
     const userData = app.getPath('userData')
     const clientId = provider === 'google' ? resolveGoogleClientId(userData) : resolveMicrosoftClientId(userData)

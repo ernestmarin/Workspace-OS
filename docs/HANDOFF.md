@@ -1,5 +1,9 @@
 # Handoff
 
+## Checkpoint actual — 2026-11-20
+
+Ver [post-n1-checkpoint-2026-11-20.md](post-n1-checkpoint-2026-11-20.md) para N+1b/N+2b, evidencia RED/GREEN, commits locales y riesgos abiertos. Rama de esta sesión: `arena/443af82c-workspace-os`; sin push. Gates frescos: tsc node/renderer exit 0, ESLint 0/0, Vitest 3778 passed / 26 skipped, build exit 0. Inventario real: 201 con guard, 220 sin guard, 22 grant-checked, 30 push. No aceptación NIVEL 3. Próxima prioridad: presupuesto global/mismo buffer XLSX o autorización IPC restante; voz sigue pendiente por dependencias. El resto de este documento es histórico.
+
 **Written 2026-08-18 · v0.1.49 · master clean, 0 unpushed · 2373 unit tests green · SSD EJECTED**
 
 ---
