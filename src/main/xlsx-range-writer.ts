@@ -3,7 +3,7 @@ import path from 'path'
 import ExcelJS from 'exceljs'
 import { parseA1 } from './transclusions'
 import { coerceGrid, RANGE_MAX_COLS, RANGE_MAX_ROWS, type RangeGrid } from './ranges'
-import { validateXlsxShape } from './docx-zip'
+import { loadValidatedXlsx } from './docx-zip'
 
 /**
  * Engine-free .xlsx BLOCK writer — the "closed-file" half of range sync-all
@@ -70,13 +70,13 @@ export async function setRangeValues(
   if (!stat.isFile()) return skip('not-a-file')
 
   // Shape pre-validation (N+2b): mismo presupuesto que xlsx-cell-writer.
-  const shapeFailure = await validateXlsxShape(filePath)
-  if (shapeFailure) return skip(shapeFailure)
+  const snapshot = await loadValidatedXlsx(filePath)
+  if (!snapshot.ok) return skip(snapshot.reason)
 
   // Read the whole workbook. exceljs throws on anything that isn't a real xlsx.
   const wb = new ExcelJS.Workbook()
   try {
-    await wb.xlsx.readFile(filePath)
+    await wb.xlsx.load(Uint8Array.from(snapshot.buffer).buffer)
   } catch {
     return skip('not-valid-xlsx')
   }

@@ -110,14 +110,27 @@ export async function readEntryBounded(
   entry: JSZip.JSZipObject,
   maxBytes: number = MAX_ENTRY_BYTES,
 ): Promise<BoundedReadResult> {
+  const read = await readEntryCounted(entry, maxBytes)
+  return read.ok ? { ok: true, text: read.text } : read
+}
+
+type CountedReadResult =
+  | { ok: true; text: string; bytes: number }
+  | { ok: false; reason: BoundedReadFailure }
+
+async function readEntryCounted(
+  entry: JSZip.JSZipObject,
+  maxBytes: number = MAX_ENTRY_BYTES,
+  checkShape = true,
+): Promise<CountedReadResult> {
   const declared = declaredSize(entry)
   if (declared !== null && declared > maxBytes) return { ok: false, reason: 'too-large' }
 
-  return new Promise<BoundedReadResult>((resolve) => {
+  return new Promise<CountedReadResult>((resolve) => {
     const chunks: Buffer[] = []
     let total = 0
     let settled = false
-    const settle = (result: BoundedReadResult): void => {
+    const settle = (result: CountedReadResult): void => {
       if (settled) return
       settled = true
       resolve(result)
@@ -150,12 +163,12 @@ export async function readEntryBounded(
       if (settled) return
       try {
         const text = Buffer.concat(chunks, total).toString('utf8')
-        const shape = validateXmlShape(text)
+        const shape = checkShape ? validateXmlShape(text) : { ok: true as const }
         if (!shape.ok) {
           settle({ ok: false, reason: shape.reason })
           return
         }
-        settle({ ok: true, text })
+        settle({ ok: true, text, bytes: total })
       } catch {
         settle({ ok: false, reason: 'unreadable' })
       }
@@ -183,37 +196,51 @@ export async function loadArchive(filePath: string): Promise<JSZip | null> {
   }
 }
 
-/**
- * Pre-validation de shape para .xlsx antes de entregarlo a exceljs (N+2b).
- *
- * exceljs parsea el XML internamente (sax) sin presupuesto de shape: un
- * worksheet con <!ENTITY>/<!DOCTYPE>, nesting profundo o CDATA abusivo pasa
- * por el parser antes de que podamos rechazarlo. Aquí leemos cada
- * `xl/worksheets/*.xml` y `xl/sharedStrings.xml` con `readEntryBounded`
- * (techo 32 MiB + shape 256/50k/512k) y rechazamos sin tocar el fichero.
- *
- * Devuelve null cuando todo está dentro de presupuesto (o cuando no es un
- * zip válido — el llamador lo reporta como `not-valid-xlsx`), o el motivo
- * de rechazo (`invalid-xml-shape` / `sheet-too-large`).
- */
-export async function validateXlsxShape(filePath: string): Promise<'invalid-xml-shape' | 'sheet-too-large' | null> {
-  if (!archiveWithinBudget(filePath)) return 'sheet-too-large'
-  let zip: JSZip
+/** XLSX budgets cover every entry: exceljs inflates even unrecognised parts. */
+export const MAX_XLSX_ENTRIES = 2048
+export const MAX_XLSX_TOTAL_BYTES = 64 * 1024 * 1024
+export type XlsxSnapshotResult =
+  | { ok: true; buffer: Buffer }
+  | { ok: false; reason: 'invalid-xml-shape' | 'sheet-too-large' | 'not-valid-xlsx' }
+
+/** Read once from an open descriptor, bounded even if the path grows/replaces. */
+export async function loadValidatedXlsx(filePath: string): Promise<XlsxSnapshotResult> {
+  let buffer: Buffer
+  let fd: number | undefined
   try {
-    zip = await JSZip.loadAsync(fs.readFileSync(filePath))
-  } catch {
-    return null
-  }
-  const isWorksheet = (name: string): boolean => /^xl\/worksheets\/[^/]+\.xml$/.test(name)
-  const isSharedStrings = (name: string): boolean => name === 'xl/sharedStrings.xml'
-  const parts = Object.keys(zip.files).filter((n) => isWorksheet(n) || isSharedStrings(n))
-  for (const name of parts) {
-    const entry = zip.file(name)
-    if (!entry) continue
-    const read = await readEntryBounded(entry)
-    if (!read.ok) {
-      return read.reason === 'invalid-shape' ? 'invalid-xml-shape' : 'sheet-too-large'
+    fd = fs.openSync(filePath, 'r')
+    const stat = fs.fstatSync(fd)
+    if (!stat.isFile() || stat.size > MAX_XLSX_TOTAL_BYTES) return { ok: false, reason: 'sheet-too-large' }
+    const storage = Buffer.alloc(stat.size + 1)
+    let total = 0
+    while (total < storage.length) {
+      const count = fs.readSync(fd, storage, total, storage.length - total, null)
+      if (count === 0) break
+      total += count
     }
+    if (total > stat.size) return { ok: false, reason: 'sheet-too-large' }
+    buffer = storage.subarray(0, total)
+  } catch {
+    return { ok: false, reason: 'not-valid-xlsx' }
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
   }
-  return null
+  try {
+    const zip = await JSZip.loadAsync(buffer)
+    const entries = Object.values(zip.files)
+    if (entries.length > MAX_XLSX_ENTRIES) return { ok: false, reason: 'sheet-too-large' }
+    let total = 0
+    for (const entry of entries) {
+      if (entry.dir) continue
+      // XML, relationship and VML parts all reach XML parsers in exceljs.
+      // Media and unknown parts still consume the shared inflation budget.
+      const xml = /\.(xml|rels|vml)/i.test(entry.name)
+      const read = await readEntryCounted(entry, Math.min(MAX_ENTRY_BYTES, MAX_XLSX_TOTAL_BYTES - total), xml)
+      if (!read.ok) return { ok: false, reason: read.reason === 'invalid-shape' ? 'invalid-xml-shape' : read.reason === 'too-large' ? 'sheet-too-large' : 'not-valid-xlsx' }
+      total += read.bytes
+    }
+    return { ok: true, buffer }
+  } catch {
+    return { ok: false, reason: 'not-valid-xlsx' }
+  }
 }

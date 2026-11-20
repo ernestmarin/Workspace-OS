@@ -1,5 +1,9 @@
 # Handoff
 
+## Checkpoint N+2c — 2026-11-20 (posterior al checkpoint post-N1)
+
+Ver [xlsx-snapshot-checkpoint-2026-11-20.md](xlsx-snapshot-checkpoint-2026-11-20.md). Rama `arena/ac9dd6a7-workspace-os`, base `859f777`. Ambos escritores XLSX validan/parsean el mismo snapshot, con límites acumulados y XML auxiliar cubierto. Gates frescos: tsc main/renderer exit 0, ESLint 0/0, Vitest **3793 passed / 26 skipped**, build exit 0. Auditorías siguen en 35/40 moderate (exit 1). No aceptación NIVEL 3, no push. IPC restante, presupuesto PPTX/ODS y voz siguen pendientes; ver límites y siguiente contrato en el checkpoint.
+
 ## Checkpoint actual — 2026-11-20
 
 Ver [post-n1-checkpoint-2026-11-20.md](post-n1-checkpoint-2026-11-20.md) para N+1b/N+2b, evidencia RED/GREEN, commits locales y riesgos abiertos. Rama de esta sesión: `arena/443af82c-workspace-os`; sin push. Gates frescos: tsc node/renderer exit 0, ESLint 0/0, Vitest 3778 passed / 26 skipped, build exit 0. Inventario real: 201 con guard, 220 sin guard, 22 grant-checked, 30 push. No aceptación NIVEL 3. Próxima prioridad: presupuesto global/mismo buffer XLSX o autorización IPC restante; voz sigue pendiente por dependencias. El resto de este documento es histórico.
