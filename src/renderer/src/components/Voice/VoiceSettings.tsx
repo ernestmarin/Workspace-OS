@@ -11,6 +11,8 @@ export function VoiceSettings(): JSX.Element {
   const [status, setStatus] = useState<SpeechStatus | null>(null)
   const [notice, setNotice] = useState('')
   const [shortcut, setShortcut] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [kokoroFiles, setKokoroFiles] = useState<Awaited<ReturnType<typeof window.workspace.speech.kokoroStatus>> | null>(null)
   useEffect(() => {
     let mounted = true
     void window.workspace.speech.config().then((config) => {
@@ -19,6 +21,10 @@ export function VoiceSettings(): JSX.Element {
       const profile = config.tts.profiles.find((item) => item.id === config.tts.active_profile_id)
       if (profile?.engine === 'openai' || profile?.engine === 'kokoro') { setEngine(profile.engine); setVoice(profile.voice) }
     }).catch((error: Error) => { if (mounted) setNotice(error.message) })
+    const refreshInstall = (): void => { void window.workspace.speech.kokoroInstallStatus().then((s) => { if (mounted) setInstalling(s.busy) }).catch(() => {}) }
+    refreshInstall()
+    const timer = window.setInterval(refreshInstall, 2000)
+    void window.workspace.speech.kokoroStatus().then((s) => { if (mounted) setKokoroFiles(s) }).catch(() => {})
     void window.workspace.speech.keyStatus().then((s) => { if (mounted) setKeySet(!!s.SPEECH_OPENAI_API_KEY) }).catch(() => {})
     void window.workspace.speech.status().then((s) => { if (mounted) setStatus(s) }).catch(() => {})
     const unsubscribe = window.workspace.speech.onEvent((event) => {
@@ -26,7 +32,7 @@ export function VoiceSettings(): JSX.Element {
       else if (event.type === 'error') setNotice(event.message)
       else if (!event.result.finished && event.result.error !== 'Cancelled') setNotice(event.result.error ?? 'Speech failed')
     })
-    return () => { mounted = false; unsubscribe() }
+    return () => { mounted = false; window.clearInterval(timer); unsubscribe() }
   }, [])
   const choose = async (next: 'kokoro' | 'openai'): Promise<void> => {
     const nextVoice = next === 'openai' ? 'alloy' : 'af_heart'
@@ -48,6 +54,23 @@ export function VoiceSettings(): JSX.Element {
       <button type="button" className={engine === 'kokoro' ? styles.segOn : styles.segOff} onClick={() => void choose('kokoro')}>Kokoro (local)</button>
       <button type="button" className={engine === 'openai' ? styles.segOn : styles.segOff} onClick={() => void choose('openai')}>OpenAI</button>
     </div>
+    {engine === 'kokoro' && <div className={styles.field}>
+      <button type="button" className={styles.btn} onClick={() => void window.workspace.speech.prepareKokoro().then((s) => { setKokoroFiles(s); setNotice('Project files prepared. Python dependencies and model files must still be installed separately.') }).catch((error: Error) => setNotice(error.message))}>Prepare Kokoro project files</button>
+      <p className={styles.hint}>Installing dependencies downloads and runs third-party packages using uv. Model weights are not downloaded by this step.</p>
+      <button type="button" className={styles.btn} disabled={installing || !kokoroFiles?.project || !kokoroFiles?.wrapper} onClick={() => {
+        setInstalling(true)
+        setNotice('Installing Kokoro dependencies…')
+        void window.workspace.speech.installKokoroDependencies().then((s) => { setKokoroFiles(s); setNotice('Dependencies installed. Model files are still required.') }).catch((error: Error) => setNotice(error.message)).finally(() => setInstalling(false))
+      }}>{installing ? 'Installing…' : 'Install Python dependencies'}</button>
+      {installing && <button type="button" className={styles.btn} onClick={() => void window.workspace.speech.cancelKokoroInstall().catch((error: Error) => setNotice(error.message))}>Cancel dependency installation</button>}
+      {kokoroFiles && <>
+        <span>Project folder: {kokoroFiles.projectDir}</span>
+        <span>Wrapper: {kokoroFiles.wrapper ? 'present' : 'missing'} · Project: {kokoroFiles.project ? 'present' : 'missing'} · Python environment: {kokoroFiles.environment ? 'present' : 'missing'}</span>
+        <span>Duration model: {kokoroFiles.model ? 'present' : 'missing'} · Voices: {kokoroFiles.voices ? 'present' : 'missing'}</span>
+        <span>Put kokoro-v1.0-duration.onnx and voices-v1.0.bin in its models folder. File presence is not a synthesis test; see docs/voice.md for details.</span>
+        <button type="button" className={styles.btn} onClick={() => void window.workspace.speech.kokoroStatus().then(setKokoroFiles).catch((error: Error) => setNotice(error.message))}>Refresh file status</button>
+      </>}
+    </div>}
     <label className={styles.field}>Voice
       <select className={styles.select} value={voice} onChange={(e) => {
         const next = e.target.value

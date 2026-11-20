@@ -280,6 +280,11 @@ export interface WorkspaceApi {
     readClipboard(): Promise<{ readingId: number }>
     setHotkey(shortcut: string): Promise<{ shortcut: string }>
     status(): Promise<SpeechStatus>
+    kokoroInstallStatus(): Promise<{ busy: boolean }>
+    cancelKokoroInstall(): Promise<void>
+    installKokoroDependencies(): ReturnType<WorkspaceApi['speech']['kokoroStatus']>
+    kokoroStatus(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
+    prepareKokoro(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
     config(): Promise<{ trigger: { max_text_length: number }; tts: { active_profile_id: string; profiles: { id: string; engine: TtsEngine; voice: string }[] }; hotkey: { enabled: boolean; shortcut: string } }>
     selectEngine(engine: 'kokoro' | 'openai', voice: string): Promise<void>
     setOpenAiKey(value: string): Promise<Record<string, boolean>>

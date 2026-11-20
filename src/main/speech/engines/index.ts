@@ -22,7 +22,10 @@ export async function synthesizeFragment(text: string, config: AppConfig, signal
   if (engine === 'local' || engine === 'kokoro') {
     const engineDir = speechEnginesDir()
     if (engine === 'kokoro') assertKokoroInstalled(engineDir)
-    return synthesizeLocal({ text, voice, command: config.tts.command, argsTemplate: config.tts.args_template, engineDir, signal })
+    const argsTemplate = [...config.tts.args_template]
+    // A speech request must never implicitly install packages. Installation is opt-in.
+    if (engine === 'kokoro' && config.tts.command === 'uv' && argsTemplate[0] === 'run' && !argsTemplate.includes('--no-sync')) argsTemplate.splice(1, 0, '--no-sync')
+    return synthesizeLocal({ text, voice, command: config.tts.command, argsTemplate, engineDir, signal })
   }
   throw new Error(`Speech engine ${engine} is not implemented`)
 }

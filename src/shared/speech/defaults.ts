@@ -118,6 +118,10 @@ export function mergeWithDefaults(saved: unknown): AppConfig {
     }
     return val as T
   }
+  const history = merge(base.history, s.history)
+  if (s.history && typeof s.history === 'object' && !Array.isArray(s.history) && Object.hasOwn(s.history, 'auto_delete')) {
+    history.auto_delete = (s.history as { auto_delete: AppConfig['history']['auto_delete'] }).auto_delete
+  }
   return {
     trigger: merge(base.trigger, s.trigger),
     tts: merge(base.tts, s.tts),
@@ -127,7 +131,7 @@ export function mergeWithDefaults(saved: unknown): AppConfig {
     output: merge(base.output, s.output),
     sanitization: merge(base.sanitization, s.sanitization),
     pagination: merge(base.pagination, s.pagination),
-    history: merge(base.history, s.history),
+    history,
     hotkey: merge(base.hotkey, s.hotkey),
   }
 }
