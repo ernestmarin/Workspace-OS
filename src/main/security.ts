@@ -1,6 +1,7 @@
 import { app, session, shell, WebContents, BrowserWindow } from 'electron'
 import { captureBrowserGuest } from './browser/browserControl'
 import { log } from './crash-reporter'
+import { microphoneGrant } from './speech/microphone-grant'
 
 /**
  * Central security hardening, applied in addition to the per-window
@@ -196,7 +197,14 @@ export function applySessionSecurity(isDev: boolean): void {
   // needs it. (Ruled OUT as the cause of the LinkedIn feed's fullscreen bounce
   // — that turned out to be LinkedIn's own feed tearing down inline players —
   // but a browser that can't fullscreen a video at all is simply wrong.)
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+  // Media checks always fall through to the request handler. A native consent
+  // dialog must arm a short-lived audio-only grant for the trusted main frame.
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'fullscreen')
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (permission === 'media') {
+      callback(microphoneGrant.consume(wc.id, wc.getURL(), details as Electron.MediaAccessPermissionRequest))
+      return
+    }
     callback(permission === 'fullscreen')
   })
 
@@ -208,6 +216,7 @@ export function applySessionSecurity(isDev: boolean): void {
   // The partition had NO permission handler — Electron then GRANTS requests by
   // default, quietly wider than the deny-by-default above. Close that: deny
   // everything except 'fullscreen' (needed for video fullscreen in the guest).
+  browserSession.setPermissionCheckHandler((_wc, permission) => permission === 'fullscreen')
   browserSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === 'fullscreen')
   })

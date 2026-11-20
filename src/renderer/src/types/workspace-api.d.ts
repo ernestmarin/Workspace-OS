@@ -275,6 +275,7 @@ export interface Connection {
 /** Mirror of the API exposed by the preload contextBridge (src/preload/index.ts). */
 export interface WorkspaceApi {
   speech: {
+    authorizeMicrophone(): Promise<boolean>
     sttStatus(): Promise<{ modelDir: string; filesPresent: boolean; busy: boolean }>
     transcribeLocal(samples: Float32Array, language: string): Promise<string>
     cancelTranscription(): Promise<void>
