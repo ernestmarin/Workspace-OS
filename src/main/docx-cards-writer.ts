@@ -215,9 +215,10 @@ export async function setDocCards(
     zip = await JSZip.loadAsync(buf)
     const entry = zip.file('word/document.xml')
     if (!entry) return skip('no-document-xml')
-    // Bounded: a 199 KB package can declare (and expand to) hundreds of MB.
+    // Bounded: a 199 KB package can declare (and expand to) hundreds of MB, and
+    // its XML shape (depth/entities/CDATA) can be abusive even at valid size.
     const read = await readEntryBounded(entry)
-    if (!read.ok) return skip(read.reason === 'too-large' ? 'document-too-large' : 'not-valid-docx')
+    if (!read.ok) return skip(read.reason === 'too-large' ? 'document-too-large' : read.reason === 'invalid-shape' ? 'invalid-xml-shape' : 'not-valid-docx')
     docXml = read.text
   } catch {
     return skip('not-valid-docx')

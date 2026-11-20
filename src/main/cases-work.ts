@@ -5,6 +5,7 @@
  * folder alone tells what was approved. Pure path logic, tested; the IPC lives
  * in handlers/cases.ts.
  */
+import fs from 'fs'
 import path from 'path'
 
 export const WORK_DIR = 'Work'
@@ -20,11 +21,54 @@ export function workFolderFor(base: string, caseId: string): string {
 /**
  * Where an accepted draft goes: the same relative place under `outputs`.
  * Null when the file is not inside this case's `drafts` (nothing to promote).
+ *
+ * Lexical check first (cheap), then realpath confinement to defeat a
+ * symlink inside `drafts` pointing outside it (e.g. `drafts/out -> /tmp/evil`).
+ * Dangling or looping symlinks are refused — a draft must be a real file.
  */
 export function promotedPath(folder: string, file: string): string | null {
   const drafts = path.resolve(folder, 'drafts')
   const abs = path.resolve(file)
-  if (!abs.startsWith(drafts + path.sep)) return null
+  if (abs !== drafts && !abs.startsWith(drafts + path.sep)) return null
+  // Realpath confinement: resolve symlinks for the deepest existing ancestor.
+  // This mirrors ipc-validator.ts:realPathSafe but without throwing — we return null.
+  try {
+    const realDrafts = (() => {
+      try {
+        return fs.realpathSync(drafts)
+      } catch {
+        return drafts
+      }
+    })()
+    // Resolve the file's real location (or its parent if file not yet created).
+    let realFile: string
+    try {
+      realFile = fs.realpathSync(abs)
+    } catch {
+      // File may not exist yet (caller checks existsSync); resolve its parent.
+      let cur = path.dirname(abs)
+      const suffix: string[] = [path.basename(abs)]
+      for (;;) {
+        try {
+          fs.lstatSync(cur)
+          const realParent = fs.realpathSync(cur)
+          realFile = path.join(realParent, ...suffix.reverse())
+          break
+        } catch (e) {
+          const code = (e as NodeJS.ErrnoException).code
+          if (code === 'ELOOP') return null
+          if (code !== 'ENOENT' && code !== 'ENOTDIR') return null
+          const parent = path.dirname(cur)
+          if (parent === cur) return null
+          suffix.push(path.basename(cur))
+          cur = parent
+        }
+      }
+    }
+    if (realFile! !== realDrafts && !realFile!.startsWith(realDrafts + path.sep)) return null
+  } catch {
+    return null
+  }
   return path.resolve(folder, 'outputs', path.relative(drafts, abs))
 }
 

@@ -24,8 +24,16 @@ import JSZip from 'jszip'
 /** Ceiling for one package entry we are willing to hold in memory as text. */
 export const MAX_ENTRY_BYTES = 32 * 1024 * 1024
 
+/** Shape budgets for the XML inside that entry — expansion is one threat, structure is another. */
+export const MAX_XML_DEPTH = 256
+export const MAX_XML_TAGS = 50_000
+export const MAX_CDATA_TOTAL = 512 * 1024
+// Any ENTITY/DOCTYPE is unsupported in OOXML word/document.xml (billion-laughs vector).
+const ENTITY_DECL_RE = /<!ENTITY/i
+const DOCTYPE_RE = /<!DOCTYPE/i
+
 /** What went wrong, as a short reason the callers already know how to report. */
-export type BoundedReadFailure = 'too-large' | 'unreadable'
+export type BoundedReadFailure = 'too-large' | 'unreadable' | 'invalid-shape'
 
 export type BoundedReadResult =
   | { ok: true; text: string }
@@ -36,6 +44,60 @@ function declaredSize(entry: JSZip.JSZipObject): number | null {
   const data = (entry as unknown as { _data?: { uncompressedSize?: unknown } })._data
   const size = data?.uncompressedSize
   return typeof size === 'number' && Number.isFinite(size) ? size : null
+}
+
+/**
+ * Validates XML *shape* after size is known to be within budget.
+ *
+ * Bounds expansion (RT-09) but not structure — deeply nested XML and entity
+ * expansion inside a legitimately-sized file were still unhandled. This checks:
+ *  - no <!DOCTYPE / <!ENTITY declarations (billion-laughs / XXE vector)
+ *  - nesting depth ceiling (stack exhaustion via 10k-deep <a><a>...)
+ *  - total element count ceiling (CPU exhaustion via 100k siblings)
+ *  - CDATA total ceiling (abuse via <![CDATA[huge]]> bypass)
+ *
+ * Pure string scan, no XML parser instantiation — a parser that itself
+ * expands entities or builds a DOM would be the vulnerability.
+ */
+export function validateXmlShape(xml: string): { ok: true } | { ok: false; reason: BoundedReadFailure } {
+  if (ENTITY_DECL_RE.test(xml) || DOCTYPE_RE.test(xml)) {
+    return { ok: false, reason: 'invalid-shape' }
+  }
+  // CDATA total: sum of all CDATA section contents.
+  let cdataTotal = 0
+  const cdataRe = /<!\[CDATA\[([\s\S]*?)\]\]>/g
+  let cm: RegExpExecArray | null
+  while ((cm = cdataRe.exec(xml)) !== null) {
+    cdataTotal += cm[1].length
+    if (cdataTotal > MAX_CDATA_TOTAL) return { ok: false, reason: 'invalid-shape' }
+  }
+  // Depth + tag count via single-pass tag scan.
+  // Matches comments, declarations, CDATA, processing instructions, and normal tags.
+  const tagRe = /<[^>]*>/g
+  let depth = 0
+  let maxDepth = 0
+  let tagCount = 0
+  let m: RegExpExecArray | null
+  while ((m = tagRe.exec(xml)) !== null) {
+    const tag = m[0]
+    tagCount += 1
+    if (tagCount > MAX_XML_TAGS) return { ok: false, reason: 'invalid-shape' }
+    // Skip self-closing, comments, CDATA, DOCTYPE, processing instructions.
+    if (tag.endsWith('/>')) continue
+    if (tag.startsWith('<!--')) continue
+    if (tag.startsWith('<![CDATA[')) continue
+    if (tag.startsWith('<!')) continue
+    if (tag.startsWith('<?')) continue
+    if (tag.startsWith('</')) {
+      depth -= 1
+      if (depth < 0) depth = 0 // malformed, but don't let depth go negative
+    } else {
+      depth += 1
+      if (depth > maxDepth) maxDepth = depth
+      if (maxDepth > MAX_XML_DEPTH) return { ok: false, reason: 'invalid-shape' }
+    }
+  }
+  return { ok: true }
 }
 
 /**
@@ -87,7 +149,13 @@ export async function readEntryBounded(
     stream.on('end', () => {
       if (settled) return
       try {
-        settle({ ok: true, text: Buffer.concat(chunks, total).toString('utf8') })
+        const text = Buffer.concat(chunks, total).toString('utf8')
+        const shape = validateXmlShape(text)
+        if (!shape.ok) {
+          settle({ ok: false, reason: shape.reason })
+          return
+        }
+        settle({ ok: true, text })
       } catch {
         settle({ ok: false, reason: 'unreadable' })
       }

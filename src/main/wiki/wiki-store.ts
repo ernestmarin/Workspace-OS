@@ -181,7 +181,49 @@ export function undo(root: string, id: string, now = Date.now()): UndoResult {
   const left: string[] = []
   for (const p of change.pages) {
     const abs = path.resolve(root, p.file)
-    if (!abs.startsWith(wikiDir(root) + path.sep)) continue
+    // Lexical check first (cheap), then realpath confinement to defeat a
+    // symlink inside Wiki pointing outside it. p.file is persisted state that
+    // could be tampered with, so we treat it as untrusted.
+    if (abs !== wikiDir(root) && !abs.startsWith(wikiDir(root) + path.sep)) continue
+    try {
+      const realWiki = (() => {
+        try {
+          return fs.realpathSync(wikiDir(root))
+        } catch {
+          return path.resolve(wikiDir(root))
+        }
+      })()
+      let realAbs: string
+      try {
+        realAbs = fs.realpathSync(abs)
+      } catch {
+        // File may not exist (p.before === null case) — resolve parent.
+        let cur = path.dirname(abs)
+        const suffix: string[] = [path.basename(abs)]
+        let found = false
+        for (;;) {
+          try {
+            fs.lstatSync(cur)
+            const realParent = fs.realpathSync(cur)
+            realAbs = suffix.length ? path.join(realParent, ...suffix.reverse()) : realParent
+            found = true
+            break
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code
+            if (code === 'ELOOP') throw e
+            if (code !== 'ENOENT' && code !== 'ENOTDIR') throw e
+            const parent = path.dirname(cur)
+            if (parent === cur) throw new Error('unresolvable')
+            suffix.push(path.basename(cur))
+            cur = parent
+          }
+        }
+        if (!found) continue
+      }
+      if (realAbs! !== realWiki && !realAbs!.startsWith(realWiki + path.sep)) continue
+    } catch {
+      continue
+    }
     const current = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null
     if (current !== p.after) {
       left.push(p.title)

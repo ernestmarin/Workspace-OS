@@ -160,6 +160,9 @@ export function listApps(root: string): AppSummary[] {
 /** A file of the app's own folder, or null for anything that leaves it (.., absolute, URLs, symlinks). */
 function ownFile(dir: string, ref: string): string | null {
   if (!/^[\w./ -]+$/.test(ref) || ref.startsWith('/') || ref.includes('..') || /^[a-z]+:/i.test(ref)) return null
+  // Lexical early-reject (cheap) then realpath confinement in confinedAppFile
+  // (defeats symlink escape: `Apps/app/style.css -> /etc/passwd`). Both are
+  // required — lexical alone is insufficient (see ipc-validator.ts).
   const p = path.resolve(dir, ref)
   if (!p.startsWith(dir + path.sep)) return null
   return confinedAppFile(dir, p)
@@ -453,10 +456,42 @@ export function readPackage(entries: Record<string, Uint8Array>, fallbackName = 
 export function installPackage(root: string, pkg: AppPackage): string {
   const slug = freeSlug(root, slugify(pkg.manifest.name))
   const dir = appDir(root, slug)
+  fs.mkdirSync(dir, { recursive: true })
+  // Realpath anchor for the new app dir — protects against a pre-planted
+  // symlink at `Apps/<slug>` pointing outside the workspace. freeSlug skips
+  // existing entries, but a realpath check makes the write itself safe even if
+  // the directory were created as a symlink between the check and mkdir.
+  let realDir: string
+  try {
+    realDir = fs.realpathSync(dir)
+  } catch {
+    realDir = path.resolve(dir)
+  }
+  const realAppsRoot = (() => {
+    try {
+      return fs.realpathSync(appsRoot(root))
+    } catch {
+      return path.resolve(appsRoot(root))
+    }
+  })()
+  if (realDir !== realAppsRoot && !realDir.startsWith(realAppsRoot + path.sep)) {
+    throw new Error('App directory escapes workspace')
+  }
   for (const [rel, b] of Object.entries(pkg.files)) {
     const p = path.join(dir, rel)
     if (!p.startsWith(dir + path.sep)) continue
-    fs.mkdirSync(path.dirname(p), { recursive: true })
+    // Also verify realpath of parent after mkdir: a symlink inside the app
+    // dir (e.g. `Apps/myapp/sub -> /etc`) must not be followed.
+    const parent = path.dirname(p)
+    fs.mkdirSync(parent, { recursive: true })
+    try {
+      const realParent = fs.realpathSync(parent)
+      const realP = path.join(realParent, path.basename(p))
+      if (realP !== realDir && !realP.startsWith(realDir + path.sep)) continue
+    } catch {
+      // Dangling or looping symlink parent — refuse the entry.
+      continue
+    }
     fs.writeFileSync(p, b)
   }
   return slug
