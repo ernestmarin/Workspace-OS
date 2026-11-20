@@ -51,3 +51,7 @@ the originating request. Switching tabs cancels that tab's recording/job and
 ignores its late results; it must not revoke another tab's newer request.
 These keys address lifecycle races inside the trusted renderer, not isolation
 from malicious code executing in that renderer.
+
+Hiding the app document or losing the microphone track discards the current
+recording instead of submitting partial audio. This cleanup is covered by
+simulated renderer tests, not yet by real Electron/device validation.

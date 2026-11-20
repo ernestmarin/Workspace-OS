@@ -21,6 +21,7 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
   const stream = useRef<MediaStream | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopMonitor = useRef<(() => void) | null>(null)
+  const detachTrackListeners = useRef<(() => void) | null>(null)
   const permissionToken = useRef<string | null>(null)
   const transcribing = useRef<string | null>(null)
   const mounted = useRef(true)
@@ -33,6 +34,8 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
     stopMonitor.current = null
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
+    detachTrackListeners.current?.()
+    detachTrackListeners.current = null
     const current = recorder.current
     recorder.current = null
     if (current && current.state !== 'inactive') { current.ondataavailable = null; current.onstop = null; try { current.stop() } catch { /* already stopped */ } }
@@ -53,6 +56,17 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
   useEffect(() => {
     if (!active) { discard(); setPhase('idle') }
   }, [active, discard])
+
+  useEffect(() => {
+    const leave = (): void => { discard(); setPhase('idle') }
+    const visibility = (): void => { if (document.visibilityState === 'hidden') leave() }
+    window.addEventListener('pagehide', leave)
+    document.addEventListener('visibilitychange', visibility)
+    return () => {
+      window.removeEventListener('pagehide', leave)
+      document.removeEventListener('visibilitychange', visibility)
+    }
+  }, [discard])
 
   const start = useCallback(async () => {
     if (!active || phase !== 'idle') return
@@ -87,6 +101,8 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
       current.onstop = () => {
         stopMonitor.current?.()
         stopMonitor.current = null
+        detachTrackListeners.current?.()
+        detachTrackListeners.current = null
         media.getTracks().forEach((track) => track.stop())
         if (stream.current === media) stream.current = null
         if (recorder.current === current) recorder.current = null
@@ -130,6 +146,16 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
           }
         })()
       }
+      const tracks = media.getTracks()
+      const disconnected = (): void => {
+        if (!valid()) return
+        discard()
+        setError('Microphone disconnected. Recording discarded.')
+        setPhase('idle')
+      }
+      tracks.forEach((track) => track.addEventListener('ended', disconnected))
+      detachTrackListeners.current = () => tracks.forEach((track) => track.removeEventListener('ended', disconnected))
+      if (tracks.some((track) => track.readyState === 'ended')) { disconnected(); return }
       current.start(1000)
       if (!valid()) { discard(); return }
       setPhase('recording')

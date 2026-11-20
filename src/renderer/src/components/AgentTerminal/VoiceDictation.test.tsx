@@ -31,13 +31,13 @@ class FakeOfflineAudioContext {
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
 let element: HTMLDivElement
 let root: Root
-let track: { stop: ReturnType<typeof vi.fn> }
+let track: EventTarget & { stop: ReturnType<typeof vi.fn> }
 let speech: any
 beforeEach(() => {
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   element = document.createElement('div'); document.body.appendChild(element)
   root = createRoot(element)
-  track = { stop: vi.fn() }
+  track = Object.assign(new EventTarget(), { stop: vi.fn() })
   speech = { sttStatus: vi.fn(async () => ({ filesPresent: true, busy: false, modelDir: '/model' })), authorizeMicrophone: vi.fn(async () => true), revokeMicrophone: vi.fn(async () => {}), transcribeLocal: vi.fn(async () => 'Hola mundo'), cancelTranscription: vi.fn(async () => {}) }
   Object.defineProperty(window, 'workspace', { configurable: true, value: { speech } })
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [track] })) } })
@@ -65,6 +65,25 @@ describe('local dictation interaction', () => {
     expect(speech.transcribeLocal).toHaveBeenCalledWith(expect.any(Float32Array), 'es', expect.any(String))
     expect(transcript).toHaveBeenCalledExactlyOnceWith('Hola mundo')
     expect(element.textContent).toContain('Dictar localmente')
+  })
+  it('discards recording on microphone disconnect instead of transcribing partial audio', async () => {
+    const transcript = vi.fn()
+    await act(async () => root.render(<VoiceDictation active onTranscript={transcript} />))
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { track.dispatchEvent(new Event('ended')); await flush() })
+    expect(track.stop).toHaveBeenCalled()
+    expect(element.textContent).toContain('Microphone disconnected')
+    expect(speech.transcribeLocal).not.toHaveBeenCalled()
+    expect(transcript).not.toHaveBeenCalled()
+  })
+  it('stops capture on page hide and detaches track listeners', async () => {
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { window.dispatchEvent(new Event('pagehide')); await flush() })
+    expect(track.stop).toHaveBeenCalled()
+    expect(speech.transcribeLocal).not.toHaveBeenCalled()
+    await act(async () => { track.dispatchEvent(new Event('ended')); await flush() })
+    expect(element.textContent).not.toContain('Microphone disconnected')
   })
   it('cancels only its job and ignores a late transcription result', async () => {
     let finish!: (text: string) => void
