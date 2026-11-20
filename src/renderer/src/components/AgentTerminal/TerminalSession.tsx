@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAgentSession, type SessionStatus } from './useAgentSession'
 import { useAgentMenu } from '../../hooks/useAgentMenu'
 import { TerminalInput } from './TerminalInput'
+import { VoiceDictation } from './VoiceDictation'
 import { NewAgentForm } from './NewAgentForm'
 import { AgentXterm } from './AgentXterm'
 import { AgentPtySession } from './AgentPtySession'
@@ -61,8 +62,15 @@ export function TerminalSession({
   const {
     attachTerminal, history, status, runningCount, lastExitCode, lastPrompt,
     canRevert, lastCheckpointId, reverted, mode, setMode, agentName, setAgentName,
-    ledger, artifacts, submit, cancelAll, rerun, revertLast,
+    ledger, artifacts, submit, speakReplies, setSpeakReplies, cancelAll, rerun, revertLast,
   } = session
+  // Switching away disarms future readings; it does not cancel an agent run or
+  // stop unrelated audio that may already be playing.
+  useEffect(() => { if (!active || runMode !== 'prompt') setSpeakReplies(false) }, [active, runMode, setSpeakReplies])
+  const toggleSpokenReplies = useCallback(() => {
+    if (speakReplies) { setSpeakReplies(false); return }
+    if (window.confirm('Read future agent replies aloud in this tab? The configured Voice engine will process the reply; a cloud engine sends its text to that provider. This does not enable the microphone.')) setSpeakReplies(true)
+  }, [speakReplies, setSpeakReplies])
   const budget = formatLedger(ledger)
   const [isDragOver, setIsDragOver] = useState(false)
   // Revert is never blind: the button opens a DiffSheet preview; the actual
@@ -70,6 +78,9 @@ export function TerminalSession({
   const [revertPreviewOpen, setRevertPreviewOpen] = useState(false)
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [showNewAgent, setShowNewAgent] = useState(false)
+  const [dictatedText, setDictatedText] = useState<string | null>(null)
+  const acceptDictation = useCallback((text: string) => setDictatedText(text), [])
+  const consumeDictation = useCallback(() => setDictatedText(null), [])
 
   const loadAgents = useCallback(() => {
     window.workspace.agents.list().then((a) => setAgents(a.map((x) => ({ name: x.name, mode: x.mode, model: x.model })))).catch(() => {})
@@ -175,6 +186,18 @@ export function TerminalSession({
           ⌨ Interactive
         </button>
 
+        <button
+          className={styles.modeToggle}
+          type="button"
+          aria-pressed={speakReplies}
+          onClick={toggleSpokenReplies}
+          title="Opt in to reading completed agent replies using the configured Voice engine; no microphone"
+        >
+          {speakReplies ? '🔊 Replies on' : '🔇 Read replies'}
+        </button>
+
+        <VoiceDictation active={active} onTranscript={acceptDictation} />
+
         <span className={styles.statusArea} data-status={status}>
           {status === 'running' && <span className={styles.statusRunning}>● running{runningCount > 1 ? ` ×${runningCount}` : ''}</span>}
           {status === 'error' && <span className={styles.statusError}>exit {lastExitCode}</span>}
@@ -210,7 +233,7 @@ export function TerminalSession({
         ))}
       </div>
 
-      <TerminalInput history={history} onSubmit={submit} />
+      <TerminalInput history={history} onSubmit={submit} dictatedText={dictatedText} onDictationConsumed={consumeDictation} />
 
       {showNewAgent && (
         <NewAgentForm

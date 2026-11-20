@@ -68,7 +68,7 @@ export function defaultConfig(): AppConfig {
       http: { profile_id: '', url_template: '', method: 'POST', headers: [], body_template: null, voice: '', response_format: 'wav', timeout_secs: 30 },
       daemon_idle_timeout_secs: 600,
     },
-    playback: { on_retrigger: 'interrupt', volume: 100, streaming_enabled: true, caption_animation: true },
+    playback: { on_retrigger: 'interrupt', volume: 100, streaming_enabled: true, prefetch_next_fragment: false, caption_animation: true },
     hud: { enabled: true, position: 'bottom-center', width: 560, height: 64, opacity: 0.96 },
     general: {
       show_tray_icon: false,

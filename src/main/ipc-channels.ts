@@ -4,8 +4,15 @@
  */
 export const IPC = {
   SPEECH_SPEAK: 'speech:speak',
+  SPEECH_MICROPHONE_AUTHORIZE: 'speech:microphone-authorize',
+  SPEECH_MICROPHONE_REVOKE: 'speech:microphone-revoke',
+  SPEECH_STT_STATUS: 'speech:stt-status',
+  SPEECH_STT_TRANSCRIBE: 'speech:stt-transcribe',
+  SPEECH_STT_CANCEL: 'speech:stt-cancel',
   SPEECH_STOP: 'speech:stop',
+  SPEECH_CANCEL_READING: 'speech:cancel-reading',
   SPEECH_SET_HOTKEY: 'speech:set-hotkey',
+  SPEECH_SET_LOOKAHEAD: 'speech:set-lookahead',
   SPEECH_READ_CLIPBOARD: 'speech:read-clipboard',
   SPEECH_STATUS: 'speech:status',
   SPEECH_KOKORO_STATUS: 'speech:kokoro-status',
@@ -42,6 +49,7 @@ export const IPC = {
   // Agent (Claude CLI bridge — `-p`/stream-json pipeline)
   AGENT_RUN: 'agent:run',
   AGENT_OUTPUT: 'agent:output',
+  AGENT_ASSISTANT_TEXT: 'agent:assistant-text',
   AGENT_DONE: 'agent:done',
   AGENT_CANCEL: 'agent:cancel',
   // Drop a closed tab's conversation → claude-session-id mapping so the LRU map

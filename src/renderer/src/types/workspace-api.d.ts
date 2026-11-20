@@ -275,17 +275,24 @@ export interface Connection {
 /** Mirror of the API exposed by the preload contextBridge (src/preload/index.ts). */
 export interface WorkspaceApi {
   speech: {
+    authorizeMicrophone(token: string): Promise<boolean>
+    revokeMicrophone(token: string): Promise<void>
+    sttStatus(): Promise<{ modelDir: string; filesPresent: boolean; busy: boolean }>
+    transcribeLocal(samples: Float32Array, language: string, id: string): Promise<string>
+    cancelTranscription(id: string): Promise<void>
     speak(text: string): Promise<{ readingId: number }>
     stop(): Promise<void>
+    cancelReading(readingId: number): Promise<boolean>
     readClipboard(): Promise<{ readingId: number }>
     setHotkey(shortcut: string): Promise<{ shortcut: string }>
+    setLookahead(enabled: boolean): Promise<void>
     status(): Promise<SpeechStatus>
     kokoroInstallStatus(): Promise<{ busy: boolean }>
     cancelKokoroInstall(): Promise<void>
     installKokoroDependencies(): ReturnType<WorkspaceApi['speech']['kokoroStatus']>
     kokoroStatus(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
     prepareKokoro(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
-    config(): Promise<{ trigger: { max_text_length: number }; tts: { active_profile_id: string; profiles: { id: string; engine: TtsEngine; voice: string }[] }; hotkey: { enabled: boolean; shortcut: string } }>
+    config(): Promise<{ playback: { prefetch_next_fragment: boolean }; trigger: { max_text_length: number }; tts: { active_profile_id: string; profiles: { id: string; engine: TtsEngine; voice: string }[] }; hotkey: { enabled: boolean; shortcut: string } }>
     selectEngine(engine: 'kokoro' | 'openai', voice: string): Promise<void>
     setOpenAiKey(value: string): Promise<Record<string, boolean>>
     keyStatus(): Promise<Record<string, boolean>>
@@ -511,6 +518,7 @@ export interface WorkspaceApi {
     cancel: (runId: string) => Promise<void>
     forgetConversation: (conversationId: string) => Promise<void>
     onOutput: (callback: (runId: string, chunk: string) => void) => () => void
+    onAssistantText: (callback: (runId: string, text: string) => void) => () => void
     onDone: (callback: (runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) => void) => () => void
     onArtifact: (callback: (runId: string, path: string) => void) => () => void
     /** Classified list of a run's output files, surfaced as openable artifact cards. */

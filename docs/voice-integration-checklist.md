@@ -1,16 +1,17 @@
 # Voice implementation plan & integration checklist
 
-Last reviewed: **2026-11-20**, against merged code at `6354988` (PR #3).
-This checkpoint is a documentation update, not a new voice implementation.
+This checklist combines the TTS foundations from PR #3 with the newer
+experimental dictation, assistant reply and playback work. For the detailed
+atomic conversation plan and status, see [voice-conversation-plan.md](voice-conversation-plan.md).
 
-**Current position: batch text-to-speech foundations implemented; Kokoro setup
-partial; streaming/realtime voice not implemented; not production-ready.**
+**Current position: partial batch text-to-speech and experimental push-to-talk;
+continuous real-time conversation is not implemented or production-ready.**
 
-Checked items mean implemented in the reviewed code, not release acceptance.
-Regression test sources are linked below where present; tests were **not rerun**
-for this documentation-only review. No real-audio, cloud-provider, Electron E2E
-or cross-platform validation is claimed. Unchecked items remain open, including
-validation of features whose code already exists.
+Checked items indicate implemented code, not release acceptance. The focused
+voice/agent suite last passed 170 tests in 26 files, build passed, and typecheck
+passed against the existing 70-error baseline. These are simulated/fixture tests,
+not real audio, cloud-provider, Electron E2E or cross-platform validation.
+Unchecked items remain open, including validation of implemented features.
 
 ## Implemented foundations
 
@@ -18,11 +19,12 @@ validation of features whose code already exists.
       regression tests. Caption helpers are not yet wired to visible word highlighting.
 - [x] Batch OpenAI TTS adapter and local command/WAV adapter. Other engines fail
       explicitly in dispatch; an engine type/config entry is not an implementation.
-- [x] Serial fragment synthesis/playback, bounded queue/interrupt orchestration,
-      cancellation and provider text limits. Renderer PCM playback includes
+- [x] Batch fragment synthesis/playback, bounded queue/interrupt orchestration,
+      per-reading cancellation and provider text limits; optional one-fragment
+      lookahead is off by default. Renderer PCM playback includes
       owner acknowledgements, cancellation and timeout handling.
 - [x] Voice settings: OpenAI/Kokoro selection, static voice lists, text input,
-      Speak/Stop and OpenAI key management.
+      Speak, stop-current/stop-all and OpenAI key management.
 - [x] Browser **Read page aloud** / Stop action, read-clipboard command and an
       opt-in global clipboard shortcut (disabled by default).
 - [x] Atomic configuration persistence, restricted main-window/frame IPC and
@@ -80,11 +82,13 @@ Evidence: [setup/tests](../src/main/speech/engines/kokoro-setup.test.ts),
 
 - [ ] Implement the remaining agreed engines and dynamic voice catalogs.
 - [ ] Implement incremental TTS streaming through synthesis, IPC and playback;
-      current fragments are fully synthesized before playback, sequentially.
+      current fragments are fully synthesized before playback; optional lookahead
+      prepares at most one next fragment.
 - [ ] Add pause/resume, other playback controls and effects beyond existing Speak/Stop.
 - [ ] Add browser selection reading and synchronized word-level highlighting;
       existing browser reading extracts page text, not a selected range.
-- [ ] Add Speak actions in other app surfaces and opt-in agent-reply reading.
+- [ ] Add Speak actions in other app surfaces and streaming/PTy agent-reply
+      reading. Completed prompt-run replies can already be read with opt-in.
 - [ ] Add always-on-top HUD, opt-in tray, history database, WAV export and
       conditional ffmpeg exports.
 - [ ] Localize the voice module for the nine agreed languages and support RTL.
@@ -99,18 +103,20 @@ chunk event types exist, but do not establish a wired streaming or UI feature.
 Likewise, the queue is controller-level; the current settings UI exposes Speak/Stop,
 not a full playback/queue control surface.
 
-## Realtime conversation — not implemented; scope to confirm
+## Realtime conversation — partial foundations, not implemented
 
-Streaming TTS output and two-way voice conversation are separate milestones.
-The current integration is text-in/audio-out via batch TTS, not a microphone or
-speech-to-speech session. The following is a planning gate, not completed work
-or an assumed extension of the agreed TTS scope:
+Two-way voice conversation is in scope. A pure turn lifecycle, structured
+assistant-text events, an offline-only local STT worker and experimental
+push-to-talk dictation for review exist, but are not connected into an
+interactive voice session. The optional RMS endpoint is not trained VAD.
+No real microphone/model or Electron validation has been completed.
 
-- [ ] Confirm whether “realtime voice” means streaming TTS only or also two-way
-      conversation; document provider/transport, privacy and latency criteria.
-- [ ] If two-way conversation is in scope, plan microphone permission/capture,
-      STT or speech-to-speech, voice activity/turn detection, barge-in/interruption,
-      agent/context integration and session reconnect/cleanup before implementation.
+- [ ] Connect captured speech, turn lifecycle and the existing WOS agent session
+      while preserving context, grants, approvals and review.
+- [ ] Implement streaming STT and TTS, trained local VAD, barge-in, playback/run
+      ownership, interruption and safe session reconnect/cleanup.
+- [ ] Verify model provenance/integrity, offline behavior, supported languages,
+      platform packaging and privacy/latency characteristics on real devices.
 
 ## Release validation — all still required
 
@@ -130,8 +136,8 @@ Targeted regression command (after installing project dependencies):
 npm test -- src/main/speech src/shared/speech/__tests__
 ```
 
-Unit/fixture tests do not satisfy the real-audio or release gates above. This
-review did not run tests, install `uv`/models or exercise provider credentials.
+Unit/fixture tests do not satisfy the real-audio or release gates above.
+No `uv`/model installation or provider-credential exercise is claimed.
 
 ## Immediate next steps
 
@@ -139,5 +145,5 @@ review did not run tests, install `uv`/models or exercise provider credentials.
    installed dependencies with a working model.
 2. Exercise real OpenAI/Kokoro TTS, audible playback and cancellation in Electron;
    record platform-specific evidence before checking off release gates.
-3. Confirm and scope the streaming/realtime milestone separately; keep the
-   remaining TTS UX/security backlog visible until it is implemented and validated.
+3. Continue the agreed local-first two-way conversation plan while keeping the
+   remaining TTS UX/security backlog visible until implemented and validated.

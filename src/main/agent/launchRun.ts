@@ -41,6 +41,7 @@ import { agentHooksArgs, agentHooksMode, appStateDir, contentRoot, contentRootLi
 import { appsRel } from '../apps/apps-store'
 import { documentOutputGuidance, type AgentRunFailure } from '../../shared/agentRun'
 import { envWithPath, findTool } from '../platform-tools'
+import { ClaudeAssistantText } from './assistantText'
 
 /**
  * ONE way to launch a `claude -p` run, whoever asks for it.
@@ -68,6 +69,8 @@ export interface AgentRunMeta { costUsd: number; turns: number; durationMs: numb
 /** Where a run's events go. The dock forwards to the window; the queue records and forwards. */
 export interface RunSink {
   output(text: string): void
+  /** Structured top-level assistant text, excluding terminal and tool output. */
+  assistantText?(text: string): void
   /** The claude session id, once seen — lets a later turn --resume. */
   sessionId?(sid: string): void
   meta(meta: AgentRunMeta): void
@@ -369,8 +372,11 @@ export async function launchRun(o: LaunchRunOptions): Promise<{ child: ChildProc
     // NDJSON can split mid-line across chunks, so buffer until each newline.
     let buffer = ''
     const failures = new ClaudeFailureTracker()
+    const assistantText = new ClaudeAssistantText()
     const consumeLine = (line: string): void => {
       failures.consume(line)
+      const spokenCandidate = assistantText.consume(line)
+      if (spokenCandidate) sink.assistantText?.(spokenCandidate)
       const sid = extractSessionId(line)
       if (sid) sink.sessionId?.(sid)
       const meta = extractRunMeta(line)

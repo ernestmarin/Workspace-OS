@@ -66,6 +66,21 @@ export class ReadingController {
     this.active?.abort.abort()
   }
 
+  /** Cancel one reading only; does not stop other queued jobs or any agent run. */
+  cancel(id: number): boolean {
+    if (!Number.isSafeInteger(id) || id < 1) return false
+    if (this.active?.job.id === id) {
+      if (this.active.abort.signal.aborted) return false
+      this.active.abort.abort()
+      return true
+    }
+    const index = this.queue.findIndex((job) => job.id === id)
+    if (index < 0) return false
+    const [job] = this.queue.splice(index, 1)
+    job.resolve({ finished: false, error: 'Cancelled' })
+    return true
+  }
+
   private startNext(): void {
     if (this.active || !this.queue.length) return
     const job = this.queue.shift()!
@@ -81,6 +96,24 @@ export class ReadingController {
   }
 
   private async run(job: Job, signal: AbortSignal): Promise<void> {
+    // A scoped signal also cancels lookahead when playback fails without a user stop.
+    const synthesisAbort = new AbortController()
+    const abortSynthesis = (): void => synthesisAbort.abort()
+    signal.addEventListener('abort', abortSynthesis, { once: true })
+    if (signal.aborted) synthesisAbort.abort()
+    type Prepared = { audio: PcmAudio } | { error: unknown }
+    let pending: Promise<Prepared> | undefined
+    const prepare = (text: string): Promise<Prepared> => {
+      this.update(job, { synthesizing: true })
+      // Always handle a rejection immediately: lookahead may fail during playback.
+      return (async (): Promise<Prepared> => {
+        try {
+          synthesisAbort.signal.throwIfAborted()
+          return { audio: await this.deps.synthesize(text, job.config, synthesisAbort.signal) }
+        } catch (error) { return { error } }
+        finally { this.update(job, { synthesizing: false }) }
+      })()
+    }
     let outcome: ReadingOutcome = { finished: false, error: 'Cancelled' }
     try {
       const text = sanitizeText(job.text, job.config.sanitization)
@@ -94,17 +127,27 @@ export class ReadingController {
       this.update(job, { speaking: true, synthesizing: true, engine: profile?.engine ?? job.config.tts.active_backend, profileName: profile?.name ?? null, fragmentTotal: fragments.length, readingId: job.id, paused: false })
       for (const fragment of fragments) {
         signal.throwIfAborted()
-        this.update(job, { fragment: fragment.index + 1, synthesizing: true })
-        const audio = await this.deps.synthesize(fragment.text, job.config, signal)
+        this.update(job, { fragment: fragment.index + 1 })
+        pending ??= prepare(fragment.text)
+        const prepared = await pending
+        pending = undefined
         signal.throwIfAborted()
-        this.update(job, { synthesizing: false })
-        await this.deps.play(audio, fragment.text, signal, job.config)
+        if ('error' in prepared) throw prepared.error
+        // Bounded lookahead: one synthesis, one active playback, never a whole
+        // reading buffered in advance. Off retains strictly serial behavior.
+        const next = fragments[fragment.index + 1]
+        if (job.config.playback.prefetch_next_fragment && next) pending = prepare(next.text)
+        await this.deps.play(prepared.audio, fragment.text, signal, job.config)
         signal.throwIfAborted()
       }
       outcome = { finished: true }
     } catch (error) {
       outcome = { finished: false, error: signal.aborted ? 'Cancelled' : error instanceof Error ? error.message : 'Speech failed' }
     } finally {
+      signal.removeEventListener('abort', abortSynthesis)
+      synthesisAbort.abort()
+      // Do not let a cancelled local child overlap the next reading's engine.
+      if (pending) await pending
       this.update(job, { speaking: false, synthesizing: false, engine: null, profileName: null, fragment: 0, fragmentTotal: 0, readingId: 0, paused: false })
       if (this.active?.job === job) this.active = undefined
       job.resolve(outcome)

@@ -12,12 +12,15 @@ export function VoiceSettings(): JSX.Element {
   const [notice, setNotice] = useState('')
   const [shortcut, setShortcut] = useState('')
   const [installing, setInstalling] = useState(false)
+  const [lookahead, setLookahead] = useState<boolean | null>(null)
+  const [savingLookahead, setSavingLookahead] = useState(false)
   const [kokoroFiles, setKokoroFiles] = useState<Awaited<ReturnType<typeof window.workspace.speech.kokoroStatus>> | null>(null)
   useEffect(() => {
     let mounted = true
     void window.workspace.speech.config().then((config) => {
       if (!mounted) return
       setShortcut(config.hotkey.enabled ? config.hotkey.shortcut : '')
+      setLookahead(config.playback.prefetch_next_fragment)
       const profile = config.tts.profiles.find((item) => item.id === config.tts.active_profile_id)
       if (profile?.engine === 'openai' || profile?.engine === 'kokoro') { setEngine(profile.engine); setVoice(profile.voice) }
     }).catch((error: Error) => { if (mounted) setNotice(error.message) })
@@ -84,6 +87,14 @@ export function VoiceSettings(): JSX.Element {
       <button className={styles.btn} type="button" disabled={!key.trim()} onClick={() => void saveKey(key)}>Save key securely</button>
       {keySet && <button className={styles.btn} type="button" onClick={() => void saveKey('')}>Remove stored key</button>}
     </label>}
+    <label className={styles.field}>
+      <span><input type="checkbox" checked={lookahead ?? false} disabled={savingLookahead || lookahead === null} onChange={(event) => {
+        const enabled = event.target.checked
+        setSavingLookahead(true)
+        void window.workspace.speech.setLookahead(enabled).then(() => { setLookahead(enabled); setNotice('Playback setting saved for future readings.') }).catch((error: Error) => setNotice(error.message)).finally(() => setSavingLookahead(false))
+      }} /> Prepare the next fragment during playback</span>
+      <span className={styles.hint}>Prepares at most one next fragment to reduce gaps. Uses the selected engine, including cloud transmission when configured. This is not live token/audio streaming; off uses serial synthesis. Changes apply to future readings.</span>
+    </label>
     <label className={styles.field}>Global read-clipboard shortcut (optional)
       <input value={shortcut} onChange={(e) => setShortcut(e.target.value)} placeholder="For example CommandOrControl+Shift+Y" />
     </label>
@@ -95,9 +106,14 @@ export function VoiceSettings(): JSX.Element {
     <div className={styles.keyField}>
       <button type="button" className={styles.btn} disabled={!text.trim()} onClick={() => void speak()}>Speak</button>
       <button type="button" className={styles.btn} onClick={() => void window.workspace.speech.readClipboard().catch((error: Error) => setNotice(error.message))}>Read clipboard</button>
-      <button type="button" className={styles.btn} disabled={!status?.speaking} onClick={() => void window.workspace.speech.stop()}>Stop</button>
-      <span className={styles.hint}>{status?.speaking ? (status.synthesizing ? 'Preparing audio…' : 'Speaking…') : 'Idle'}</span>
+      <button type="button" className={styles.btn} disabled={!status?.speaking || !status.readingId} onClick={() => {
+        const id = status?.readingId
+        if (id) void window.workspace.speech.cancelReading(id).then((cancelled) => { if (!cancelled) setNotice('That reading has already ended.') }).catch((error: Error) => setNotice(error.message))
+      }}>Stop current reading</button>
+      <button type="button" className={styles.btn} disabled={!status?.speaking} onClick={() => void window.workspace.speech.stop().catch((error: Error) => setNotice(error.message))}>Stop all readings</button>
+      <span className={styles.hint}>{status?.speaking ? (status.synthesizing ? 'Speaking or preparing audio…' : 'Speaking…') : 'Idle'}</span>
     </div>
+    <p className={styles.hint}>Stopping the current reading leaves queued readings intact. Stopping all clears the queue. Neither stops an agent run or reverses its actions.</p>
     {notice && <p role="status" className={styles.errText}>{notice}</p>}
   </section>
 }

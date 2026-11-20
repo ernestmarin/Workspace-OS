@@ -10,9 +10,16 @@ import type { PlaybackMessage, SpeechUiEvent } from '../shared/speech/playback'
 contextBridge.exposeInMainWorld('workspace', {
   speech: {
     speak: (text: string) => ipcRenderer.invoke(IPC.SPEECH_SPEAK, text),
+    authorizeMicrophone: (token: string) => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_AUTHORIZE, token),
+    revokeMicrophone: (token: string) => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_REVOKE, token),
+    sttStatus: () => ipcRenderer.invoke(IPC.SPEECH_STT_STATUS),
+    transcribeLocal: (samples: Float32Array, language: string, id: string) => ipcRenderer.invoke(IPC.SPEECH_STT_TRANSCRIBE, samples, language, id),
+    cancelTranscription: (id: string) => ipcRenderer.invoke(IPC.SPEECH_STT_CANCEL, id),
     stop: () => ipcRenderer.invoke(IPC.SPEECH_STOP),
+    cancelReading: (readingId: number) => ipcRenderer.invoke(IPC.SPEECH_CANCEL_READING, readingId),
     readClipboard: () => ipcRenderer.invoke(IPC.SPEECH_READ_CLIPBOARD),
     setHotkey: (shortcut: string) => ipcRenderer.invoke(IPC.SPEECH_SET_HOTKEY, shortcut),
+    setLookahead: (enabled: boolean) => ipcRenderer.invoke(IPC.SPEECH_SET_LOOKAHEAD, enabled),
     status: () => ipcRenderer.invoke(IPC.SPEECH_STATUS),
     kokoroStatus: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_STATUS),
     installKokoroDependencies: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_INSTALL),
@@ -269,6 +276,11 @@ contextBridge.exposeInMainWorld('workspace', {
         callback(runId, chunk)
       ipcRenderer.on(IPC.AGENT_OUTPUT, handler)
       return () => ipcRenderer.removeListener(IPC.AGENT_OUTPUT, handler)
+    },
+    onAssistantText: (callback: (runId: string, text: string) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, runId: string, text: string) => callback(runId, text)
+      ipcRenderer.on(IPC.AGENT_ASSISTANT_TEXT, handler)
+      return () => ipcRenderer.removeListener(IPC.AGENT_ASSISTANT_TEXT, handler)
     },
     onDone: (callback: (runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) =>

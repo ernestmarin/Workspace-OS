@@ -1,4 +1,4 @@
-import { app, clipboard, globalShortcut, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { app, clipboard, dialog, globalShortcut, type IpcMain, type IpcMainInvokeEvent } from 'electron'
 import path from 'node:path'
 import { defaultKokoroProfile } from '../../shared/speech/defaults'
 import type { VoiceProfile } from '../../shared/speech/types'
@@ -15,6 +15,8 @@ import { VoiceHotkey } from './hotkey'
 import { speechEnginesDir } from './paths'
 import { kokoroFilesStatus, prepareKokoro } from './engines/kokoro-setup'
 import { KokoroDependencyInstaller } from './engines/kokoro-install'
+import { LocalStt, localSttStatus } from './local-stt'
+import { microphoneGrant } from './microphone-grant'
 
 function assertOwner(event: IpcMainInvokeEvent): void {
   assertMainFrame(event)
@@ -23,6 +25,8 @@ function assertOwner(event: IpcMainInvokeEvent): void {
 
 export function registerSpeechHandlers(ipc: IpcMain): void {
   const installer = new KokoroDependencyInstaller()
+  const stt = new LocalStt()
+  let microphonePromptOpen = false
   const broker = new PlaybackBroker((owner, message) => {
     const win = mainWindow()
     if (!win || win.webContents.id !== owner) throw new Error('Playback window is unavailable')
@@ -65,6 +69,39 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     // An unavailable shortcut must not prevent the rest of the app from starting.
     console.warn('[speech] could not initialize voice shortcut:', error instanceof Error ? error.message : 'unknown error')
   }
+  ipcHandle(ipc, IPC.SPEECH_MICROPHONE_AUTHORIZE, async (event, token) => {
+    assertOwner(event)
+    if (microphonePromptOpen) throw new Error('A microphone permission request is already open')
+    const win = mainWindow()
+    if (!win) throw new Error('Workspace window is unavailable')
+    const owner = event.sender.id
+    const frame = event.senderFrame
+    if (!frame) throw new Error('Workspace frame is unavailable')
+    const url = frame.url
+    if (typeof token !== 'string') throw new Error('Invalid microphone request identity')
+    microphoneGrant.begin(token)
+    microphonePromptOpen = true
+    try {
+      const result = await dialog.showMessageBox(win, {
+        type: 'question', buttons: ['Cancel', 'Allow once'], defaultId: 0, cancelId: 0, noLink: true,
+        title: 'Microphone access',
+        message: 'Allow Workspace OS to use your microphone for this recording?',
+        detail: 'Audio is intended for local transcription. The agent or voice engine you select may still use an external service. Microphone access ends when recording stops.',
+      })
+      if (result.response !== 1) return false
+      assertOwner(event)
+      if (win.isDestroyed() || mainWindow() !== win || event.sender.id !== owner || event.senderFrame !== frame || frame.url !== url || event.sender.getURL() !== url) throw new Error('Workspace window changed during microphone approval')
+      return microphoneGrant.approve(token, owner, url)
+    } finally { microphoneGrant.revokePending(token); microphonePromptOpen = false }
+  })
+  ipcHandle(ipc, IPC.SPEECH_MICROPHONE_REVOKE, (event, token) => { assertOwner(event); microphoneGrant.revoke(token) })
+  ipcHandle(ipc, IPC.SPEECH_STT_STATUS, (event) => { assertOwner(event); return { ...localSttStatus(), busy: stt.busy } })
+  ipcHandle(ipc, IPC.SPEECH_STT_TRANSCRIBE, (event, samples, language, id) => {
+    assertOwner(event)
+    if (typeof id !== 'string') throw new Error('Invalid transcription identity')
+    return stt.transcribe(samples, language, id)
+  })
+  ipcHandle(ipc, IPC.SPEECH_STT_CANCEL, (event, id) => { assertOwner(event); if (typeof id === 'string') stt.cancel(id) })
   ipcHandle(ipc, IPC.SPEECH_SPEAK, (event, text) => {
     assertOwner(event)
     if (typeof text !== 'string') throw new Error('Speech text must be a string')
@@ -86,6 +123,11 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     return { shortcut: hotkey.shortcut }
   })
   ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); controller.stop() })
+  ipcHandle(ipc, IPC.SPEECH_CANCEL_READING, (event, id) => {
+    assertOwner(event)
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) throw new Error('Invalid reading identity')
+    return controller.cancel(id)
+  })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_STATUS, (event) => { assertOwner(event); return { busy: installer.busy } })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_CANCEL, (event) => { assertOwner(event); installer.cancel() })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL, async (event) => { assertOwner(event); await installer.install(speechEnginesDir()); return kokoroFilesStatus(speechEnginesDir()) })
@@ -94,6 +136,12 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     assertOwner(event)
     const resources = app.isPackaged ? path.join(process.resourcesPath, 'voice-kokoro') : path.join(app.getAppPath(), 'resources', 'voice-kokoro')
     return prepareKokoro(speechEnginesDir(), resources)
+  })
+  ipcHandle(ipc, IPC.SPEECH_SET_LOOKAHEAD, (event, enabled) => {
+    assertOwner(event)
+    if (typeof enabled !== 'boolean') throw new Error('Invalid speech lookahead setting')
+    const cfg = getConfig()
+    updateConfig({ playback: { ...cfg.playback, prefetch_next_fragment: enabled } })
   })
   ipcHandle(ipc, IPC.SPEECH_STATUS, (event) => { assertOwner(event); return controller.getStatus() })
   ipcHandle(ipc, IPC.SPEECH_CONFIG, (event) => {
@@ -104,6 +152,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
       trigger: { max_text_length: cfg.trigger.max_text_length },
       tts: { active_profile_id: cfg.tts.active_profile_id, profiles: cfg.tts.profiles.map(({ id, engine, voice }) => ({ id, engine, voice })) },
       hotkey: cfg.hotkey,
+      playback: { prefetch_next_fragment: cfg.playback.prefetch_next_fragment },
     }
   })
   ipcHandle(ipc, IPC.SPEECH_KEY_STATUS, (event) => { assertOwner(event); return speechKeyStatus() })
@@ -129,5 +178,5 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     if (typeof id !== 'string' || typeof ok !== 'boolean') throw new Error('Invalid playback result')
     return broker.complete(event.sender.id, id, ok)
   })
-  registerCleanup('speech', async () => { hotkey.dispose(); controller.stop(); await installer.shutdown() })
+  registerCleanup('speech', async () => { hotkey.dispose(); controller.stop(); stt.cancel(); microphoneGrant.clear(); await installer.shutdown() })
 }
