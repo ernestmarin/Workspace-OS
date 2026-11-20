@@ -298,6 +298,10 @@ const MUST_HAVE_GUARD = new Set<string>([
   'mail:undoable',
   'mail:watch-start',
   'mail:watch-stop',
+  // N+1b: main-frame authorization
+  'app:start-on',
+  'projects:create',
+  'projects:list',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -367,7 +371,6 @@ const PUSH_CHANNELS = new Set<string>([
 const EXPLICITLY_NO_GUARD = new Set<string>([
 
   // app surfaces — sin guard hoy, deuda P1 (añadir assertMainFrame en lote N+1b)
-  'app:start-on',
   // browser
   'browser:back',
   'browser:clear-cache',
@@ -521,8 +524,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'pdf:print',
   'pdf:sign',
   'print:document',
-  'projects:create',
-  'projects:list',
   'range:delete',
   'range:refreshAllFromSource',
   'range:refreshForFile',
