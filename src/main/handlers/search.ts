@@ -1,5 +1,6 @@
 import { IpcMain, app } from 'electron'
 import fs from 'fs/promises'
+import fsSync from 'fs'
 import path from 'path'
 import { extractText } from '../search/extract'
 import { IPC } from '../ipc-channels'
@@ -57,12 +58,54 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
 
   // Index a file ahead of the queue (called when a file is opened) so its content
   // is searchable almost immediately, even mid-scan of a huge workspace. Scoped
-  // to the workspace root.
+  // to the workspace root. Lexical check first, then realpath confinement to
+  // defeat a symlink inside the workspace pointing outside it.
   ipcHandle(ipcMain, IPC.SEARCH_PRIORITIZE, (_event, filePath: unknown) => {
     const root = getWorkspaceRoot()
     if (!root || typeof filePath !== 'string') return
     const resolved = path.resolve(filePath)
     if (resolved !== root && !resolved.startsWith(root + path.sep)) return
+    // Realpath confinement: a symlink inside the workspace that points outside
+    // must not cause indexing of arbitrary files. Dangling/looping symlinks refused.
+    try {
+      const realRoot = (() => {
+        try {
+          return fsSync.realpathSync(path.resolve(root))
+        } catch {
+          return path.resolve(root)
+        }
+      })()
+      let realResolved: string
+      try {
+        realResolved = fsSync.realpathSync(resolved)
+      } catch {
+        // File may not exist yet; resolve deepest existing parent.
+        let cur = resolved
+        const suffix: string[] = []
+        let found = false
+        for (;;) {
+          try {
+            fsSync.lstatSync(cur)
+            const realParent = fsSync.realpathSync(cur)
+            realResolved = suffix.length ? path.join(realParent, ...suffix.reverse()) : realParent
+            found = true
+            break
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code
+            if (code === 'ELOOP') return
+            if (code !== 'ENOENT' && code !== 'ENOTDIR') return
+            const parent = path.dirname(cur)
+            if (parent === cur) return
+            suffix.push(path.basename(cur))
+            cur = parent
+          }
+        }
+        if (!found) return
+      }
+      if (realResolved! !== realRoot && !realResolved!.startsWith(realRoot + path.sep)) return
+    } catch {
+      return
+    }
     ensureIndex()
     indexer?.prioritize(resolved)
   })
