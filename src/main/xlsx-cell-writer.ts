@@ -3,6 +3,7 @@ import path from 'path'
 import os from 'os'
 import ExcelJS from 'exceljs'
 import { parseA1 } from './transclusions'
+import { validateXlsxShape } from './docx-zip'
 
 /**
  * Engine-free .xlsx cell writer — the "closed-file" half of sync-all.
@@ -60,6 +61,11 @@ export async function setCellValue(
     return skip('missing')
   }
   if (!stat.isFile()) return skip('not-a-file')
+
+  // Shape pre-validation (N+2b): exceljs parsea el XML sin presupuesto, así
+  // que rechazamos ENTITY/depth/CDATA abusivos antes de entregarle el fichero.
+  const shapeFailure = await validateXlsxShape(filePath)
+  if (shapeFailure) return skip(shapeFailure)
 
   // Read the whole workbook. exceljs throws on anything that isn't a real xlsx.
   const wb = new ExcelJS.Workbook()
