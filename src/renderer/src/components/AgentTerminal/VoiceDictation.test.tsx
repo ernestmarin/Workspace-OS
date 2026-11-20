@@ -159,6 +159,61 @@ describe('local dictation interaction', () => {
     await act(async () => { track.dispatchEvent(new Event('ended')); await flush() })
     expect(element.textContent).not.toContain('Microphone disconnected')
   })
+  it('closes decode audio promptly on cancel and ignores late decode results', async () => {
+    let finishDecode!: (value: { duration: number }) => void
+    const close = vi.fn(async () => {})
+    vi.stubGlobal('AudioContext', class {
+      close = close
+      decodeAudioData = vi.fn(() => new Promise<{ duration: number }>((resolve) => { finishDecode = resolve }))
+    })
+    const transcript = vi.fn()
+    await act(async () => root.render(<VoiceDictation active onTranscript={transcript} />))
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(close).not.toHaveBeenCalled()
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(close).toHaveBeenCalledOnce()
+    await act(async () => { finishDecode({ duration: 1 }); await flush() })
+    expect(close).toHaveBeenCalledOnce()
+    expect(speech.transcribeLocal).not.toHaveBeenCalled()
+    expect(transcript).not.toHaveBeenCalled()
+  })
+  it('a stale decode completion cannot close a newer decode context', async () => {
+    const resolves: Array<(value: { duration: number }) => void> = []
+    const closes: Array<ReturnType<typeof vi.fn>> = []
+    vi.stubGlobal('AudioContext', class {
+      close = vi.fn(async () => {})
+      constructor() { closes.push(this.close) }
+      decodeAudioData = vi.fn(() => new Promise<{ duration: number }>((resolve) => { resolves.push(resolve) }))
+    })
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(closes).toHaveLength(2)
+    await act(async () => { resolves[0]({ duration: 1 }); await flush() })
+    expect(closes[0]).toHaveBeenCalledOnce()
+    expect(closes[1]).not.toHaveBeenCalled()
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(closes[1]).toHaveBeenCalledOnce()
+    await act(async () => { resolves[1]({ duration: 1 }); await flush() })
+    expect(speech.transcribeLocal).not.toHaveBeenCalled()
+  })
+  it('closes the decode context before waiting for transcription', async () => {
+    const close = vi.fn(async () => {})
+    vi.stubGlobal('AudioContext', class { close = close; decodeAudioData = vi.fn(async () => ({ duration: 1 })) })
+    speech.transcribeLocal.mockReturnValue(new Promise(() => {}))
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(close).toHaveBeenCalledOnce()
+    expect(speech.transcribeLocal).toHaveBeenCalledOnce()
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(close).toHaveBeenCalledOnce()
+    expect(speech.cancelTranscription).toHaveBeenCalledOnce()
+  })
   it('cancels only its job and ignores a late transcription result', async () => {
     let finish!: (text: string) => void
     speech.transcribeLocal.mockReturnValue(new Promise<string>((resolve) => { finish = resolve }))

@@ -28,12 +28,15 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
   const detachTrackListeners = useRef<(() => void) | null>(null)
   const permissionToken = useRef<string | null>(null)
   const transcribing = useRef<string | null>(null)
+  const closeDecodeContext = useRef<(() => void) | null>(null)
   const mounted = useRef(true)
   const activeRef = useRef(active)
   activeRef.current = active
 
   const discard = useCallback(() => {
     generation.current++
+    closeDecodeContext.current?.()
+    closeDecodeContext.current = null
     stopMonitor.current?.()
     stopMonitor.current = null
     if (timer.current) clearTimeout(timer.current)
@@ -124,13 +127,22 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
         if (!valid()) return
         setPhase('transcribing')
         void (async () => {
-          let context: AudioContext | null = null
+          let closeContext: (() => void) | null = null
           try {
             if (tooLarge || !chunks.length) throw new Error('Recording is empty or too large.')
             const encoded = await new Blob(chunks, { type: current.mimeType }).arrayBuffer()
             if (!valid()) return
-            context = new AudioContext()
+            const context = new AudioContext()
+            let closed = false
+            closeContext = () => {
+              if (closed) return
+              closed = true
+              if (closeDecodeContext.current === closeContext) closeDecodeContext.current = null
+              try { void context.close().catch(() => {}) } catch { /* already closed */ }
+            }
+            closeDecodeContext.current = closeContext
             const decoded = await context.decodeAudioData(encoded)
+            closeContext()
             if (!valid()) return
             if (decoded.duration > 30.5 || decoded.duration < 0.1) throw new Error('Recording must be between 0.1 and 30 seconds.')
             const length = Math.min(SAMPLE_RATE * 30, Math.ceil(decoded.duration * SAMPLE_RATE))
@@ -152,7 +164,7 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
             if (valid()) transcribing.current = null
             if (valid()) setError(e instanceof Error ? e.message : 'Local transcription failed.')
           } finally {
-            if (context) void context.close().catch(() => {})
+            closeContext?.()
             if (valid()) setPhase('idle')
           }
         })()
