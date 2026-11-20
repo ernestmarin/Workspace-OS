@@ -94,6 +94,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
       return true
     } finally { microphonePromptOpen = false }
   })
+  ipcHandle(ipc, IPC.SPEECH_MICROPHONE_REVOKE, (event) => { assertOwner(event); microphoneGrant.clear() })
   ipcHandle(ipc, IPC.SPEECH_STT_STATUS, (event) => { assertOwner(event); return { ...localSttStatus(), busy: stt.busy } })
   ipcHandle(ipc, IPC.SPEECH_STT_TRANSCRIBE, (event, samples, language) => { assertOwner(event); return stt.transcribe(samples, language) })
   ipcHandle(ipc, IPC.SPEECH_STT_CANCEL, (event) => { assertOwner(event); stt.cancel() })

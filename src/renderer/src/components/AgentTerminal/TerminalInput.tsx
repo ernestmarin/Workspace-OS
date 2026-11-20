@@ -1,17 +1,26 @@
-import { useState, useRef, useCallback, useMemo, KeyboardEvent } from 'react'
+import { useState, useRef, useCallback, useMemo, useEffect, KeyboardEvent } from 'react'
 import { matchCommands } from './slashCommands'
 import styles from './TerminalInput.module.css'
 
 interface TerminalInputProps {
   history: string[]
   onSubmit: (raw: string) => void
+  dictatedText?: string | null
+  onDictationConsumed?: () => void
 }
 
-export function TerminalInput({ history, onSubmit }: TerminalInputProps): JSX.Element {
+export function TerminalInput({ history, onSubmit, dictatedText, onDictationConsumed }: TerminalInputProps): JSX.Element {
   const [value, setValue] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [autocompleteIndex, setAutocompleteIndex] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!dictatedText) return
+    setValue((existing) => existing ? `${existing} ${dictatedText}` : dictatedText)
+    onDictationConsumed?.()
+    inputRef.current?.focus()
+  }, [dictatedText, onDictationConsumed])
 
   // Slash autocomplete only when the input is a single `/token` with no space yet.
   const suggestions = useMemo(() => {

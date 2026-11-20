@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAgentSession, type SessionStatus } from './useAgentSession'
 import { useAgentMenu } from '../../hooks/useAgentMenu'
 import { TerminalInput } from './TerminalInput'
+import { VoiceDictation } from './VoiceDictation'
 import { NewAgentForm } from './NewAgentForm'
 import { AgentXterm } from './AgentXterm'
 import { AgentPtySession } from './AgentPtySession'
@@ -77,6 +78,9 @@ export function TerminalSession({
   const [revertPreviewOpen, setRevertPreviewOpen] = useState(false)
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [showNewAgent, setShowNewAgent] = useState(false)
+  const [dictatedText, setDictatedText] = useState<string | null>(null)
+  const acceptDictation = useCallback((text: string) => setDictatedText(text), [])
+  const consumeDictation = useCallback(() => setDictatedText(null), [])
 
   const loadAgents = useCallback(() => {
     window.workspace.agents.list().then((a) => setAgents(a.map((x) => ({ name: x.name, mode: x.mode, model: x.model })))).catch(() => {})
@@ -192,6 +196,8 @@ export function TerminalSession({
           {speakReplies ? '🔊 Replies on' : '🔇 Read replies'}
         </button>
 
+        <VoiceDictation active={active} onTranscript={acceptDictation} />
+
         <span className={styles.statusArea} data-status={status}>
           {status === 'running' && <span className={styles.statusRunning}>● running{runningCount > 1 ? ` ×${runningCount}` : ''}</span>}
           {status === 'error' && <span className={styles.statusError}>exit {lastExitCode}</span>}
@@ -227,7 +233,7 @@ export function TerminalSession({
         ))}
       </div>
 
-      <TerminalInput history={history} onSubmit={submit} />
+      <TerminalInput history={history} onSubmit={submit} dictatedText={dictatedText} onDictationConsumed={consumeDictation} />
 
       {showNewAgent && (
         <NewAgentForm

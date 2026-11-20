@@ -15,7 +15,7 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 - Agent bridge has typed assistant-text events for Claude and Codex, separate from terminal output. Routing finalized transcripts into the selected conversation and connecting playback remain unimplemented.
 - Agent terminal has an opt-in, per-tab completed-reply reader using existing Voice settings. It does not support the PTY broker, streaming speech or microphone input; switching tabs disarms future reply reading. A cloud voice sends reply text to its provider after the user enables the feature.
 - Experimental offline-only Whisper STT worker and restricted IPC exist. It expects a manually provisioned compatible quantized Transformers.js model; model compatibility and real transcription have not been validated. No automatic model download.
-- Native per-request microphone consent and a time-limited, audio-only main-frame permission gate exist; there is no recording UI yet. Browser guests remain denied. This policy has unit tests but has not been validated in real Electron.
+- Native per-request microphone consent and a time-limited, audio-only main-frame permission gate exist. An experimental push-to-talk UI captures up to 30 seconds in Spanish for offline transcription, then places the result in the input for review; it does not send automatically. Browser guests remain denied. This policy and recording flow have not been validated in real Electron.
 - No real microphone or end-to-end conversation has been validated.
 
 ## Stages and gates
