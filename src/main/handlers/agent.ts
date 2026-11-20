@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { IpcMain, BrowserWindow, app, shell } from 'electron'
 import { ChildProcess } from 'child_process'
 import fs from 'fs'
@@ -5,6 +6,7 @@ import path from 'path'
 import { IPC } from '../ipc-channels'
 import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
+import { isAssistantResponseEvent, type AssistantRunOwner } from '../../shared/agentRun'
 import {
   isValidClaudeSessionId,
   sanitizePromptPath,
@@ -44,6 +46,7 @@ export type { AgentRunMeta } from '../agent/launchRun'
  */
 
 const runs = new Map<string, ChildProcess>()
+const runAborters = new Map<string, AbortController>()
 const startingCodex = new Map<string, AbortController>()
 
 // Maps a renderer conversation (one per agent-terminal tab) to the `claude`
@@ -148,7 +151,8 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
 
   // Settings → Agent model, mirrored here so routines and the interactive
   // session (which start in main) use the same default as dock runs.
-  ipcHandle(ipcMain, 'agent:set-default-model', (_event, model: unknown) => {
+  ipcHandle(ipcMain, 'agent:set-default-model', (event, model: unknown) => {
+    assertMainFrame(event)
     setProviderModel(model)
   })
 
@@ -179,6 +183,9 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
 
   ipcHandle(ipcMain, IPC.AGENT_RUN, async (event, payload: unknown) => {
     assertMainFrame(event)
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new IpcValidationError('Agent run payload must be an object')
+    }
     const { runId, prompt, contextFiles, activeFile, mode, agentName, conversationId, model, resumeOnly, profile, app: appSlug } = payload as {
       profile?: unknown
       app?: unknown
@@ -218,12 +225,42 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
       throw new IpcValidationError('The original conversation is no longer available. Start a new request asking the agent to inspect the case files and finish the remaining work.')
     }
 
-    const aborter = pick.provider === 'codex' ? new AbortController() : undefined
-    if (aborter) startingCodex.set(id, aborter)
+    const aborter = new AbortController()
+    runAborters.set(id, aborter)
+    if (pick.provider === 'codex') startingCodex.set(id, aborter)
+
+    // Bind structured voice response provenance to the originating workspace document
+    // so reload/crash/destroy never forwards events to a replacement document (VOX-A1d.1/A1d.2).
+    const senderContents = event.sender
+    const senderFrame = 'senderFrame' in event ? event.senderFrame : null
+    let docActive = Boolean(senderContents && typeof senderContents.isDestroyed === 'function' && !senderContents.isDestroyed())
+    const invalidateDoc = (): void => {
+      if (!docActive) return
+      docActive = false
+      senderContents?.removeListener?.('destroyed', invalidateDoc)
+      senderContents?.removeListener?.('render-process-gone', invalidateDoc)
+      senderContents?.removeListener?.('did-start-navigation', onNavigate)
+    }
+    const onNavigate = (details: { isMainFrame?: boolean; isSameDocument?: boolean }): void => {
+      if (details?.isMainFrame && !details.isSameDocument) invalidateDoc()
+    }
+    if (docActive) {
+      senderContents.once?.('destroyed', invalidateDoc)
+      senderContents.once?.('render-process-gone', invalidateDoc)
+      senderContents.on?.('did-start-navigation', onNavigate)
+    }
+
+    const responseOwner: AssistantRunOwner = {
+      sessionId: convoId ?? id,
+      runId: id,
+      epoch: randomUUID(),
+    }
+
     let completed = false
     let sessionCaptured = false
     const { child, checkpointId } = await launchRun({
       runId: id,
+      responseOwner,
       prompt,
       contextFiles: sanitizeContextFiles(contextFiles),
       activeFile: sanitizePromptPath(activeFile),
@@ -232,7 +269,7 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
       resumeId,
       model: pick.model || undefined,
       provider: pick.provider,
-      signal: aborter?.signal,
+      signal: aborter.signal,
       // A forged specialist is held to its capabilities; a plain dock agent is
       // the person at their own keyboard and keeps the full grant.
       capabilities: agent?.capabilities?.length ? agent.capabilities : 'all',
@@ -241,6 +278,12 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
       sink: {
         output: (t) => sendToWindow(IPC.AGENT_OUTPUT, id, t),
         assistantText: (t) => sendToWindow(IPC.AGENT_ASSISTANT_TEXT, id, t),
+        assistantResponse: (ev) => {
+          if (!docActive || senderContents.isDestroyed?.()) return
+          if (senderFrame && senderContents.mainFrame && senderFrame !== senderContents.mainFrame) return
+          if (!isAssistantResponseEvent(ev)) return
+          try { senderContents.send(IPC.AGENT_ASSISTANT_RESPONSE, ev) } catch { /* raced with teardown */ }
+        },
         sessionId: convoId ? (sid) => {
           sessionCaptured = true
           setConversation(convoId, `${pick.provider}:${sid}`)
@@ -251,7 +294,9 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
         artifact: (p) => sendToWindow(IPC.AGENT_ARTIFACT, id, p),
         done: (code, cp, failure) => {
           completed = true
+          invalidateDoc()
           runs.delete(id)
+          runAborters.delete(id)
           sendToWindow(IPC.AGENT_DONE, id, code, cp, failure ? {
             ...failure, canResume: sessionCaptured && !!convoId && !!getConversation(convoId),
           } : undefined)
@@ -259,11 +304,14 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
       },
     }).finally(() => startingCodex.delete(id))
     if (!completed) runs.set(id, child)
-    return { pid: child.pid, checkpointId, provider: pick.provider, model: `${pick.provider}:${pick.model}` }
+    return { pid: child.pid, checkpointId, provider: pick.provider, model: `${pick.provider}:${pick.model}`, responseOwner }
   })
 
-  ipcHandle(ipcMain, IPC.AGENT_CANCEL, (_event, runId: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENT_CANCEL, (event, runId: unknown) => {
+    assertMainFrame(event)
     const id = assertRunId(runId)
+    runAborters.get(id)?.abort()
+    runAborters.delete(id)
     startingCodex.get(id)?.abort()
     if (cancelCodex(id)) { runs.delete(id); return }
     const child = runs.get(id)
@@ -276,7 +324,8 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
   // Called by the renderer when an agent tab is closed: forget its conversation
   // mapping so a closed tab's resume-id is evicted promptly (not left until the
   // 50-entry cap rolls it off). Silently ignores an unknown/invalid id.
-  ipcHandle(ipcMain, IPC.AGENT_FORGET_CONVERSATION, (_event, conversationId: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENT_FORGET_CONVERSATION, (event, conversationId: unknown) => {
+    assertMainFrame(event)
     if (typeof conversationId === 'string' && CONVERSATION_ID_RE.test(conversationId)) {
       forgetConversation(conversationId)
     }
@@ -290,6 +339,8 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
  */
 /** Stops all running agents — called on app quit. */
 export function shutdownAgents(): void {
+  for (const aborter of runAborters.values()) aborter.abort()
+  runAborters.clear()
   for (const aborter of startingCodex.values()) aborter.abort()
   startingCodex.clear()
   for (const child of runs.values()) child.kill('SIGTERM')

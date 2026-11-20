@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { buildDraftMime, findDraftsFolder } from './draft-mime'
-import { simpleParser } from 'mailparser'
+import { simpleParser, type AddressObject } from 'mailparser'
+
+function firstAddr(a: AddressObject | AddressObject[] | undefined): { name?: string; address?: string } | undefined {
+  if (!a) return undefined
+  const obj = Array.isArray(a) ? a[0] : a
+  return obj?.value[0]
+}
 
 /**
  * A draft that renders differently from the mail eventually sent is worse than
@@ -20,8 +26,8 @@ describe('buildDraftMime', () => {
     const raw = await buildDraftMime(base)
     const parsed = await simpleParser(raw)
     expect(parsed.subject).toBe('Q3 Budget')
-    expect(parsed.from?.value[0].address).toBe('me@x.com')
-    expect(parsed.to?.value[0].address).toBe('ana@acme.com')
+    expect(firstAddr(parsed.from)?.address).toBe('me@x.com')
+    expect(firstAddr(parsed.to)?.address).toBe('ana@acme.com')
     expect(parsed.text?.trim()).toBe('Here are the numbers.')
   })
 
@@ -29,7 +35,7 @@ describe('buildDraftMime', () => {
     // "Hönig" must round-trip. Hand-rolled MIME gets RFC 2047 wrong here and it
     // only shows up on someone else's client.
     const parsed = await simpleParser(await buildDraftMime(base))
-    expect(parsed.from?.value[0].name).toBe('Clemens Hönig')
+    expect(firstAddr(parsed.from)?.name).toBe('Clemens Hönig')
   })
 
   it('encodes a non-ASCII subject and body', async () => {
@@ -44,7 +50,7 @@ describe('buildDraftMime', () => {
     const parsed = await simpleParser(
       await buildDraftMime({ ...base, cc: [{ address: 'c@x.com' }], bcc: [{ address: 'b@x.com' }] }),
     )
-    expect(parsed.cc?.value[0].address).toBe('c@x.com')
+    expect(firstAddr(parsed.cc)?.address).toBe('c@x.com')
   })
 
   it('keeps the threading headers, so a saved reply stays in its thread', async () => {

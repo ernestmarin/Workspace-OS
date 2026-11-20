@@ -49,7 +49,7 @@ const isReadable = (p: string): boolean => READABLE.has(path.extname(p).slice(1)
 /** The wiki's own pages and the app's folder are never sources. */
 const isOwn = (root: string, rel: string): boolean => {
   const wiki = contentRel(root, WIKI_DIR)
-  return rel === wiki || rel.startsWith(`${wiki}/`) || rel.startsWith('.workspace-os')
+  return rel === wiki || rel.startsWith(`${wiki}/`) || rel === '.workspace-os' || rel.startsWith('.workspace-os/')
 }
 
 /** A file, or a folder's readable files (a few levels deep, hidden and build folders skipped). */

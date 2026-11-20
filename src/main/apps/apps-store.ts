@@ -83,9 +83,22 @@ export function iconDataUrl(svg: string): string {
   return `data:image/svg+xml;base64,${Buffer.from(t).toString('base64')}`
 }
 
+function confinedAppFile(dir: string, candidate: string): string | null {
+  try {
+    if (fs.lstatSync(candidate).isSymbolicLink()) return null
+    const realDir = fs.realpathSync(dir)
+    const realFile = fs.realpathSync(candidate)
+    if (!realFile.startsWith(realDir + path.sep)) return null
+    return fs.statSync(realFile).isFile() ? realFile : null
+  } catch {
+    return null
+  }
+}
+
 function readIcon(dir: string): string {
   try {
-    return iconDataUrl(fs.readFileSync(path.join(dir, ICON_FILE), 'utf8'))
+    const f = confinedAppFile(dir, path.join(dir, ICON_FILE))
+    return f ? iconDataUrl(fs.readFileSync(f, 'utf8')) : ''
   } catch {
     return ''
   }
@@ -144,11 +157,12 @@ export function listApps(root: string): AppSummary[] {
   return out.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
-/** A file of the app's own folder, or null for anything that leaves it (.., absolute, URLs). */
+/** A file of the app's own folder, or null for anything that leaves it (.., absolute, URLs, symlinks). */
 function ownFile(dir: string, ref: string): string | null {
   if (!/^[\w./ -]+$/.test(ref) || ref.startsWith('/') || ref.includes('..') || /^[a-z]+:/i.test(ref)) return null
   const p = path.resolve(dir, ref)
-  return p.startsWith(dir + path.sep) && fs.existsSync(p) ? p : null
+  if (!p.startsWith(dir + path.sep)) return null
+  return confinedAppFile(dir, p)
 }
 
 /** Nothing from the network; inline scripts and styles, images and fonts from data: and blob:. */
@@ -198,7 +212,9 @@ export function composeApp(root: string, slug: string, kit: Kit, theme: 'light' 
   const manifest = readManifest(root, slug)
   if (!manifest) throw new Error('No such app')
   const dir = appDir(root, slug)
-  let html = fs.readFileSync(path.join(dir, manifest.entry), 'utf8')
+  const entryFile = ownFile(dir, manifest.entry)
+  if (!entryFile) throw new Error('App entry file is missing or leaves the app folder')
+  let html = fs.readFileSync(entryFile, 'utf8')
   // The app's own scripts and stylesheets, inlined; anything else is dropped (the CSP would refuse it anyway).
   html = html.replace(/<script\b([^>]*)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi, (_m, a: string, ref: string, b: string) => {
     const f = ownFile(dir, ref)
@@ -231,10 +247,17 @@ export function composeApp(root: string, slug: string, kit: Kit, theme: 'light' 
 const MAX_STORE = 5 * 1024 * 1024
 const storeFile = (root: string, slug: string): string => path.join(appDir(root, slug), 'data', 'store.json')
 
+const FORBIDDEN_STORE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 function readStore(root: string, slug: string): Record<string, unknown> {
   try {
     const v = JSON.parse(fs.readFileSync(storeFile(root, slug), 'utf8'))
-    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+    const clean: Record<string, unknown> = {}
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (!FORBIDDEN_STORE_KEYS.has(k)) clean[k] = val
+    }
+    return clean
   } catch {
     return {}
   }
@@ -243,10 +266,21 @@ function readStore(root: string, slug: string): Record<string, unknown> {
 export function storage(root: string, slug: string, op: 'get' | 'set' | 'remove' | 'keys', key?: string, value?: unknown): unknown {
   const all = readStore(root, slug)
   if (op === 'keys') return Object.keys(all)
-  if (typeof key !== 'string' || !key || key.length > 200) throw new Error('A storage key is a short string')
-  if (op === 'get') return all[key] ?? null
-  if (op === 'remove') delete all[key]
-  else all[key] = value === undefined ? null : value
+  if (typeof key !== 'string' || !key || key.length > 200) {
+    throw new Error('A storage key is a short string')
+  }
+  if (op === 'get') {
+    if (FORBIDDEN_STORE_KEYS.has(key)) return null
+    return Object.hasOwn(all, key) ? (all[key] ?? null) : null
+  }
+  if (FORBIDDEN_STORE_KEYS.has(key)) {
+    throw new Error('Forbidden storage key')
+  }
+  if (op === 'remove') {
+    if (Object.hasOwn(all, key)) delete all[key]
+  } else {
+    all[key] = value === undefined ? null : value
+  }
   const json = JSON.stringify(all)
   if (json.length > MAX_STORE) throw new Error('This app has stored more than 5 MB')
   fs.mkdirSync(path.dirname(storeFile(root, slug)), { recursive: true })
@@ -254,15 +288,15 @@ export function storage(root: string, slug: string, op: 'get' | 'set' | 'remove'
   return null
 }
 
-/** Copy a folder (a template into Apps/, or an app to its duplicate). Data stays behind. */
+/** Copy a folder (a template into Apps/, or an app to its duplicate). Data and symlinks stay behind. */
 export function copyApp(from: string, to: string): void {
   fs.mkdirSync(to, { recursive: true })
   for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-    if (e.name === 'data' || e.name.startsWith('.')) continue
+    if (e.name === 'data' || e.name.startsWith('.') || e.isSymbolicLink()) continue
     const a = path.join(from, e.name)
     const b = path.join(to, e.name)
     if (e.isDirectory()) copyApp(a, b)
-    else fs.copyFileSync(a, b)
+    else if (e.isFile()) fs.copyFileSync(a, b)
   }
 }
 
@@ -351,11 +385,14 @@ export function packageFiles(root: string, slug: string): Record<string, Uint8Ar
   const out: Record<string, Uint8Array> = {}
   const walk = (d: string, rel: string): void => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      if (e.name.startsWith('.') || (rel === '' && e.name === 'data')) continue
+      if (e.name.startsWith('.') || (rel === '' && e.name === 'data') || e.isSymbolicLink()) continue
       const p = path.join(d, e.name)
       const r = rel ? `${rel}/${e.name}` : e.name
       if (e.isDirectory()) walk(p, r)
-      else if (e.isFile() && PACKAGE_TYPES.test(e.name)) out[`${slug}/${r}`] = new Uint8Array(fs.readFileSync(p))
+      else if (e.isFile() && PACKAGE_TYPES.test(e.name)) {
+        const confined = confinedAppFile(dir, p)
+        if (confined) out[`${slug}/${r}`] = new Uint8Array(fs.readFileSync(confined))
+      }
     }
   }
   walk(dir, '')

@@ -7,6 +7,7 @@ import { activityStore } from '../Review/activityStore'
 import { emptyLedger, recordRun, type SessionLedger } from './budgetLedger'
 import { claimRun, settleRun, steerTarget } from './codexSteer'
 import { OwnedReplies, type ReplyReaderState } from './ownedReplies'
+import { ResponseStreamConsumer } from './responseConsumer'
 import type { AgentTermHandle } from './AgentXterm'
 import type { RunArtifact } from '../../types/workspace-api'
 import { basename as pathBase } from '../../lib/paths'
@@ -142,22 +143,46 @@ export function useAgentSession(
     onState: setReplySpeechState,
     onError: (message) => write(fmtError(message)),
   }), [write])
+  const structuredRunsRef = useRef(new Set<string>())
+  const responseConsumer = useMemo(() => new ResponseStreamConsumer({
+    onText: (runId, text) => replyReader.append(runId, text),
+    onFinish: (runId, ok) => {
+      structuredRunsRef.current.delete(runId)
+      replyReader.finish(runId, ok)
+    },
+    onCancel: (runId) => {
+      structuredRunsRef.current.delete(runId)
+      replyReader.cancel(runId)
+    },
+  }), [replyReader])
   const setSpeakReplies = useCallback((enabled: boolean) => {
     if (enabled) void replyReader.enable(sessionId)
-    else replyReader.disable()
-  }, [replyReader, sessionId])
-  const stopReplySpeech = useCallback(() => replyReader.stop(), [replyReader])
+    else {
+      responseConsumer.clear()
+      structuredRunsRef.current.clear()
+      replyReader.disable()
+    }
+  }, [replyReader, responseConsumer, sessionId])
+  const stopReplySpeech = useCallback(() => {
+    responseConsumer.clear()
+    structuredRunsRef.current.clear()
+    replyReader.stop()
+  }, [replyReader, responseConsumer])
   useEffect(() => {
-    const hide = (): void => replyReader.disable()
+    const hide = (): void => {
+      responseConsumer.clear()
+      structuredRunsRef.current.clear()
+      replyReader.disable()
+    }
     const visibility = (): void => { if (document.hidden) hide() }
     window.addEventListener('pagehide', hide)
     document.addEventListener('visibilitychange', visibility)
     return () => {
       window.removeEventListener('pagehide', hide)
       document.removeEventListener('visibilitychange', visibility)
-      replyReader.disable()
+      hide()
     }
-  }, [replyReader])
+  }, [replyReader, responseConsumer])
 
   const attachTerminal = useCallback((h: AgentTermHandle): void => {
     termRef.current = h
@@ -195,11 +220,20 @@ export function useAgentSession(
       if (ownedRuns.current.has(runId)) write(chunk)
     })
     const offAssistantText = window.workspace.agent.onAssistantText((runId, text) => {
-      if (ownedRuns.current.has(runId)) replyReader.append(runId, text)
+      if (ownedRuns.current.has(runId) && !structuredRunsRef.current.has(runId)) {
+        replyReader.append(runId, text)
+      }
     })
+    const offAssistantResponse = window.workspace.agent.onAssistantResponse?.((ev) => {
+      responseConsumer.push(ev)
+    }) ?? (() => {})
     const offDone = window.workspace.agent.onDone((runId, code, checkpointId) => {
       if (!ownedRuns.current.has(runId)) return
-      replyReader.finish(runId, code === 0)
+      if (!structuredRunsRef.current.has(runId)) {
+        replyReader.finish(runId, code === 0)
+      } else if (code !== 0) {
+        responseConsumer.discard(runId)
+      }
       ownedRuns.current.delete(runId)
       if (code !== 0) write(fmtError(`[agent exited with code ${code}]`))
       finishRun(runId, code, checkpointId)
@@ -239,13 +273,14 @@ export function useAgentSession(
     return () => {
       offOutput()
       offAssistantText()
+      offAssistantResponse()
       offDone()
       offArtifact()
       offArtifacts()
       offMeta()
       offActivity()
     }
-  }, [write, finishRun, replyReader])
+  }, [write, finishRun, replyReader, responseConsumer])
 
   const [personaModel, setPersonaModel] = useState<string>('')
   useEffect(() => {
@@ -280,8 +315,13 @@ export function useAgentSession(
         return
       }
       const runId = newRunId()
+      const convoId = convoRef.current
       ownedRuns.current.add(runId)
       replyReader.begin(runId)
+      if (typeof window.workspace.agent.onAssistantResponse === 'function') {
+        structuredRunsRef.current.add(runId)
+        responseConsumer.claim(runId, convoId)
+      }
       claimRun(ownedCodexRuns.current, runId, ctxRef.current.model || personaModel || settings.agentModel)
       setRunningRunIds((prev) => [...prev, runId])
       setLastPrompt(rawInput)
@@ -302,17 +342,30 @@ export function useAgentSession(
       // The open file is sent separately (it grounds the system prompt); dropped
       // files remain plain context.
       window.workspace.agent
-        .run(runId, prompt, ctxFiles, file, m, an, convoRef.current, mdl || null)
-        .then((result) => settleRun(ownedCodexRuns.current, runId, result.provider))
+        .run(runId, prompt, ctxFiles, file, m, an, convoId, mdl || null)
+        .then((result) => {
+          settleRun(ownedCodexRuns.current, runId, result.provider)
+          if (structuredRunsRef.current.has(runId)) {
+            if (result?.responseOwner) {
+              responseConsumer.acknowledge(runId, result.responseOwner)
+            } else {
+              // Legacy stub without responseOwner: fall back cleanly to onAssistantText + onDone.
+              structuredRunsRef.current.delete(runId)
+              responseConsumer.releaseClaim(runId)
+            }
+          }
+        })
         .catch((err: Error) => {
           ownedCodexRuns.current.delete(runId)
           ownedRuns.current.delete(runId)
+          structuredRunsRef.current.delete(runId)
+          responseConsumer.discard(runId)
           replyReader.cancel(runId)
           write(fmtError(`[error] ${err.message}`))
           finishRun(runId, null, null)
         })
     },
-    [sessionId, write, finishRun, runningRunIds, personaModel, settings.agentModel, replyReader]
+    [sessionId, write, finishRun, runningRunIds, personaModel, settings.agentModel, replyReader, responseConsumer]
   )
 
   const submit = useCallback(
@@ -355,6 +408,8 @@ export function useAgentSession(
         if (command.runLocal) {
           const result = command.runLocal(args, ctxRef.current)
           if (result.kind === 'clear') {
+            responseConsumer.clear()
+            structuredRunsRef.current.clear()
             replyReader.stop()
             termRef.current?.clear()
             convoRef.current = newConversationId() // /clear starts a fresh conversation
@@ -381,17 +436,19 @@ export function useAgentSession(
       // Bare text → ask the agent directly.
       startAgentRun(input, input)
     },
-    [recordHistory, write, startAgentRun, runningRunIds.length, sessionId, replyReader]
+    [recordHistory, write, startAgentRun, runningRunIds.length, sessionId, replyReader, responseConsumer]
   )
 
   const cancelAll = useCallback(() => {
+    responseConsumer.clear()
+    structuredRunsRef.current.clear()
     replyReader.stop()
     for (const runId of runningRunIds) {
       window.workspace.agent.cancel(runId)
     }
     if (runningRunIds.length) write(fmtSystem('[stopped]'))
     setRunningRunIds([])
-  }, [runningRunIds, write, replyReader])
+  }, [runningRunIds, write, replyReader, responseConsumer])
 
   const rerun = useCallback(() => {
     if (lastPrompt) submit(lastPrompt)
@@ -407,11 +464,13 @@ export function useAgentSession(
 
   const setModel = useCallback(
     (m: string) => {
+      responseConsumer.clear()
+      structuredRunsRef.current.clear()
       replyReader.stop()
       setModelState(m)
       sessionStore.update(sessionId, { model: m })
     },
-    [sessionId, replyReader]
+    [sessionId, replyReader, responseConsumer]
   )
   const setMode = useCallback(
     (m: AgentMode) => {
@@ -423,11 +482,13 @@ export function useAgentSession(
 
   const setAgentName = useCallback(
     (n: string | null) => {
+      responseConsumer.clear()
+      structuredRunsRef.current.clear()
       replyReader.stop()
       setAgentNameState(n)
       sessionStore.update(sessionId, { agentName: n })
     },
-    [sessionId, replyReader]
+    [sessionId, replyReader, responseConsumer]
   )
 
   const status: SessionStatus =

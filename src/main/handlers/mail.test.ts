@@ -15,7 +15,7 @@ import path from 'path'
  * envelope the coerced draft produced.
  */
 
-const sendMail = vi.fn(async () => ({ messageId: '<ok@x>', accepted: [], rejected: [] }))
+const sendMail = vi.fn(async (_msg: Record<string, unknown>) => ({ messageId: '<ok@x>', accepted: [], rejected: [] }))
 const verify = vi.fn(async () => true as const)
 
 vi.mock('electron', () => ({

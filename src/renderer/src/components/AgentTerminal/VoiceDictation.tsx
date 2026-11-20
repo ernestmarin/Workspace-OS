@@ -9,13 +9,31 @@ const MAX_BYTES = 5 * 1024 * 1024
 const SAMPLE_RATE = 16_000
 
 type Phase = 'idle' | 'requesting' | 'recording' | 'transcribing'
+export type VoiceInputMode = 'dictate' | 'commands'
 
-/** Short push-to-talk dictation: result is placed in the input for user review. */
-export function VoiceDictation({ active, onTranscript }: { active: boolean; onTranscript: (text: string) => void }): JSX.Element {
+export interface FinalVoiceCommandCapture {
+  text: string
+  language: 'es' | 'en'
+  transcriptId: string
+}
+
+/** Short push-to-talk dictation (default) or explicit review-only interface command capture (VOX-U3). */
+export function VoiceDictation({
+  active,
+  onTranscript,
+  onFinalCommand,
+}: {
+  active: boolean
+  onTranscript: (text: string) => void
+  onFinalCommand?: (capture: FinalVoiceCommandCapture) => void
+}): JSX.Element {
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState('')
   const [autoEnd, setAutoEnd] = useState(false)
   const [language, setLanguage] = useState<VoiceLanguage>('es')
+  const [inputMode, setInputMode] = useState<VoiceInputMode>('dictate')
+  const commandsSupported = Boolean(onFinalCommand) && (language === 'es' || language === 'en')
+  const effectiveInputMode: VoiceInputMode = commandsSupported ? inputMode : 'dictate'
   const labels = dictationText(language)
   const deviceLabels = dictationDeviceText(language)
   const [deviceId, setDeviceId] = useState('')
@@ -159,7 +177,11 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
             if (!valid()) return
             transcribing.current = null
             if (!text) throw new Error('No speech was recognized.')
-            onTranscript(text)
+            if (effectiveInputMode === 'commands' && onFinalCommand && (language === 'es' || language === 'en')) {
+              onFinalCommand({ text, language, transcriptId: job })
+            } else {
+              onTranscript(text)
+            }
           } catch (e) {
             if (valid()) transcribing.current = null
             if (valid()) setError(e instanceof Error ? e.message : 'Local transcription failed.')
@@ -189,7 +211,7 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
     } catch (e) {
       if (valid()) { discard(); setError(e instanceof Error ? e.message : 'Could not start dictation.'); setPhase('idle') }
     }
-  }, [active, phase, autoEnd, language, deviceId, discard, onTranscript])
+  }, [active, phase, autoEnd, language, deviceId, discard, onTranscript, effectiveInputMode, onFinalCommand])
 
   const stop = useCallback(() => {
     if (recorder.current?.state === 'recording') recorder.current.stop()
@@ -200,11 +222,27 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
     <label>{labels.language}{' '}
       <select aria-label="Dictation language" value={language} disabled={!active || phase !== 'idle'} onChange={(event) => {
         const value = event.target.value
-        if (SUPPORTED_VOICE_LANGUAGES.some((entry) => entry.code === value)) setLanguage(value as VoiceLanguage)
+        if (SUPPORTED_VOICE_LANGUAGES.some((entry) => entry.code === value)) {
+          setLanguage(value as VoiceLanguage)
+          if (value !== 'es' && value !== 'en') setInputMode('dictate')
+        }
       }}>
         {SUPPORTED_VOICE_LANGUAGES.map((entry) => <option key={entry.code} value={entry.code} lang={entry.code}>{entry.name}</option>)}
       </select>
     </label>{' '}
+    {commandsSupported && (
+      <>
+        <select
+          aria-label="Voice input mode"
+          value={effectiveInputMode}
+          disabled={!active || phase !== 'idle'}
+          onChange={(event) => setInputMode(event.target.value === 'commands' ? 'commands' : 'dictate')}
+        >
+          <option value="dictate">{language === 'es' ? 'Dictar' : 'Dictate'}</option>
+          <option value="commands">{language === 'es' ? 'Comando (revisar)' : 'Command (review)'}</option>
+        </select>{' '}
+      </>
+    )}
     <label title={labels.autoStopTitle}>
       <input type="checkbox" checked={autoEnd} disabled={!active || phase !== 'idle'} onChange={(event) => setAutoEnd(event.target.checked)} /> {labels.autoStop}
     </label>{' '}

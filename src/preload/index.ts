@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../main/ipc-channels'
-import type { AgentRunFailure } from '../shared/agentRun'
+import { isAssistantResponseEvent, type AgentRunFailure, type AssistantResponseEvent } from '../shared/agentRun'
 import type { PlaybackMessage, SpeechUiEvent } from '../shared/speech/playback'
 import type { ReplySpeechApi } from '../shared/speech/replies'
 
@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('workspace', {
     cancelKokoroInstall: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_INSTALL_CANCEL),
     prepareKokoro: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_PREPARE),
     config: () => ipcRenderer.invoke(IPC.SPEECH_CONFIG),
-    selectEngine: (engine: 'kokoro' | 'openai', voice: string) => ipcRenderer.invoke(IPC.SPEECH_SELECT_ENGINE, engine, voice),
+    selectEngine: (engine: 'kokoro' | 'openai' | 'piper', voice: string) => ipcRenderer.invoke(IPC.SPEECH_SELECT_ENGINE, engine, voice),
     setOpenAiKey: (value: string) => ipcRenderer.invoke(IPC.SPEECH_SET_KEY, value),
     keyStatus: () => ipcRenderer.invoke(IPC.SPEECH_KEY_STATUS),
     playbackDone: (id: string, ok: boolean) => ipcRenderer.invoke(IPC.SPEECH_PLAYBACK_DONE, id, ok),
@@ -290,6 +290,13 @@ contextBridge.exposeInMainWorld('workspace', {
       const handler = (_e: Electron.IpcRendererEvent, runId: string, text: string) => callback(runId, text)
       ipcRenderer.on(IPC.AGENT_ASSISTANT_TEXT, handler)
       return () => ipcRenderer.removeListener(IPC.AGENT_ASSISTANT_TEXT, handler)
+    },
+    onAssistantResponse: (callback: (event: AssistantResponseEvent) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, event: unknown) => {
+        if (isAssistantResponseEvent(event)) callback(event)
+      }
+      ipcRenderer.on(IPC.AGENT_ASSISTANT_RESPONSE, handler)
+      return () => ipcRenderer.removeListener(IPC.AGENT_ASSISTANT_RESPONSE, handler)
     },
     onDone: (callback: (runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) =>
@@ -630,7 +637,10 @@ contextBridge.exposeInMainWorld('workspace', {
     watchStop: (accountId: string) => ipcRenderer.invoke(IPC.MAIL_WATCH_STOP, accountId),
     /** Subscribe to new-mail events. Returns an unsubscribe function. */
     onNewMail: (cb: (e: { accountId: string; folder: string; count: number; latest: { subject: string; from: string } | null }) => void) => {
-      const handler = (_e: unknown, payload: never): void => cb(payload)
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        payload: { accountId: string; folder: string; count: number; latest: { subject: string; from: string } | null },
+      ): void => cb(payload)
       ipcRenderer.on(IPC.MAIL_NEW_MAIL, handler)
       return () => ipcRenderer.removeListener(IPC.MAIL_NEW_MAIL, handler)
     },

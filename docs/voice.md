@@ -5,16 +5,19 @@ See the
 for completed code, partial work, remaining scope and release validation gates.
 The [conversation plan and Hugging Face reference review](voice-conversation-plan.md#hugging-face-speech-to-speech-reference-review-2026-11-20)
 cover voice control of the WOS interface and conversation with the existing
-agents, without replacing their context or approval paths. A pure es/en command
-proposal helper now exists, but preview/confirmation, UI actions and microphone
-wiring for commands are **not implemented**. Dictation still only fills a draft.
+agents, without replacing their context or approval paths. An explicit **Voice
+commands** mode (`VoiceDictation.tsx`) now routes owned finalized es/en transcripts
+through a one-shot visual confirmation banner (`Confirm command` / `Dismiss` in
+`TerminalSession.tsx`) to five reversible navigation/focus callbacks; ordinary
+**Dictate** mode still only fills a draft and never submits or executes actions.
 
-The current integration provides batch text-to-speech with OpenAI and an
-experimental local Kokoro path. Each fragment is fully synthesized before
+The current integration provides batch text-to-speech with OpenAI, an
+experimental English local Kokoro path, and a local Spanish/multilingual **Piper**
+ONNX adapter (`src/main/speech/engines/piper.ts`). Each fragment is fully synthesized before
 playback, with optional bounded lookahead. Experimental push-to-talk dictation
 requires review before sending. Streaming TTS and two-way real-time conversation
-are not implemented. Other engines, browser word highlighting, the HUD and history are
-not yet implemented. Voice is not production-ready or end-to-end validated.
+are not implemented. Browser word highlighting, the HUD and history are
+not yet implemented. Voice is not production-ready or real-device end-to-end validated.
 
 ## Kokoro: manual setup
 
@@ -141,14 +144,17 @@ failed or cancelled replies rather than truncating or changing engines.
 Late consent/reservation acknowledgements cannot revive a disabled reader.
 Reload/crash/close also cancel document speech, transcription, grants and setup,
 and reject late playback into a replacement document. POSIX batch-process groups
-are cleaned up; Windows descendant cleanup remains unvalidated/incomplete.
+are cleaned up, and Windows child trees escalate to `taskkill.exe /PID <pid> /T`
+(real Windows host validation remains open).
 
 These tab/run ownership paths have simulated hook/control/IPC regressions, not
-real Electron/device acceptance. They do **not** provide response-owned streaming,
-continuous STT/TTS, trained VAD, heard-context tracking or full-duplex barge-in.
-The new response-provenance contract/optional Codex sink is also not connected to
-the normal main/preload/renderer path; it does not change the reader above or add
-audio streaming. Item generation, run completion and audible drain are distinct.
+real Electron/device acceptance. End-to-end A1c/A1d response provenance (Codex
+and Claude adapters, main-minted `responseOwner` epoch, originating-document-bound
+`AGENT_ASSISTANT_RESPONSE` IPC, schema-checked preload, and `ResponseStreamConsumer`
+completed-mode assembly) is now wired in `useAgentSession.ts`, while preserving
+completed-run default behavior. Continuous STT/TTS, trained VAD, heard-context
+tracking and full-duplex barge-in remain open. Item generation, run completion
+and audible drain are distinct.
 See the [current checkpoint and atomic next gates](voice-conversation-plan.md#response-provenance-and-interface-proposals-checkpoint-2026-11-20)
 and [historical audit/security blockers](voice-conversation-plan.md#red-team-audit-after-pr-6-2026-11-20).
 No fully offline, secure/release-ready or real-time conversation claim is made.

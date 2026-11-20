@@ -124,3 +124,40 @@ describe('relative paths', () => {
     expect(() => validateOpenPath(evil)).toThrow(/control character/)
   })
 })
+
+describe('dangling and looping symlink escapes (SEC-01)', () => {
+  let root: string
+  let outside: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-sec01-root-'))
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-sec01-out-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  })
+
+  it('rejects a dangling leaf symlink inside the workspace pointing to a non-existent file outside', () => {
+    const outsideTarget = path.join(outside, 'created-via-dangling-link.txt')
+    const danglingLeaf = path.join(root, 'innocent.txt')
+    fs.symlinkSync(outsideTarget, danglingLeaf)
+    expect(() => validateFilePath(danglingLeaf, root)).toThrow(IpcValidationError)
+  })
+
+  it('rejects a path beneath an intermediate dangling symlink pointing outside', () => {
+    const outsideSubdir = path.join(outside, 'missing-subdir')
+    const danglingDir = path.join(root, 'linked-dir')
+    fs.symlinkSync(outsideSubdir, danglingDir)
+    expect(() => validateFilePath(path.join(danglingDir, 'evil.txt'), root)).toThrow(IpcValidationError)
+  })
+
+  it('rejects a symlink loop (ELOOP) instead of treating it as a fresh leaf', () => {
+    const loopA = path.join(root, 'loop-a')
+    const loopB = path.join(root, 'loop-b')
+    fs.symlinkSync(loopB, loopA)
+    fs.symlinkSync(loopA, loopB)
+    expect(() => validateFilePath(loopA, root)).toThrow(IpcValidationError)
+  })
+})

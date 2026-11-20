@@ -39,6 +39,11 @@ export function registerShellHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
   ipcHandle(ipcMain, IPC.SHELL_SPAWN, (event, sessionId: unknown) => {
     assertMainFrame(event)
     if (typeof sessionId !== 'string' || !sessionId) return
+    const prev = sessions.get(sessionId)
+    if (prev) {
+      sessions.delete(sessionId)
+      try { prev.process.kill() } catch { /* already dead */ }
+    }
 
     const isWin = process.platform === 'win32'
     const shell = isWin ? 'powershell.exe' : process.env['SHELL'] ?? '/bin/zsh'
@@ -67,24 +72,31 @@ export function registerShellHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
     proc.onData((data: string) => {
       sendToWindow(IPC.SHELL_OUTPUT, sessionId, data)
     })
+    proc.onExit(() => {
+      if (sessions.get(sessionId)?.process !== proc) return
+      sessions.delete(sessionId)
+    })
 
     sessions.set(sessionId, { process: proc })
     return { pid: proc.pid }
   })
 
-  ipcHandle(ipcMain, IPC.SHELL_INPUT, (_event, sessionId: unknown, input: unknown) => {
+  ipcHandle(ipcMain, IPC.SHELL_INPUT, (event, sessionId: unknown, input: unknown) => {
+    assertMainFrame(event)
     if (typeof sessionId !== 'string') return
     const text = validateShellInput(input)
     sessions.get(sessionId)?.process.write(text)
   })
 
-  ipcHandle(ipcMain, IPC.SHELL_RESIZE, (_event, sessionId: unknown, cols: unknown, rows: unknown) => {
+  ipcHandle(ipcMain, IPC.SHELL_RESIZE, (event, sessionId: unknown, cols: unknown, rows: unknown) => {
+    assertMainFrame(event)
     if (typeof sessionId !== 'string') return
     const { cols: c, rows: r } = validateShellResize(cols, rows)
     sessions.get(sessionId)?.process.resize(c, r)
   })
 
-  ipcHandle(ipcMain, IPC.SHELL_KILL, (_event, sessionId: unknown) => {
+  ipcHandle(ipcMain, IPC.SHELL_KILL, (event, sessionId: unknown) => {
+    assertMainFrame(event)
     if (typeof sessionId !== 'string') return
     const session = sessions.get(sessionId)
     if (session) {

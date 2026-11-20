@@ -156,6 +156,9 @@ describe('document-owned completed-reply reading sessions', () => {
     cfg.tts.profiles[0].engine = 'openai'
     expect(replyDestination(cfg).remote).toBe(true)
     cfg.tts.profiles[0].engine = 'piper'
+    cfg.tts.profiles[0].voice = 'es_ES-davefx-medium'
+    expect(replyDestination(cfg)).toEqual({ engine: 'piper', voice: 'es_ES-davefx-medium', remote: false })
+    cfg.tts.profiles[0].engine = 'elevenlabs'
     expect(() => replyDestination(cfg)).toThrow(/implemented/i)
   })
 })

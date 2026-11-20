@@ -395,3 +395,23 @@ describe('inline cid: images', () => {
     expect(m.attachments.some((a) => a.inline && a.cid === 'logo123')).toBe(true)
   })
 })
+
+describe('threading headers', () => {
+  it('lifts In-Reply-To and References so mail-sync can link threads', async () => {
+    const raw = [
+      'From: sender@example.com',
+      'To: reader@example.com',
+      'Subject: Re: Thread',
+      'Message-ID: <msg-3@example.com>',
+      'In-Reply-To: <msg-2@example.com>',
+      'References: <msg-1@example.com> <msg-2@example.com>',
+      '',
+      'Reply body',
+      '',
+    ].join('\r\n')
+    const m = await parseMessage(raw)
+    expect(m.headers['in-reply-to']).toBe('<msg-2@example.com>')
+    expect(m.headers.references).toContain('<msg-1@example.com>')
+    expect(m.headers.references).toContain('<msg-2@example.com>')
+  })
+})

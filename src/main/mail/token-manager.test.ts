@@ -18,12 +18,13 @@ function fakeStore(refreshToken: string | null): MailAccountStore {
 /** A fake fetch returning a scripted token response and counting calls. */
 function fakeFetch(body: unknown, ok = true): FetchFn & { count: () => number } {
   let n = 0
-  const fn = (async () => {
-    n++
-    return { ok, status: ok ? 200 : 400, json: async () => body }
-  }) as FetchFn & { count: () => number }
-  fn.count = () => n
-  return fn
+  return Object.assign(
+    async (_url: string, _init?: RequestInit) => {
+      n++
+      return { ok, status: ok ? 200 : 400, json: async () => body }
+    },
+    { count: () => n },
+  )
 }
 
 const CLIENT = () => 'CID.apps.googleusercontent.com'

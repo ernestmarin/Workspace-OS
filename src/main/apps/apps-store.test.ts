@@ -203,3 +203,44 @@ describe('export and import', () => {
     expect(flat.manifest.name).toBe('Flat thing')
   })
 })
+
+describe('symlink confinement and prototype pollution guards (SEC-03)', () => {
+  let outside: string
+  beforeEach(() => {
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-apps-out-'))
+    fs.writeFileSync(path.join(outside, 'secret.js'), 'window.LEAK = "EXTERNAL_SECRET"')
+    fs.writeFileSync(path.join(outside, 'secret.html'), '<html><body>EXTERNAL_HTML</body></html>')
+  })
+  afterEach(() => fs.rmSync(outside, { recursive: true, force: true }))
+
+  it('never inlines a symlinked script or entry pointing outside the app folder', () => {
+    write('Apps/sym/index.html', '<html><head></head><body><script src="leak.js"></script></body></html>')
+    fs.symlinkSync(path.join(outside, 'secret.js'), path.join(root, 'Apps/sym/leak.js'))
+    const { html } = composeApp(root, 'sym', kit, 'light')
+    expect(html).not.toContain('EXTERNAL_SECRET')
+
+    write('Apps/symentry/app.json', JSON.stringify({ name: 'SymEntry' }))
+    fs.mkdirSync(path.join(root, 'Apps/symentry'), { recursive: true })
+    fs.symlinkSync(path.join(outside, 'secret.html'), path.join(root, 'Apps/symentry/index.html'))
+    expect(() => composeApp(root, 'symentry', kit, 'light')).toThrow()
+  })
+
+  it('skips symlinks during packageFiles and copyApp', () => {
+    write('Apps/pkg/index.html', '<h1>ok</h1>')
+    fs.symlinkSync(path.join(outside, 'secret.js'), path.join(root, 'Apps/pkg/leak.js'))
+    const files = packageFiles(root, 'pkg')
+    expect(Object.keys(files)).not.toContain('pkg/leak.js')
+
+    copyApp(path.join(root, 'Apps/pkg'), path.join(root, 'Apps/pkg-copy'))
+    expect(fs.existsSync(path.join(root, 'Apps/pkg-copy/leak.js'))).toBe(false)
+  })
+
+  it('rejects prototype-polluting storage keys and returns null for inherited Object keys', () => {
+    write('Apps/proto/index.html', 'x')
+    expect(() => storage(root, 'proto', 'set', '__proto__', { polluted: true })).toThrow()
+    expect(() => storage(root, 'proto', 'set', 'constructor', 1)).toThrow()
+    expect(() => storage(root, 'proto', 'set', 'prototype', 1)).toThrow()
+    expect(storage(root, 'proto', 'get', 'toString')).toBeNull()
+    expect(storage(root, 'proto', 'get', 'constructor')).toBeNull()
+  })
+})

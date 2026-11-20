@@ -30,12 +30,13 @@ function sanitizeRead(filePath: unknown): string {
 function isInternalPath(resolved: string): boolean {
   const root = getWorkspaceRoot()
   if (!root) return false
-  return resolved.startsWith(path.join(root, '.workspace-os'))
+  const internalRoot = path.resolve(root, '.workspace-os')
+  return resolved === internalRoot || resolved.startsWith(internalRoot + path.sep)
 }
 
 async function exists(p: string): Promise<boolean> {
   try {
-    await fs.access(p)
+    await fs.lstat(p)
     return true
   } catch {
     return false
@@ -139,10 +140,8 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
 
   ipcHandle(ipcMain, IPC.FS_DELETE, async (_event, filePath: unknown) => {
     const resolved = sanitize(filePath)
-    // Deleting inside the trash store is permanent; everything else is recoverable.
     if (isInternalPath(resolved)) {
-      await fs.rm(resolved, { recursive: true, force: false })
-      return
+      throw new IpcValidationError('Cannot delete internal store (.workspace-os)')
     }
     const stat = await fs.stat(resolved)
     await trash.moveToTrash(resolved, 'delete', stat.isDirectory(), true)
@@ -152,9 +151,12 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
     const resolvedOld = sanitize(oldPath)
     const name = validateFileName(newName)
     const newPath = path.join(path.dirname(resolvedOld), name)
-    // Ensure new path is also within root
-    sanitize(newPath)
-    await fs.rename(resolvedOld, newPath)
+    // Ensure new path is also within root and does not silently clobber an existing entry.
+    const resolvedNew = sanitize(newPath)
+    if (resolvedNew !== resolvedOld && (await exists(resolvedNew))) {
+      throw new Error(`Destination already exists: ${name}`)
+    }
+    await fs.rename(resolvedOld, resolvedNew)
   })
 
   ipcHandle(ipcMain, IPC.FS_CREATE, async (_event, dirPath: unknown, name: unknown, isDirectory: unknown) => {
@@ -165,7 +167,7 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
     if (isDirectory === true) {
       await fs.mkdir(target)
     } else {
-      await fs.writeFile(target, '', 'utf-8')
+      await fs.writeFile(target, '', { encoding: 'utf-8', flag: 'wx' })
     }
     return target
   })

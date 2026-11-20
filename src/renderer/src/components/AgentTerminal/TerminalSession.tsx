@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAgentSession, type SessionStatus } from './useAgentSession'
 import { useAgentMenu } from '../../hooks/useAgentMenu'
 import { TerminalInput } from './TerminalInput'
-import { VoiceDictation } from './VoiceDictation'
+import { VoiceDictation, type FinalVoiceCommandCapture } from './VoiceDictation'
+import { InterfaceCommandController, type InterfaceCommandCallbacks, type PendingInterfaceCommand } from './interfaceCommandController'
 import { NewAgentForm } from './NewAgentForm'
 import { AgentXterm } from './AgentXterm'
 import { AgentPtySession } from './AgentPtySession'
@@ -27,6 +28,8 @@ interface TerminalSessionProps {
   active?: boolean
   /** Reports running/idle/error so the tab strip can show a status dot. */
   onStatusChange?: (status: SessionStatus) => void
+  /** Optional reversible navigation/focus callbacks for visually-confirmed voice interface commands (VOX-U2b). */
+  interfaceCommandActions?: InterfaceCommandCallbacks
 }
 
 function basename(p: string): string {
@@ -45,6 +48,7 @@ export function TerminalSession({
   onOpenFile,
   active = true,
   onStatusChange,
+  interfaceCommandActions,
 }: TerminalSessionProps): JSX.Element {
   const agentModels = useAgentModels()
   const [contextFiles, setContextFiles] = useState<string[]>([])
@@ -78,8 +82,64 @@ export function TerminalSession({
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [dictatedText, setDictatedText] = useState<string | null>(null)
+  const [focusSignal, setFocusSignal] = useState(0)
   const acceptDictation = useCallback((text: string) => setDictatedText(text), [])
   const consumeDictation = useCallback(() => setDictatedText(null), [])
+
+  // One-shot visual confirmation state for reversible voice interface commands (VOX-U2 & VOX-U3).
+  const commandControllerRef = useRef<InterfaceCommandController | null>(null)
+  if (!commandControllerRef.current) commandControllerRef.current = new InterfaceCommandController()
+  const commandEpochRef = useRef(1)
+  const [pendingVoiceCommand, setPendingVoiceCommand] = useState<PendingInterfaceCommand | null>(null)
+
+  const invalidateVoiceCommands = useCallback(() => {
+    commandEpochRef.current += 1
+    commandControllerRef.current?.invalidate()
+    setPendingVoiceCommand(null)
+  }, [])
+
+  useEffect(() => {
+    if (!active || runMode !== 'prompt') invalidateVoiceCommands()
+  }, [active, runMode, invalidateVoiceCommands])
+
+  useEffect(() => {
+    const onVisibility = (): void => { if (document.hidden) invalidateVoiceCommands() }
+    window.addEventListener('pagehide', invalidateVoiceCommands)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', invalidateVoiceCommands)
+      document.removeEventListener('visibilitychange', onVisibility)
+      invalidateVoiceCommands()
+    }
+  }, [invalidateVoiceCommands])
+
+  const handleFinalVoiceCommand = useCallback((capture: FinalVoiceCommandCapture) => {
+    const ctx = { documentId: 'workspace-main', tabId: sessionId, epoch: commandEpochRef.current }
+    const proposal = commandControllerRef.current!.ingestFinalTranscript(
+      'commands',
+      ctx,
+      { type: 'final', id: capture.transcriptId, context: ctx, text: capture.text },
+      capture.language,
+    )
+    setPendingVoiceCommand(proposal)
+  }, [sessionId])
+
+  const confirmVoiceCommand = useCallback(() => {
+    if (!pendingVoiceCommand) return
+    const ctx = { documentId: 'workspace-main', tabId: sessionId, epoch: commandEpochRef.current }
+    const callbacks: InterfaceCommandCallbacks = {
+      'focus-agent-input': () => setFocusSignal((n) => n + 1),
+      'show-agent': () => setFocusSignal((n) => n + 1),
+      ...interfaceCommandActions,
+    }
+    commandControllerRef.current!.confirm(pendingVoiceCommand.proposalId, ctx, callbacks)
+    setPendingVoiceCommand(null)
+  }, [pendingVoiceCommand, sessionId, interfaceCommandActions])
+
+  const dismissVoiceCommand = useCallback(() => {
+    commandControllerRef.current?.invalidate()
+    setPendingVoiceCommand(null)
+  }, [])
 
   const loadAgents = useCallback(() => {
     window.workspace.agents.list().then((a) => setAgents(a.map((x) => ({ name: x.name, mode: x.mode, model: x.model })))).catch(() => {})
@@ -210,7 +270,7 @@ export function TerminalSession({
           </button>
         )}
 
-        <VoiceDictation active={active} onTranscript={acceptDictation} />
+        <VoiceDictation active={active} onTranscript={acceptDictation} onFinalCommand={handleFinalVoiceCommand} />
 
         <span className={styles.statusArea} data-status={status}>
           {status === 'running' && <span className={styles.statusRunning}>● running{runningCount > 1 ? ` ×${runningCount}` : ''}</span>}
@@ -247,7 +307,23 @@ export function TerminalSession({
         ))}
       </div>
 
-      <TerminalInput history={history} onSubmit={submit} dictatedText={dictatedText} onDictationConsumed={consumeDictation} />
+      {pendingVoiceCommand && (
+        <div role="region" aria-label="Voice command confirmation" className={styles.contextBar}>
+          <span>
+            {pendingVoiceCommand.proposal.language === 'es' ? 'Comando propuesto:' : 'Proposed command:'}{' '}
+            <strong>{pendingVoiceCommand.proposal.label}</strong>{' '}
+            («{pendingVoiceCommand.proposal.heardText}»)
+          </span>
+          <button type="button" className={styles.modeToggle} onClick={confirmVoiceCommand}>
+            {pendingVoiceCommand.proposal.language === 'es' ? 'Confirmar comando' : 'Confirm command'}
+          </button>
+          <button type="button" className={styles.modeToggle} onClick={dismissVoiceCommand}>
+            {pendingVoiceCommand.proposal.language === 'es' ? 'Descartar' : 'Dismiss'}
+          </button>
+        </div>
+      )}
+
+      <TerminalInput history={history} onSubmit={submit} dictatedText={dictatedText} onDictationConsumed={consumeDictation} focusSignal={focusSignal} />
 
       {showNewAgent && (
         <NewAgentForm

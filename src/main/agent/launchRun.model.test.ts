@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isValidModelAlias, missingGitWarning, modelArgs, modelsUsed } from './launchRun'
+import { grants } from './grants'
+import { isValidModelAlias, issueRunGrant, missingGitWarning, modelArgs, modelsUsed } from './launchRun'
 
 describe('launchRun — model selection', () => {
   it('accepts aliases and first-party ids, rejects anything else', () => {
@@ -29,5 +30,17 @@ describe('launchRun — checkpoints without Git', () => {
     expect(missingGitWarning('win32')).toContain('winget install --id Git.Git --exact')
     expect(missingGitWarning('darwin')).toContain('xcode-select --install')
     expect(missingGitWarning('linux')).toMatch(/^\[warning\] Git was not found, so this run has no revert checkpoint/)
+  })
+})
+
+describe('launchRun — workspace-bound grants across providers (SEC-06)', () => {
+  it('binds issued run grants to the active workspace root regardless of provider', () => {
+    const tok = issueRunGrant('claude-run-sec06', 'all', 'dock', '/ws/alpha')
+    try {
+      const g = grants.lookup(tok)
+      expect(g?.root).toBe('/ws/alpha')
+    } finally {
+      grants.revoke('claude-run-sec06')
+    }
   })
 })

@@ -1,7 +1,7 @@
 import { IpcMain, app } from 'electron'
 import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
-import { CalendarSourceStore, type CalendarSourceKind } from '../calendar/account-store'
+import { CalendarSourceStore } from '../calendar/account-store'
 import { safeSecretStore } from '../mail/safe-secret-store'
 import {
   readCalendar,
@@ -17,7 +17,7 @@ import {
 } from '../calendar/calendar-service'
 import { isOAuthKind } from '../calendar/account-store'
 import { runGoogleOAuthFlow, runMicrosoftOAuthFlow } from '../mail/oauth/oauth-flow'
-import { refreshAccessToken as refreshGoogle, EMAIL_SCOPE } from '../mail/oauth/google-oauth'
+import { refreshAccessToken as refreshGoogle, EMAIL_SCOPE, type FetchFn } from '../mail/oauth/google-oauth'
 import { refreshAccessToken as refreshMicrosoft } from '../mail/oauth/microsoft-oauth'
 import { resolveGoogleClientId, resolveMicrosoftClientId } from '../mail/oauth/client-config'
 import { GOOGLE_CALENDAR_SCOPE, MS_CALENDAR_SCOPE } from '../calendar/cloud-providers'
@@ -101,7 +101,7 @@ export async function runCalendarAction(
  */
 
 /** Node fetch adapter matching the OAuth modules' FetchFn shape. */
-const nodeFetch = ((url: string, init?: RequestInit) => fetch(url, init)) as never
+const nodeFetch: FetchFn = (url, init) => fetch(url, init)
 
 /**
  * Access tokens are minted per request from the stored refresh token and never
@@ -118,8 +118,8 @@ const accessTokenFor: AccessTokenFor = async (source, refreshToken) => {
     : resolveMicrosoftClientId(app.getPath('userData'))
   if (!clientId) throw new Error('This build has no OAuth client id configured for that provider.')
   const res = source.kind === 'google'
-    ? await refreshGoogle(clientId, refreshToken, nodeFetch)
-    : await refreshMicrosoft(clientId, refreshToken, nodeFetch)
+    ? await refreshGoogle({ clientId, refreshToken }, nodeFetch)
+    : await refreshMicrosoft({ clientId, refreshToken, scopes: [MS_CALENDAR_SCOPE, 'offline_access'] }, nodeFetch)
   if (!res.ok) throw new Error('Could not refresh the sign-in — reconnect this calendar.')
   tokenCache.set(source.id, { token: res.value.accessToken, expiresAt: res.value.expiresAt })
   return res.value.accessToken
@@ -173,7 +173,7 @@ function assertFeedUrl(value: unknown): string {
   return raw
 }
 
-function assertKind(value: unknown): CalendarSourceKind {
+function assertKind(value: unknown): 'caldav' | 'ics' {
   if (value !== 'caldav' && value !== 'ics') throw new IpcValidationError('Unsupported calendar type')
   return value
 }

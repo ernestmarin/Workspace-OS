@@ -115,4 +115,52 @@ describe('existing agent-session reply speech integration', () => {
     expect(speech.closeReplySession).toHaveBeenCalledExactlyOnceWith('lease')
     expect(speech.reserveReply).not.toHaveBeenCalled()
   })
+
+  it('consumes main-acknowledged AssistantResponseEvent provenance with early-event buffering and quarantines speech-only on source-error (VOX-A1d.3)', async () => {
+    agent.onAssistantResponse = vi.fn((cb: (...args: any[]) => void) => { callbacks.onAssistantResponse = cb; return vi.fn() })
+    await tick(() => root.unmount())
+    root = createRoot(element)
+    await tick(() => root.render(<Probe />))
+    await tick(() => current.setSpeakReplies(true))
+
+    let resolveRun!: (v: any) => void
+    agent.run.mockReturnValueOnce(new Promise((r) => { resolveRun = r }))
+    await tick(() => current.submit('Provenance test'))
+    const run = agent.run.mock.calls[0][0] as string
+    const owner = { sessionId: 'existing-conversation', runId: run, epoch: 'epoch-ack-1' }
+    const source = { provider: 'claude' as const, sessionId: '550e8400-e29b-41d4-a716-446655440000', turnId: null }
+
+    // Early response events arrive before agent.run resolves with responseOwner
+    await tick(() => {
+      callbacks.onAssistantResponse({ type: 'response-start', owner, source, sequence: 1, responseId: 'msg_1:b0' })
+      callbacks.onAssistantResponse({ type: 'text-delta', owner, source, sequence: 2, responseId: 'msg_1:b0', text: 'Verified **owned** reply.' })
+    })
+    expect(speech.finishReply).not.toHaveBeenCalled()
+
+    await tick(() => resolveRun({ provider: 'claude', responseOwner: owner }))
+    await tick(() => {
+      callbacks.onAssistantResponse({ type: 'response-end', owner, source, sequence: 3, responseId: 'msg_1:b0', outcome: 'completed' })
+      callbacks.onAssistantResponse({ type: 'run-end', owner, source, sequence: 4, outcome: 'completed' })
+      callbacks.onDone(run, 0, 'cp-1')
+    })
+    expect(speech.finishReply).toHaveBeenCalledExactlyOnceWith('lease', run, 'Verified owned reply.')
+    expect(agent.cancel).not.toHaveBeenCalled()
+
+    // Second run hits source-error: cancels ONLY owned speech while keeping agent + Review intact
+    speech.finishReply.mockClear()
+    agent.run.mockImplementationOnce(async (rId: string) => ({
+      provider: 'claude',
+      responseOwner: { sessionId: 'existing-conversation', runId: rId, epoch: 'epoch-ack-2' },
+    }))
+    await tick(() => current.submit('Overflowing prose'))
+    const run2 = agent.run.mock.calls[1][0] as string
+    const owner2 = { sessionId: 'existing-conversation', runId: run2, epoch: 'epoch-ack-2' }
+    await tick(() => {
+      callbacks.onAssistantResponse({ type: 'source-error', owner: owner2, source, sequence: 1, reason: 'text-limit' })
+      callbacks.onDone(run2, 0, 'cp-2')
+    })
+    expect(speech.finishReply).toHaveBeenCalledExactlyOnceWith('lease', run2, null)
+    expect(agent.cancel).not.toHaveBeenCalled()
+    expect(mock.review.patchRun).toHaveBeenCalledWith(run2, expect.objectContaining({ status: 'pending', checkpointId: 'cp-2' }))
+  })
 })

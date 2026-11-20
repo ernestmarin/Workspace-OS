@@ -107,7 +107,7 @@ describe('drive functions (mocked guest)', () => {
 
 describe('interaction drive functions (mocked guest — bridge passthrough)', () => {
   it('dismissCookies runs the fixed script and normalises the result', async () => {
-    const wc = { executeJavaScript: vi.fn(async () => ({ clicked: true, label: 'Accept all' })) }
+    const wc = { executeJavaScript: vi.fn(async (_code: string, _gesture?: boolean) => ({ clicked: true, label: 'Accept all' })) }
     const r = await dismissCookies(wc as never)
     const [script, userGesture] = wc.executeJavaScript.mock.calls[0]
     expect(userGesture).toBe(true)
@@ -121,7 +121,7 @@ describe('interaction drive functions (mocked guest — bridge passthrough)', ()
   })
 
   it('click passes an escaped selector/text and returns the hit', async () => {
-    const wc = { executeJavaScript: vi.fn(async () => ({ clicked: true, tag: 'a', text: 'Products', href: 'https://x/p' })) }
+    const wc = { executeJavaScript: vi.fn(async (_code: string, _gesture?: boolean) => ({ clicked: true, tag: 'a', text: 'Products', href: 'https://x/p' })) }
     const r = await click(wc as never, 'a.nav', 'Products')
     expect(String(wc.executeJavaScript.mock.calls[0][0])).toContain("'a.nav'")
     expect(r).toEqual({ ok: true, clicked: true, tag: 'a', text: 'Products', href: 'https://x/p' })
@@ -152,7 +152,7 @@ describe('interaction drive functions (mocked guest — bridge passthrough)', ()
 
   it('map runs the fixed perception script and returns {ok,data}', async () => {
     const perceived = { title: 'Acme', url: 'https://acme.com', headings: [], links: [], interactives: [], consent: { present: false, hint: '' } }
-    const wc = { executeJavaScript: vi.fn(async () => perceived) }
+    const wc = { executeJavaScript: vi.fn(async (_code: string, _gesture?: boolean) => perceived) }
     const r = await map(wc as never)
     expect(String(wc.executeJavaScript.mock.calls[0][0])).toContain('classify')
     expect(r).toEqual({ ok: true, data: perceived })
@@ -160,7 +160,7 @@ describe('interaction drive functions (mocked guest — bridge passthrough)', ()
 
   it('clearConsent runs the hardened script and settles on a clear', async () => {
     const wc = {
-      executeJavaScript: vi.fn(async () => ({ cleared: true, method: 'wall', wasWall: true })),
+      executeJavaScript: vi.fn(async (_code: string, _gesture?: boolean) => ({ cleared: true, method: 'wall', wasWall: true })),
       once: (_ev: string, fn: () => void) => setTimeout(fn, 0),
       removeListener: () => {},
     }
@@ -322,5 +322,25 @@ describe('deepRead orchestration (mocked guest drive)', () => {
     const { profile, notes } = await deepRead(wc as never, 'https://acme.com', 4, undefined)
     expect(profile.pages).toEqual([])
     expect(notes.join(' ')).toMatch(/no same-origin/)
+  })
+})
+
+describe('screenshot workspace symlink & control-char confinement (SEC-04)', () => {
+  it('refuses to write through a symlinked directory pointing outside the workspace', async () => {
+    const fsMod = await import('node:fs')
+    const osMod = await import('node:os')
+    const pathMod = await import('node:path')
+    const root = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'wos-sec04-root-'))
+    const outside = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'wos-sec04-out-'))
+    try {
+      fsMod.symlinkSync(outside, pathMod.join(root, 'linked'))
+      expect(() => resolveScreenshotPath(pathMod.join(root, 'linked', 'escape.png'), [root])).toThrow(/escapes workspace root/)
+      expect(() => resolveScreenshotPath('linked/escape.png', [root])).toThrow(/escapes workspace root/)
+      expect(fsMod.existsSync(pathMod.join(outside, 'escape.png'))).toBe(false)
+      expect(() => resolveScreenshotPath('bad\nname.png', [root])).toThrow(/control character/)
+    } finally {
+      fsMod.rmSync(root, { recursive: true, force: true })
+      fsMod.rmSync(outside, { recursive: true, force: true })
+    }
   })
 })

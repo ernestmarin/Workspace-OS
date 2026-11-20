@@ -6,7 +6,7 @@ export const MAX_REPLY_TEXT = 20_000
 export type ReplySpeechResult = { finished: true } | { finished: false; error: string }
 export interface ReplySpeechSession {
   id: string
-  engine: 'kokoro' | 'openai' | 'local'
+  engine: 'kokoro' | 'openai' | 'local' | 'piper'
   voice: string
   remote: boolean
 }

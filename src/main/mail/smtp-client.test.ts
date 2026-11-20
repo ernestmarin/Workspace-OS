@@ -23,13 +23,23 @@ const MSG: OutgoingMessage = {
   text: 'Body text',
 }
 
-function makeTransport(overrides: Partial<TransportLike> = {}): TransportLike & Record<string, ReturnType<typeof vi.fn>> {
-  const base = {
-    verify: vi.fn(async () => true as const),
-    sendMail: vi.fn(async () => ({ messageId: '<generated@smtp>', accepted: ['bob@example.com'], rejected: [] })),
-    close: vi.fn(),
+type MockTransport = {
+  verify: ReturnType<typeof vi.fn<TransportLike['verify']>>
+  sendMail: ReturnType<typeof vi.fn<TransportLike['sendMail']>>
+  close: ReturnType<typeof vi.fn<TransportLike['close']>>
+}
+
+function makeTransport(overrides: Partial<TransportLike> = {}): MockTransport {
+  const base: MockTransport = {
+    verify: vi.fn<TransportLike['verify']>(async () => true as const),
+    sendMail: vi.fn<TransportLike['sendMail']>(async () => ({
+      messageId: '<generated@smtp>',
+      accepted: ['bob@example.com'],
+      rejected: [],
+    })),
+    close: vi.fn<TransportLike['close']>(),
   }
-  return { ...base, ...overrides } as unknown as TransportLike & Record<string, ReturnType<typeof vi.fn>>
+  return { ...base, ...(overrides as Partial<MockTransport>) }
 }
 
 /**

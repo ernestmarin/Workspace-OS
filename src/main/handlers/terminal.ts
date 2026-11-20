@@ -29,18 +29,21 @@ export function registerTerminalHandlers(ipcMain: IpcMain, win: BrowserWindow): 
     })
   })
 
-  ipcHandle(ipcMain, IPC.TERMINAL_WRITE, (_event, sessionId: unknown, data: unknown) => {
+  ipcHandle(ipcMain, IPC.TERMINAL_WRITE, (event, sessionId: unknown, data: unknown) => {
+    assertMainFrame(event)
     if (typeof sessionId !== 'string') return
     write(sessionId, validateShellInput(data))
   })
 
-  ipcHandle(ipcMain, IPC.TERMINAL_RESIZE, (_event, sessionId: unknown, cols: unknown, rows: unknown) => {
+  ipcHandle(ipcMain, IPC.TERMINAL_RESIZE, (event, sessionId: unknown, cols: unknown, rows: unknown) => {
+    assertMainFrame(event)
     if (typeof sessionId !== 'string') return
     const { cols: c, rows: r } = validateShellResize(cols, rows)
     resize(sessionId, c, r)
   })
 
-  ipcHandle(ipcMain, IPC.TERMINAL_KILL, (_event, sessionId: unknown) => {
+  ipcHandle(ipcMain, IPC.TERMINAL_KILL, (event, sessionId: unknown) => {
+    assertMainFrame(event)
     if (typeof sessionId !== 'string') return
     kill(sessionId)
   })

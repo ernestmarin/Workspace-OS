@@ -243,4 +243,33 @@ describe('netImageFetch redirect SSRF guard', () => {
       expect(res.status).toBe(508) // hop limit
     } finally { globalThis.fetch = prev }
   })
+
+  it('blocks IPv4-mapped IPv6, NAT64, CGNAT, and trailing-dot localhost SSRF vectors (SEC-05)', async () => {
+    const { netImageFetch } = await import('./remote-images')
+    const vectors = [
+      'http://[::ffff:127.0.0.1]/x.png',
+      'http://[::ffff:7f00:1]/x.png',
+      'http://[::ffff:a9fe:a9fe]/latest/meta-data/',
+      'http://[0:0:0:0:0:ffff:10.0.0.1]/x.png',
+      'http://[::127.0.0.1]/x.png',
+      'http://[64:ff9b::a9fe:a9fe]/x.png',
+      'http://100.64.0.1/x.png',
+      'http://100.127.255.254/x.png',
+      'http://localhost./x.png',
+    ]
+    for (const v of vectors) {
+      expect(normaliseImageUrl(v), v).toBeNull()
+    }
+    const prev = globalThis.fetch
+    globalThis.fetch = mockFetch((url) =>
+      url.includes('redir') ? { status: 302, location: 'http://[::ffff:a9fe:a9fe]/latest/meta-data/' } : { status: 200 },
+    ) as unknown as typeof fetch
+    try {
+      const res = await netImageFetch('https://redir.example/img.png', new AbortController().signal)
+      expect(res.ok).toBe(false)
+      expect(res.status).toBe(403)
+    } finally {
+      globalThis.fetch = prev
+    }
+  })
 })
