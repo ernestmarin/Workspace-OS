@@ -1,17 +1,23 @@
 # Voice implementation plan & integration checklist
 
+Last reviewed: **2026-11-20**, starting from WOS `1547e75` (PR #5).
+
 This checklist combines the TTS foundations from PR #3 with the newer
 experimental dictation, assistant reply and playback work. For the detailed
-atomic conversation plan and status, see [voice-conversation-plan.md](voice-conversation-plan.md).
+atomic conversation plan, pinned Hugging Face reference review and status, see
+[voice-conversation-plan.md](voice-conversation-plan.md).
 
 **Current position: partial batch text-to-speech and experimental push-to-talk;
 continuous real-time conversation is not implemented or production-ready.**
 
-Checked items indicate implemented code, not release acceptance. The focused
-voice/agent suite last passed 170 tests in 26 files, build passed, and typecheck
-passed against the existing 70-error baseline. These are simulated/fixture tests,
-not real audio, cloud-provider, Electron E2E or cross-platform validation.
-Unchecked items remain open, including validation of implemented features.
+Checked items indicate implemented code, not release acceptance. At this
+2026-11-20 checkpoint the focused voice/agent suite passed **208 tests in 29
+files**, including **31 new sentence-stream tests**; build passed and typecheck
+passed against the unchanged **70-error baseline**. Test discovery also confirms
+that the ignored upstream checkout is excluded from WOS tests. These are
+simulated/fixture tests, not real audio, cloud-provider, Electron E2E or
+cross-platform validation. Unchecked items remain open, including validation of
+implemented features. See the [validation details](voice-conversation-plan.md#validation-for-the-2026-11-20-reference-checkpoint).
 
 ## Implemented foundations
 
@@ -102,6 +108,20 @@ Evidence: [setup/tests](../src/main/speech/engines/kokoro-setup.test.ts),
 chunk event types exist, but do not establish a wired streaming or UI feature.
 Likewise, the queue is controller-level; the current settings UI exposes Speak/Stop,
 not a full playback/queue control surface.
+
+## Hugging Face reference and native sentence foundation
+
+- [x] Clone and review `huggingface/speech-to-speech` at
+      `7dbbdaff5774ca657deed1900814763e1f6d87d5` as an ignored reference, not a
+      shipped dependency or new Python service. Record source-linked adoption,
+      licensing, privacy and native-integration decisions in the
+      [conversation plan](voice-conversation-plan.md#hugging-face-speech-to-speech-reference-review-2026-11-20).
+- [x] Add a bounded, tested native prose sentence assembler with Unicode/source
+      spans and terminal success/cancel semantics. **Not wired to assistant
+      deltas, TTS or UI**; it does not parse Markdown or authorize any action.
+- [ ] Add streaming-safe assistant prose extraction, response-owned bounded
+      scheduling and explicit opt-in before connecting incremental speech.
+      Existing completed-reply reading and review-first dictation are unchanged.
 
 ## Realtime conversation — partial foundations, not implemented
 

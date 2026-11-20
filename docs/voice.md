@@ -3,6 +3,9 @@
 See the
 [Voice implementation plan & integration checklist](voice-integration-checklist.md)
 for completed code, partial work, remaining scope and release validation gates.
+The [conversation plan and Hugging Face reference review](voice-conversation-plan.md#hugging-face-speech-to-speech-reference-review-2026-11-20)
+cover the target of talking to and controlling the existing WOS agents by voice,
+without replacing their context or approval paths.
 
 The current integration provides batch text-to-speech with OpenAI and an
 experimental local Kokoro path. Each fragment is fully synthesized before

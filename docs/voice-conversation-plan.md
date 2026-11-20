@@ -1,6 +1,15 @@
 # Native, local-first voice conversation: atomic implementation plan
 
+Last reviewed: **2026-11-20**, starting from WOS `1547e75` (PR #5).
+**Product goal: talk to and control the selected existing WOS agent by voice in
+real time, preserving its conversation, context and action approvals.**
+
 Status: in progress. This is not yet a working voice conversation. The existing CopySpeech-derived reading feature is distinct from this work.
+
+The [Hugging Face reference review](#hugging-face-speech-to-speech-reference-review-2026-11-20)
+records the pinned upstream checkout, adoption decisions and next atomic gates.
+The new native prose sentence assembler is a tested **unwired foundation**, not
+a new continuous-listening or streaming speech feature.
 
 También se han portado componentes internos de CopySpeech: sanitización de texto, paginación, estructuras de captions y orquestación de lecturas. Que existan esos componentes **no significa** que todas sus funciones estén conectadas a la interfaz.
 
@@ -40,9 +49,12 @@ Each stage: implement, review adversarially, add regression tests, run relevant 
 
 ## Implementation inventory (2026-11-19)
 
-This inventory covers both the CopySpeech port and the conversation work, not
-just the last milestone. “Implemented” describes code and focused automated
-checks; it does **not** imply real-device or release validation.
+This historical inventory covers both the CopySpeech port and the conversation
+work, not just the last milestone. “Implemented” describes code and focused
+automated checks; it does **not** imply real-device or release validation. See
+[current validation](#validation-for-the-2026-11-20-reference-checkpoint) for the
+newer reference/sentence-stream checkpoint rather than treating the old test
+counts below as current.
 
 ### CopySpeech-derived reading foundations
 - Shared TypeScript contracts/defaults, deterministic sanitization, text
@@ -128,3 +140,158 @@ checks; it does **not** imply real-device or release validation.
   claims of success. Check relevant code throughout implementation, then repeat
   the full audit and E2E when the complete feature is ready. No parity with
   Pipecat or LiveKit is claimed without measurements.
+
+## Hugging Face speech-to-speech reference review (2026-11-20)
+
+### Provenance and scope
+
+- Repository: [huggingface/speech-to-speech][hf-root]. Reviewed revision:
+  **`7dbbdaff5774ca657deed1900814763e1f6d87d5`**, dated 2026-11-19.
+- Cloned into `.cache/reference-repos/speech-to-speech` as an ignored, disposable
+  reference checkout, not a WOS dependency, submodule or shipped asset. WOS's
+  test command excludes this cache so upstream demo tests are not accidentally
+  collected as WOS tests. No upstream installers, servers or model downloads ran.
+- The upstream code is [Apache-2.0][hf-license]; WOS is MIT. This checkpoint
+  studies architecture, not a source-code port. Any future copied/adapted source
+  needs the appropriate license/attribution notices; model weights, runtimes and
+  extras require their own provenance, redistribution and hardware review.
+- Upstream's quickstart is a Python cascade with its own LLM and model downloads.
+  Installing it wholesale would conflict with WOS's native orchestration and
+  selected-agent authority. **No new Python sidecar or second agent conversation.**
+
+To recreate a missing cache at the reviewed revision (all `-C` operations below
+are inside the reference repository, not the WOS working branch):
+
+```sh
+git clone --depth 1 --no-checkout https://github.com/huggingface/speech-to-speech.git .cache/reference-repos/speech-to-speech
+git -C .cache/reference-repos/speech-to-speech fetch --depth 1 origin 7dbbdaff5774ca657deed1900814763e1f6d87d5
+git -C .cache/reference-repos/speech-to-speech checkout --detach 7dbbdaff5774ca657deed1900814763e1f6d87d5
+```
+
+Pinned links below remain the review authority if upstream HEAD changes. A
+reference clone is not evidence that its runtime or models work in WOS.
+
+### What to adopt, adapt or leave out
+
+| Upstream evidence | WOS decision and remaining gate |
+| --- | --- |
+| [Typed pipeline/session ownership][hf-pipeline] | Adopt the separation of capture/VAD → STT → agent → TTS → playback. Use bounded TS/worker adapters, existing `TurnTicket` epochs and explicit run/reading identities, not upstream's Python thread/server architecture. |
+| [Sentence batching][hf-sentences] and [multilingual/Markdown handling][hf-text] | Assemble selected assistant prose before TTS, keeping the ambiguous tail. A native prose-only helper now exists (below). Incremental Markdown safety and typed assistant/tool separation must be integrated before any raw stream is spoken. |
+| [Generation-scoped cancellation][hf-cancel] | Reject stale text/audio/completions end to end. In WOS, barge-in stops owned speech first; it must not automatically cancel agent tools or repeat their side effects. A generation counter is a lifecycle guard, not authorization. |
+| [VAD and turn detection][hf-vad] | Evaluate a licensed local trained VAD with pre-roll, hysteresis, endpointing and distinct interruption thresholds. WOS's optional RMS heuristic is not equivalent. Speech detection alone does not establish user intent or grant permission. |
+| [Progressive transcription][hf-stt] | Distinguish revisable partial captions from an explicitly finalized transcript; only a final, owned turn can reach the existing agent submission path. WOS currently transcribes a bounded completed clip, not continuous STT. |
+| [PCM framing][hf-pcm] and [playback worklet][hf-playback] | Evaluate bounded transferable PCM queues, negotiated sample rates, resampling, underrun behavior and clear acknowledgements. Record rendered progress separately from generated text/audio; never infer what was heard from bytes received. |
+| [Echo cancellation limits][hf-aec] | Test existing browser capture constraints on real Electron/devices; do not assume that requesting echo cancellation prevents self-triggering. Start with push-to-talk/headphones. Do not transplant the Python audio process. |
+| [Response latency definitions][hf-latency] | Measure monotonic stage timings locally, without transcript/audio telemetry: end of speech, final STT, agent first text, first speakable sentence, first PCM, renderer playback start and interruption-to-silence. Unavailable timings stay unavailable; generated audio is not audible latency. |
+| [Realtime protocol and tool/interruption behavior][hf-realtime] | Treat OpenAI Realtime/WebRTC compatibility as an optional future adapter, not an immediate dependency or proof of WOS-agent compatibility. Do not launch a new listener or reuse upstream's direct tool executor. WOS's existing context, grants, MCP, Safe/Full mode and approval/review remain authoritative. |
+
+The native target remains:
+
+```text
+explicit voice-session consent → bounded local capture/VAD → local STT
+  → finalized transcript for the selected existing WOS conversation
+  → existing agent run / grants / approval / review
+  → assistant-only prose → bounded sentence queue → selected TTS → owned playback
+```
+
+Separate consent is needed for automatic submission and each remote destination;
+local STT does not make a cloud agent/TTS local. Keep transcript review as the
+current default, never auto-submit partial recognition or interpret it as shell
+commands, and do not add a spoken shortcut around high-risk visual approvals.
+
+### First native increment: prose sentence assembly, not wired
+
+- [x] Add [SentenceStream](../src/shared/speech/sentenceStream.ts), an independent
+      TypeScript helper reusing WOS's existing sentence-boundary detector, not a
+      translation of upstream Python. One instance belongs to one response.
+- [x] Retain an ambiguous final sentence; emit earlier prose when right context
+      arrives; keep adjacent closing quotes/punctuation and exact UTF-16 source spans.
+- [x] Bound each sentence/tail to 4,096 UTF-16 units and the response to 20,000
+      by default. Invalid data/overflow closes the stream without silent
+      truncation. Explicit success flushes once; failure/cancel discards the
+      tail and late deltas cannot restart it. Previously emitted text cannot be
+      recalled, so future integration must cancel owned downstream work too.
+- [x] Add [regression tests](../src/shared/speech/sentenceStream.test.ts) for the
+      nine requested languages' punctuation, arbitrary delta boundaries,
+      surrogate pairs/source spans, limits, cancellation and independent streams.
+      These test text structure, not speech-model language quality.
+- [ ] Add streaming-safe Markdown/code/link handling and tests for split
+      delimiters before connecting this prose-only helper to assistant events.
+      It is **not** a sanitizer, tool filter, scheduler or a transport.
+- [ ] Wire sentence output to authorized TTS/playback with bounded queues and
+      per-session/run/response ownership; preserve existing completed-reply mode.
+      No new microphone capture, remote calls, agent submission or audio playback
+      is activated by this helper, and no latency improvement is claimed yet.
+
+### Next atomic integration gates (in order)
+
+1. Preserve assistant-only event provenance and add streaming-safe speech text
+   extraction. Test Markdown split across deltas, tool/reasoning exclusion,
+   failed runs, duplicate terminal events and output limits. Keep the terminal's
+   complete text separate from its spoken representation; no extra LLM rewrite.
+2. Add a response-keyed bounded speech scheduler with a frozen engine/consent
+   snapshot, backpressure, owned cancellation and stale-callback rejection.
+   Test concurrent tabs/runs, config changes, delayed IPC acknowledgement,
+   failures and stopping speech without cancelling agent tools. Do not map
+   sentence streaming to the global interrupting `speak()` repeatedly.
+3. Connect an explicitly opted-in incremental reply mode. Generation completion
+   and playback drain are separate: return to listening only after both settle.
+   The UI must disclose that a spoken partial reply can precede run failure and
+   that cloud TTS receives text before the final reply. Preserve manual Stop.
+4. Connect finalized speech to the same selected WOS conversation submission
+   path, with explicit session/auto-submit consent and the existing grants and
+   approvals. Never build a parallel upstream LLM history or route recognized
+   text directly to a tool/CLI executor. Keep the current review-first fallback.
+5. Evaluate trained local VAD and true streaming STT/model provisioning, then
+   streaming PCM playback, real echo cancellation and barge-in. Do not claim
+   full duplex while the state machine/permissions support only bounded turns.
+6. Measure real Spanish conversations and the other supported languages on
+   Windows/macOS/Linux, including speaker self-triggering, disconnect/sleep,
+   interruption, lost permissions and actual audible progress. Complete the
+   existing security and real Electron release gates before calling it ready.
+
+### Validation for the 2026-11-20 reference checkpoint
+
+- New text-only sentence-stream suite: **31 tests passed**. The focused suite
+  covering shared/main speech, Voice UI, dictation, reply buffers, energy
+  endpoint/monitor, voice-language controls, Codex steering/session and provider
+  assistant-text extraction passed **208 tests in 29 files**. These totals cover
+  that selected suite, not the full repository or the upstream Python tests.
+- `npm run typecheck` passes the regression gate with the unchanged **70 known
+  baseline errors**; this does not mean the whole repository is type-error free.
+- `npm run build` succeeds, with existing Vite/plugin deprecation and chunking
+  warnings. No generated build artifacts or reference source are included in
+  this change. No dependency versions or model weights were changed.
+- Local documentation links/anchors and pinned upstream file references were
+  checked. WOS test discovery finds **313 files** with the reference excluded;
+  discovering them is not a claim that all those tests ran or passed.
+- Installation used `npm ci --ignore-scripts --legacy-peer-deps --no-audit
+  --no-fund`: plain `npm ci` hits the existing Vite 8 / React-plugin 4 peer
+  conflict. That dependency issue is not fixed here. Npm lifecycle scripts were
+  skipped; Electron/native speech-runtime readiness was not validated. No
+  upstream Python install, model download or provider-credential exercise ran.
+- Real microphone, audible output, models/language quality, cloud providers,
+  native packaging, latency, full security audit and Electron/platform E2E
+  remain unvalidated. No live or production-ready conversation is claimed.
+
+Re-run the new foundation checks with:
+
+```sh
+npm test -- src/shared/speech/sentenceStream.test.ts
+npm run typecheck
+npm run build
+```
+
+[hf-root]: https://github.com/huggingface/speech-to-speech/tree/7dbbdaff5774ca657deed1900814763e1f6d87d5
+[hf-license]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/LICENSE
+[hf-pipeline]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/api/openai_realtime/pipeline_unit.py
+[hf-sentences]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/LLM/language_model.py
+[hf-text]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/LLM/utils.py
+[hf-cancel]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/pipeline/cancel_scope.py
+[hf-vad]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/VAD/README.md
+[hf-stt]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/STT/smart_progressive_streaming.py
+[hf-pcm]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/TTS/pcm_blocks.py
+[hf-playback]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/demo/worklets/audio-playback.js
+[hf-aec]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/docs/echo-cancellation.md
+[hf-latency]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/docs/response-latency.md
+[hf-realtime]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/api/openai_realtime/README.md
