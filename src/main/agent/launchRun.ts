@@ -39,7 +39,7 @@ import { claudeSettings } from './claudeSettings'
 import { ClaudeFailureTracker } from './claudeFailure'
 import { agentHooksArgs, agentHooksMode, appStateDir, contentRoot, contentRootLine, stateIsExternal } from '../host-profile'
 import { appsRel } from '../apps/apps-store'
-import { documentOutputGuidance, type AgentRunFailure } from '../../shared/agentRun'
+import { documentOutputGuidance, type AgentRunFailure, type AssistantRunOwner, type AssistantResponseEvent } from '../../shared/agentRun'
 import { envWithPath, findTool } from '../platform-tools'
 import { ClaudeAssistantText } from './assistantText'
 
@@ -69,8 +69,10 @@ export interface AgentRunMeta { costUsd: number; turns: number; durationMs: numb
 /** Where a run's events go. The dock forwards to the window; the queue records and forwards. */
 export interface RunSink {
   output(text: string): void
-  /** Structured top-level assistant text, excluding terminal and tool output. */
+  /** Legacy flattened completed-run text; not a live response protocol. */
   assistantText?(text: string): void
+  /** Response/item generation and provider-run outcomes; never an audio drain acknowledgement. */
+  assistantResponse?(event: AssistantResponseEvent): void
   /** The claude session id, once seen — lets a later turn --resume. */
   sessionId?(sid: string): void
   meta(meta: AgentRunMeta): void
@@ -83,6 +85,8 @@ export interface RunSink {
 
 export interface LaunchRunOptions {
   runId: string
+  /** Optional provenance-only identity from a trusted main caller; no agent grants. */
+  responseOwner?: AssistantRunOwner
   prompt: string
   contextFiles: string[]
   activeFile: string | null
@@ -261,7 +265,7 @@ export async function launchRun(o: LaunchRunOptions): Promise<{ child: ChildProc
           for (const name of matched.missing) sink.output(`\x1b[2m[skill] "${name}" is not a Codex skill; running without it\x1b[0m\n`)
         }
         const child = await launchCodexSession({
-          runId: id, cwd, prompt: fullPrompt, model: o.model, effort: getCodexEffort(), resumeId,
+          runId: id, responseOwner: o.responseOwner, cwd, prompt: fullPrompt, model: o.model, effort: getCodexEffort(), resumeId,
           instructions: codexGuidance(cwd, openFile, agent, safeMode, memoryBlock),
           safeMode, env: childEnv, connectors, skills, signal: o.signal, unattended: o.unattended, sink,
           onQuestion: (q) => sendToWindow('codex:question', q),

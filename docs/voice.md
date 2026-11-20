@@ -5,8 +5,9 @@ See the
 for completed code, partial work, remaining scope and release validation gates.
 The [conversation plan and Hugging Face reference review](voice-conversation-plan.md#hugging-face-speech-to-speech-reference-review-2026-11-20)
 cover voice control of the WOS interface and conversation with the existing
-agents, without replacing their context or approval paths. Interface commands
-will have a separate reviewed allowlist; they are not implemented yet.
+agents, without replacing their context or approval paths. A pure es/en command
+proposal helper now exists, but preview/confirmation, UI actions and microphone
+wiring for commands are **not implemented**. Dictation still only fills a draft.
 
 The current integration provides batch text-to-speech with OpenAI and an
 experimental local Kokoro path. Each fragment is fully synthesized before
@@ -145,6 +146,9 @@ are cleaned up; Windows descendant cleanup remains unvalidated/incomplete.
 These tab/run ownership paths have simulated hook/control/IPC regressions, not
 real Electron/device acceptance. They do **not** provide response-owned streaming,
 continuous STT/TTS, trained VAD, heard-context tracking or full-duplex barge-in.
-See the [current checkpoint and atomic next gates](voice-conversation-plan.md#completed-run-ownership-checkpoint-2026-11-20)
+The new response-provenance contract/optional Codex sink is also not connected to
+the normal main/preload/renderer path; it does not change the reader above or add
+audio streaming. Item generation, run completion and audible drain are distinct.
+See the [current checkpoint and atomic next gates](voice-conversation-plan.md#response-provenance-and-interface-proposals-checkpoint-2026-11-20)
 and [historical audit/security blockers](voice-conversation-plan.md#red-team-audit-after-pr-6-2026-11-20).
 No fully offline, secure/release-ready or real-time conversation claim is made.
