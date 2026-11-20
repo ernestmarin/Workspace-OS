@@ -1,8 +1,14 @@
 # Voice (work in progress)
 
-The current integration supports OpenAI and an experimental local Kokoro path.
-Other engines, browser word highlighting, the HUD and history are not yet
-implemented. Voice is not production-ready or end-to-end validated.
+Last reviewed: **2026-11-20**. See the
+[Voice implementation plan & integration checklist](voice-integration-checklist.md)
+for completed code, partial work, remaining scope and release validation gates.
+
+The current integration provides batch text-to-speech with OpenAI and an
+experimental local Kokoro path. Each fragment is fully synthesized before
+playback; streaming TTS and microphone/two-way realtime conversation are not
+implemented. Other engines, browser word highlighting, the HUD and history are
+not yet implemented. Voice is not production-ready or end-to-end validated.
 
 ## Kokoro: manual setup
 
