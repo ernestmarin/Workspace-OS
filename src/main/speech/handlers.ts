@@ -1,4 +1,5 @@
-import { clipboard, globalShortcut, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { app, clipboard, globalShortcut, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import path from 'node:path'
 import { defaultKokoroProfile } from '../../shared/speech/defaults'
 import type { VoiceProfile } from '../../shared/speech/types'
 import { mainWindow, sendToWindow } from '../main-window'
@@ -11,6 +12,8 @@ import { synthesizeFragment } from './engines'
 import { PlaybackBroker } from './playback'
 import { ReadingController } from './reading'
 import { VoiceHotkey } from './hotkey'
+import { speechEnginesDir } from './paths'
+import { kokoroFilesStatus, prepareKokoro } from './engines/kokoro-setup'
 
 function assertOwner(event: IpcMainInvokeEvent): void {
   assertMainFrame(event)
@@ -78,6 +81,12 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     return { shortcut: hotkey.shortcut }
   })
   ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); controller.stop() })
+  ipcHandle(ipc, IPC.SPEECH_KOKORO_STATUS, (event) => { assertOwner(event); return kokoroFilesStatus(speechEnginesDir()) })
+  ipcHandle(ipc, IPC.SPEECH_KOKORO_PREPARE, (event) => {
+    assertOwner(event)
+    const resources = app.isPackaged ? path.join(process.resourcesPath, 'voice-kokoro') : path.join(app.getAppPath(), 'resources', 'voice-kokoro')
+    return prepareKokoro(speechEnginesDir(), resources)
+  })
   ipcHandle(ipc, IPC.SPEECH_STATUS, (event) => { assertOwner(event); return controller.getStatus() })
   ipcHandle(ipc, IPC.SPEECH_CONFIG, (event) => {
     assertOwner(event)

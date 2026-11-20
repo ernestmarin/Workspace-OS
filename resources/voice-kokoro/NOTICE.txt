@@ -1,0 +1,3 @@
+The bundled copyspeech-kokoro.py is from CopySpeech, commit
+45767410e469ef464a7e07842813399cac9060d5, distributed under the MIT license.
+See LICENSE in this directory. Third-party dependencies and models are not bundled.

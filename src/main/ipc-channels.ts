@@ -8,6 +8,8 @@ export const IPC = {
   SPEECH_SET_HOTKEY: 'speech:set-hotkey',
   SPEECH_READ_CLIPBOARD: 'speech:read-clipboard',
   SPEECH_STATUS: 'speech:status',
+  SPEECH_KOKORO_STATUS: 'speech:kokoro-status',
+  SPEECH_KOKORO_PREPARE: 'speech:kokoro-prepare',
   SPEECH_CONFIG: 'speech:config',
   SPEECH_SELECT_ENGINE: 'speech:select-engine',
   SPEECH_SET_KEY: 'speech:set-key',

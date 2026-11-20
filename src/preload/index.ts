@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('workspace', {
     readClipboard: () => ipcRenderer.invoke(IPC.SPEECH_READ_CLIPBOARD),
     setHotkey: (shortcut: string) => ipcRenderer.invoke(IPC.SPEECH_SET_HOTKEY, shortcut),
     status: () => ipcRenderer.invoke(IPC.SPEECH_STATUS),
+    kokoroStatus: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_STATUS),
+    prepareKokoro: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_PREPARE),
     config: () => ipcRenderer.invoke(IPC.SPEECH_CONFIG),
     selectEngine: (engine: 'kokoro' | 'openai', voice: string) => ipcRenderer.invoke(IPC.SPEECH_SELECT_ENGINE, engine, voice),
     setOpenAiKey: (value: string) => ipcRenderer.invoke(IPC.SPEECH_SET_KEY, value),
