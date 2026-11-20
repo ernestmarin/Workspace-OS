@@ -11,6 +11,7 @@ export const IPC = {
   SPEECH_STT_CANCEL: 'speech:stt-cancel',
   SPEECH_STOP: 'speech:stop',
   SPEECH_SET_HOTKEY: 'speech:set-hotkey',
+  SPEECH_SET_LOOKAHEAD: 'speech:set-lookahead',
   SPEECH_READ_CLIPBOARD: 'speech:read-clipboard',
   SPEECH_STATUS: 'speech:status',
   SPEECH_KOKORO_STATUS: 'speech:kokoro-status',

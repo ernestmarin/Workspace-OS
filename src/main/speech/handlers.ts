@@ -132,6 +132,12 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     const resources = app.isPackaged ? path.join(process.resourcesPath, 'voice-kokoro') : path.join(app.getAppPath(), 'resources', 'voice-kokoro')
     return prepareKokoro(speechEnginesDir(), resources)
   })
+  ipcHandle(ipc, IPC.SPEECH_SET_LOOKAHEAD, (event, enabled) => {
+    assertOwner(event)
+    if (typeof enabled !== 'boolean') throw new Error('Invalid speech lookahead setting')
+    const cfg = getConfig()
+    updateConfig({ playback: { ...cfg.playback, prefetch_next_fragment: enabled } })
+  })
   ipcHandle(ipc, IPC.SPEECH_STATUS, (event) => { assertOwner(event); return controller.getStatus() })
   ipcHandle(ipc, IPC.SPEECH_CONFIG, (event) => {
     assertOwner(event)
@@ -141,6 +147,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
       trigger: { max_text_length: cfg.trigger.max_text_length },
       tts: { active_profile_id: cfg.tts.active_profile_id, profiles: cfg.tts.profiles.map(({ id, engine, voice }) => ({ id, engine, voice })) },
       hotkey: cfg.hotkey,
+      playback: { prefetch_next_fragment: cfg.playback.prefetch_next_fragment },
     }
   })
   ipcHandle(ipc, IPC.SPEECH_KEY_STATUS, (event) => { assertOwner(event); return speechKeyStatus() })

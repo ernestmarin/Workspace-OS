@@ -29,6 +29,17 @@ describe('Voice configuration', () => {
     resetConfigCache()
     expect(getConfig()).toEqual(updated)
   })
+  it('defaults lookahead off for old configs even when the old streaming flag is true', () => {
+    const file = path.join(dir, 'copyspeech', 'config.json')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify({ playback: { streaming_enabled: true } }))
+    expect(getConfig().playback.prefetch_next_fragment).toBe(false)
+    const config = getConfig()
+    updateConfig({ playback: { ...config.playback, prefetch_next_fragment: true } })
+    resetConfigCache()
+    expect(getConfig().playback.prefetch_next_fragment).toBe(true)
+    expect(() => replaceConfig({ playback: { prefetch_next_fragment: 'yes' } })).toThrow('invalid type')
+  })
   it('does not expose a mutable reference to its cache', () => {
     getConfig().playback.volume = 42
     expect(getConfig().playback.volume).toBe(100)

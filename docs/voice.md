@@ -66,3 +66,14 @@ device constraint: if it disappears the recording fails rather than switching
 to another microphone. Select **System default** explicitly to return to the
 system's routing. Device changes refresh an already-open list while idle but
 never start capture. This flow has simulated tests only, not real-device E2E.
+
+
+### Fragment lookahead (opt-in)
+Voice settings can prepare at most one next text fragment while the current one
+plays, potentially reducing gaps. The option is off by default, including for
+existing configurations with the older `streaming_enabled` flag. With a cloud
+engine, enabling it may send the next fragment before the current fragment
+finishes; stopping cancels pending synthesis when possible, but cannot recall
+text already sent. A change affects future readings, not one already running.
+This is batch-fragment prefetch, not token streaming or a real-time conversation.
+It has mocked tests, not a real-device latency benchmark.

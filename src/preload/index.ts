@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('workspace', {
     stop: () => ipcRenderer.invoke(IPC.SPEECH_STOP),
     readClipboard: () => ipcRenderer.invoke(IPC.SPEECH_READ_CLIPBOARD),
     setHotkey: (shortcut: string) => ipcRenderer.invoke(IPC.SPEECH_SET_HOTKEY, shortcut),
+    setLookahead: (enabled: boolean) => ipcRenderer.invoke(IPC.SPEECH_SET_LOOKAHEAD, enabled),
     status: () => ipcRenderer.invoke(IPC.SPEECH_STATUS),
     kokoroStatus: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_STATUS),
     installKokoroDependencies: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_INSTALL),

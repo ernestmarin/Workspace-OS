@@ -117,7 +117,7 @@ export interface EngineCatalogEntry {
   options: EngineOptionDescriptor[]; voices: VoiceCatalogEntry[]
 }
 
-export interface PlaybackConfig { on_retrigger: RetriggerMode; volume: number; streaming_enabled: boolean; caption_animation: boolean }
+export interface PlaybackConfig { on_retrigger: RetriggerMode; volume: number; streaming_enabled: boolean; prefetch_next_fragment: boolean; caption_animation: boolean }
 export interface HudConfig { enabled: boolean; position: HudPresetPosition; width: number; height: number; opacity: number }
 
 export interface GeneralConfig {
