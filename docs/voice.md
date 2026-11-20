@@ -77,3 +77,11 @@ finishes; stopping cancels pending synthesis when possible, but cannot recall
 text already sent. A change affects future readings, not one already running.
 This is batch-fragment prefetch, not token streaming or a real-time conversation.
 It has mocked tests, not a real-device latency benchmark.
+
+
+### Stopping speech
+Voice settings can stop the currently displayed reading by its identity, leaving
+other queued readings intact, or stop all readings and clear the queue. Neither
+control cancels an agent run or reverses its actions. A stale identity cannot
+stop a later reading. This is a shared playback controller, not yet per-tab
+voice-conversation ownership or automatic barge-in.

@@ -123,6 +123,11 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     return { shortcut: hotkey.shortcut }
   })
   ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); controller.stop() })
+  ipcHandle(ipc, IPC.SPEECH_CANCEL_READING, (event, id) => {
+    assertOwner(event)
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) throw new Error('Invalid reading identity')
+    return controller.cancel(id)
+  })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_STATUS, (event) => { assertOwner(event); return { busy: installer.busy } })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_CANCEL, (event) => { assertOwner(event); installer.cancel() })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL, async (event) => { assertOwner(event); await installer.install(speechEnginesDir()); return kokoroFilesStatus(speechEnginesDir()) })

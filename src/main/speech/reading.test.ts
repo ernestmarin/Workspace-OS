@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../../shared/speech/defaults'
 import { ReadingController, splitProviderText } from './reading'
+import { PlaybackBroker } from './playback'
+import type { PlaybackMessage } from '../../shared/speech/playback'
 import type { PcmAudio } from './engines/wav'
 
 const audio: PcmAudio = { pcm: Buffer.alloc(2), sampleRate: 24000, channels: 1, bitsPerSample: 16 }
@@ -176,5 +178,77 @@ describe('bounded synthesis lookahead', () => {
     release()
     expect(await job.result).toEqual({ finished: false, error: 'next fragment failed' })
     expect(play).toHaveBeenCalledOnce()
+  })
+})
+
+describe('single-reading cancellation', () => {
+  it('removes only the selected queued reading and leaves other jobs in order', async () => {
+    let release!: () => void
+    const play = vi.fn((_audio: PcmAudio, text: string) => text === 'first' ? new Promise<void>((resolve) => { release = resolve }) : Promise.resolve())
+    const controller = new ReadingController({ synthesize: async () => audio, play, onStatus: () => {} })
+    const cfg = defaultConfig()
+    cfg.playback.on_retrigger = 'queue'
+    const first = controller.read('first', cfg)
+    const middle = controller.read('middle', cfg)
+    const last = controller.read('last', cfg)
+    await flush()
+    expect(controller.cancel(middle.id)).toBe(true)
+    expect(controller.cancel(middle.id)).toBe(false)
+    expect(await middle.result).toEqual({ finished: false, error: 'Cancelled' })
+    expect(play).toHaveBeenCalledTimes(1)
+    release()
+    expect(await first.result).toEqual({ finished: true })
+    expect(await last.result).toEqual({ finished: true })
+    expect(play.mock.calls.map((args) => args[1])).toEqual(['first', 'last'])
+    expect(controller.cancel(last.id)).toBe(false)
+  })
+  it('cancels active playback and lookahead without cancelling a queued job', async () => {
+    let lookaheadSignal!: AbortSignal
+    const synthesize = vi.fn((_text: string, _cfg: unknown, signal: AbortSignal) => {
+      if (synthesize.mock.calls.length === 2) { lookaheadSignal = signal; return abortable(signal) }
+      return Promise.resolve(audio)
+    })
+    const play = vi.fn((_audio: PcmAudio, text: string, signal: AbortSignal) => text === 'next' ? Promise.resolve() : abortable(signal).then(() => {}))
+    const controller = new ReadingController({ synthesize, play, onStatus: () => {} })
+    const cfg = fragmentedConfig()
+    cfg.playback.on_retrigger = 'queue'
+    const first = controller.read(threeFragments, cfg)
+    const next = controller.read('next', cfg)
+    await flush()
+    expect(controller.cancel(first.id)).toBe(true)
+    expect(controller.cancel(first.id)).toBe(false)
+    expect(await first.result).toEqual({ finished: false, error: 'Cancelled' })
+    expect(lookaheadSignal.aborted).toBe(true)
+    expect(await next.result).toEqual({ finished: true })
+    expect(play).toHaveBeenCalledTimes(2)
+    expect(controller.cancel(first.id)).toBe(false)
+  })
+  it('cancels the current renderer playback without a stale acknowledgement cancelling the next job', async () => {
+    const send = vi.fn<(_owner: number, message: PlaybackMessage) => void>()
+    const broker = new PlaybackBroker(send)
+    const controller = new ReadingController({ synthesize: async () => audio, play: (pcm, text, signal) => broker.play(1, pcm, text, 100, signal), onStatus: () => {} })
+    const cfg = defaultConfig(); cfg.playback.on_retrigger = 'queue'
+    const first = controller.read('first', cfg)
+    const second = controller.read('second', cfg)
+    await flush()
+    const firstMessage = send.mock.calls[0][1]
+    expect(firstMessage.type).toBe('play')
+    expect(controller.cancel(first.id)).toBe(true)
+    expect(await first.result).toEqual({ finished: false, error: 'Cancelled' })
+    await flush()
+    expect(send.mock.calls[1][1]).toEqual({ type: 'cancel', id: firstMessage.id })
+    const secondMessage = send.mock.calls[2][1]
+    expect(secondMessage.type).toBe('play')
+    expect(broker.complete(1, firstMessage.id, true)).toBe(false)
+    expect(broker.complete(1, secondMessage.id, true)).toBe(true)
+    expect(await second.result).toEqual({ finished: true })
+  })
+  it('ignores invalid and stale IDs without touching active audio', async () => {
+    const controller = new ReadingController({ synthesize: (_text, _config, signal) => abortable(signal), play: async () => {}, onStatus: () => {} })
+    const job = controller.read('first', defaultConfig())
+    for (const id of [0, -1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1, job.id + 1]) expect(controller.cancel(id)).toBe(false)
+    expect(controller.getStatus().speaking).toBe(true)
+    expect(controller.cancel(job.id)).toBe(true)
+    expect(await job.result).toEqual({ finished: false, error: 'Cancelled' })
   })
 })

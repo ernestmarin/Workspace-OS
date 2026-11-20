@@ -21,6 +21,7 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 - Permission prompts/grants and STT cancellation have request identities so stale tab cleanup cannot revoke a newer request. Tabs share a trusted renderer; these identities prevent lifecycle races, not a security boundary against compromised renderer code.
 - Dictation discards capture on page hide/visibility loss and microphone track end, detaching listeners, closing its decoding context promptly and cancelling its own transcription. Simulated renderer tests cover these paths; OS/Electron behavior still needs real-device validation.
 - Dictation offers per-tab microphone selection and explicit metadata-only refresh. It requests the exact selected device, never silently falls back if it disappears, and ignores stale enumeration/recording callbacks. Device IDs/names are not persisted. Real Electron enumeration/permission behavior remains unvalidated.
+- Individual reading IDs can be cancelled through authorized IPC; the Voice settings provide separate stop-current and stop-all controls. A current cancellation leaves queued readings intact and never cancels the agent. Session ownership and automatic interruption remain pending.
 - Optional, off-by-default one-fragment TTS lookahead overlaps synthesis with playback and aborts on stop/failure. It does not stream agent tokens or audio, and may send the next fragment early to a selected cloud TTS provider. Real latency and audio behavior are unmeasured.
 - No real microphone or end-to-end conversation has been validated.
 
@@ -53,9 +54,9 @@ checks; it does **not** imply real-device or release validation.
   known credential fields and unsafe HTTP templates. Full migration and a
   comprehensive credential audit remain open.
 - OpenAI batch synthesis and a managed local command/WAV adapter are wired to
-  a bounded reading queue and acknowledged PCM renderer playback. Stop and
-  interruption are implemented globally; single-reading ownership and pause,
-  resume, captions and effects remain incomplete. OpenAI sends text remotely.
+  a bounded reading queue and acknowledged PCM renderer playback. Stop-all and cancel-by-reading-ID are supported; the Voice settings can stop
+  the current reading without clearing other queued readings. Per-session
+  ownership and pause, resume, captions and effects remain incomplete. OpenAI sends text remotely.
 - Settings support Kokoro/OpenAI choice, a limited voice list, vault-backed
   OpenAI key, reading text/clipboard, stop and an optional global clipboard
   shortcut (disabled by default). Browser page text can be read. Selection and
@@ -103,14 +104,14 @@ checks; it does **not** imply real-device or release validation.
   real Electron.
 
 ### Validation and unresolved work
-- Latest focused simulated/unit suite at this inventory: **154 tests in 24
+- Latest focused simulated/unit suite at this inventory: **162 tests in 25
   files passed**. Typecheck passes against an existing **70-error baseline**;
   production build succeeds. These are not real microphone, speaker, model,
   network-provider or Electron end-to-end tests. Historical full-suite failures
   and unavailable Electron/native binaries remain separate unresolved issues.
 - Still required: real turn integration with existing WOS sessions and
-  approvals; incremental assistant-only speech; audio/run ownership and scoped
-  cancellation; trained local VAD and streaming/local STT with audited model
+  approvals; incremental assistant-only speech; per-session audio/run ownership
+  and interruption wiring; trained local VAD and streaming/local STT with audited model
   install; reliable barge-in and spoken-context tracking; native Browser
   selection and word highlighting; HUD/tray/history/exports and the remaining
   in-scope CopySpeech features; full Voice-module localization; performance,

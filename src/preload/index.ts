@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('workspace', {
     transcribeLocal: (samples: Float32Array, language: string, id: string) => ipcRenderer.invoke(IPC.SPEECH_STT_TRANSCRIBE, samples, language, id),
     cancelTranscription: (id: string) => ipcRenderer.invoke(IPC.SPEECH_STT_CANCEL, id),
     stop: () => ipcRenderer.invoke(IPC.SPEECH_STOP),
+    cancelReading: (readingId: number) => ipcRenderer.invoke(IPC.SPEECH_CANCEL_READING, readingId),
     readClipboard: () => ipcRenderer.invoke(IPC.SPEECH_READ_CLIPBOARD),
     setHotkey: (shortcut: string) => ipcRenderer.invoke(IPC.SPEECH_SET_HOTKEY, shortcut),
     setLookahead: (enabled: boolean) => ipcRenderer.invoke(IPC.SPEECH_SET_LOOKAHEAD, enabled),

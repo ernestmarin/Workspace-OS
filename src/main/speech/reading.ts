@@ -66,6 +66,21 @@ export class ReadingController {
     this.active?.abort.abort()
   }
 
+  /** Cancel one reading only; does not stop other queued jobs or any agent run. */
+  cancel(id: number): boolean {
+    if (!Number.isSafeInteger(id) || id < 1) return false
+    if (this.active?.job.id === id) {
+      if (this.active.abort.signal.aborted) return false
+      this.active.abort.abort()
+      return true
+    }
+    const index = this.queue.findIndex((job) => job.id === id)
+    if (index < 0) return false
+    const [job] = this.queue.splice(index, 1)
+    job.resolve({ finished: false, error: 'Cancelled' })
+    return true
+  }
+
   private startNext(): void {
     if (this.active || !this.queue.length) return
     const job = this.queue.shift()!

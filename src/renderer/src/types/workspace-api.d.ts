@@ -282,6 +282,7 @@ export interface WorkspaceApi {
     cancelTranscription(id: string): Promise<void>
     speak(text: string): Promise<{ readingId: number }>
     stop(): Promise<void>
+    cancelReading(readingId: number): Promise<boolean>
     readClipboard(): Promise<{ readingId: number }>
     setHotkey(shortcut: string): Promise<{ shortcut: string }>
     setLookahead(enabled: boolean): Promise<void>

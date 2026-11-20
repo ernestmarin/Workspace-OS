@@ -10,6 +10,7 @@ export const IPC = {
   SPEECH_STT_TRANSCRIBE: 'speech:stt-transcribe',
   SPEECH_STT_CANCEL: 'speech:stt-cancel',
   SPEECH_STOP: 'speech:stop',
+  SPEECH_CANCEL_READING: 'speech:cancel-reading',
   SPEECH_SET_HOTKEY: 'speech:set-hotkey',
   SPEECH_SET_LOOKAHEAD: 'speech:set-lookahead',
   SPEECH_READ_CLIPBOARD: 'speech:read-clipboard',

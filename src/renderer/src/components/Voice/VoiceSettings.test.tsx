@@ -16,7 +16,7 @@ beforeEach(() => {
     config: vi.fn(async () => ({ hotkey: { enabled: false, shortcut: '' }, playback: { prefetch_next_fragment: true }, tts: { profiles: [] } })),
     kokoroInstallStatus: vi.fn(async () => ({ busy: false })),
     kokoroStatus: vi.fn(async () => null), keyStatus: vi.fn(async () => ({})), status: vi.fn(async () => null),
-    onEvent: vi.fn(() => vi.fn()), setLookahead: vi.fn(async () => {}),
+    onEvent: vi.fn(() => vi.fn()), setLookahead: vi.fn(async () => {}), cancelReading: vi.fn(async () => true), stop: vi.fn(async () => {}),
   }
   Object.defineProperty(window, 'workspace', { configurable: true, value: { speech } })
 })
@@ -47,5 +47,27 @@ describe('voice lookahead setting', () => {
     await act(async () => { root.render(<VoiceSettings />); await flush() })
     expect(element.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true)
     expect(speech.setLookahead).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('reading controls', () => {
+  it('stops the shown reading by identity without stopping the queue or agent', async () => {
+    speech.status.mockResolvedValue({ speaking: true, synthesizing: false, readingId: 42 })
+    await act(async () => { root.render(<VoiceSettings />); await flush() })
+    const button = [...element.querySelectorAll('button')].find((item) => item.textContent === 'Stop current reading')!
+    expect(button.disabled).toBe(false)
+    await act(async () => { button.click(); await flush() })
+    expect(speech.cancelReading).toHaveBeenCalledExactlyOnceWith(42)
+    expect(speech.stop).not.toHaveBeenCalled()
+  })
+  it('reports a reading that finished before cancellation arrived', async () => {
+    speech.status.mockResolvedValue({ speaking: true, synthesizing: false, readingId: 42 })
+    speech.cancelReading.mockResolvedValue(false)
+    await act(async () => { root.render(<VoiceSettings />); await flush() })
+    const button = [...element.querySelectorAll('button')].find((item) => item.textContent === 'Stop current reading')!
+    await act(async () => { button.click(); await flush() })
+    expect(element.textContent).toContain('already ended')
+    expect(speech.stop).not.toHaveBeenCalled()
   })
 })

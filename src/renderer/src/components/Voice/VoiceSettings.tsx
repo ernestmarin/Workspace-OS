@@ -106,9 +106,14 @@ export function VoiceSettings(): JSX.Element {
     <div className={styles.keyField}>
       <button type="button" className={styles.btn} disabled={!text.trim()} onClick={() => void speak()}>Speak</button>
       <button type="button" className={styles.btn} onClick={() => void window.workspace.speech.readClipboard().catch((error: Error) => setNotice(error.message))}>Read clipboard</button>
-      <button type="button" className={styles.btn} disabled={!status?.speaking} onClick={() => void window.workspace.speech.stop()}>Stop</button>
-      <span className={styles.hint}>{status?.speaking ? (status.synthesizing ? 'Preparing audio…' : 'Speaking…') : 'Idle'}</span>
+      <button type="button" className={styles.btn} disabled={!status?.speaking || !status.readingId} onClick={() => {
+        const id = status?.readingId
+        if (id) void window.workspace.speech.cancelReading(id).then((cancelled) => { if (!cancelled) setNotice('That reading has already ended.') }).catch((error: Error) => setNotice(error.message))
+      }}>Stop current reading</button>
+      <button type="button" className={styles.btn} disabled={!status?.speaking} onClick={() => void window.workspace.speech.stop().catch((error: Error) => setNotice(error.message))}>Stop all readings</button>
+      <span className={styles.hint}>{status?.speaking ? (status.synthesizing ? 'Speaking or preparing audio…' : 'Speaking…') : 'Idle'}</span>
     </div>
+    <p className={styles.hint}>Stopping the current reading leaves queued readings intact. Stopping all clears the queue. Neither stops an agent run or reverses its actions.</p>
     {notice && <p role="status" className={styles.errText}>{notice}</p>}
   </section>
 }
