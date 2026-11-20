@@ -3,7 +3,7 @@ import path from 'path'
 import os from 'os'
 import ExcelJS from 'exceljs'
 import { parseA1 } from './transclusions'
-import { validateXlsxShape } from './docx-zip'
+import { loadValidatedXlsx } from './docx-zip'
 
 /**
  * Engine-free .xlsx cell writer — the "closed-file" half of sync-all.
@@ -64,13 +64,13 @@ export async function setCellValue(
 
   // Shape pre-validation (N+2b): exceljs parsea el XML sin presupuesto, así
   // que rechazamos ENTITY/depth/CDATA abusivos antes de entregarle el fichero.
-  const shapeFailure = await validateXlsxShape(filePath)
-  if (shapeFailure) return skip(shapeFailure)
+  const snapshot = await loadValidatedXlsx(filePath)
+  if (!snapshot.ok) return skip(snapshot.reason)
 
   // Read the whole workbook. exceljs throws on anything that isn't a real xlsx.
   const wb = new ExcelJS.Workbook()
   try {
-    await wb.xlsx.readFile(filePath)
+    await wb.xlsx.load(Uint8Array.from(snapshot.buffer).buffer)
   } catch {
     return skip('not-valid-xlsx')
   }
