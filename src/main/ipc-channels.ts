@@ -4,6 +4,9 @@
  */
 export const IPC = {
   SPEECH_SPEAK: 'speech:speak',
+  SPEECH_STT_STATUS: 'speech:stt-status',
+  SPEECH_STT_TRANSCRIBE: 'speech:stt-transcribe',
+  SPEECH_STT_CANCEL: 'speech:stt-cancel',
   SPEECH_STOP: 'speech:stop',
   SPEECH_SET_HOTKEY: 'speech:set-hotkey',
   SPEECH_READ_CLIPBOARD: 'speech:read-clipboard',

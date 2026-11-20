@@ -32,3 +32,7 @@ OpenAI synthesis sends requested text to OpenAI. The optional global shortcut
 reads clipboard text on each invocation and uses the currently selected engine;
 it is disabled by default. API keys are stored in the operating-system vault
 when supported. Environment overrides take precedence over stored keys.
+
+## Experimental local speech recognition foundation
+
+An offline-only, bounded transcription worker is available internally, but is not yet connected to microphone capture or an agent session. It expects a manually provisioned, Transformers.js-compatible quantized multilingual Whisper model under `userData/copyspeech/models/whisper`. It does not download models, and file-presence status is not an integrity or compatibility check. This path, the required model files, native ONNX runtime packaging, languages and real transcription have not yet been validated. No offline-conversation readiness is implied.

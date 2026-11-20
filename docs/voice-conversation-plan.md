@@ -14,7 +14,8 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 - Turn lifecycle foundation exists as a pure, tested state machine; it is not wired to audio or the UI.
 - Agent bridge has typed assistant-text events for Claude and Codex, separate from terminal output. Routing finalized transcripts into the selected conversation and connecting playback remain unimplemented.
 - Agent terminal has an opt-in, per-tab completed-reply reader using existing Voice settings. It does not support the PTY broker, streaming speech or microphone input; switching tabs disarms future reply reading. A cloud voice sends reply text to its provider after the user enables the feature.
-- No real microphone, local STT or end-to-end conversation has been validated.
+- Experimental offline-only Whisper STT worker and restricted IPC exist. It expects a manually provisioned compatible quantized Transformers.js model; model compatibility and real transcription have not been validated. No automatic model download.
+- No real microphone or end-to-end conversation has been validated.
 
 ## Stages and gates
 1. **Turn lifecycle foundation.** Define a framework-independent, bounded, testable state machine for opt-in sessions, finalized transcripts, run ownership, output, interruption, stop, stale events and errors. No microphone, network, tools, or audio capture in this stage. Test race cases and fail-closed behavior.

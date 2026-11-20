@@ -15,6 +15,7 @@ import { VoiceHotkey } from './hotkey'
 import { speechEnginesDir } from './paths'
 import { kokoroFilesStatus, prepareKokoro } from './engines/kokoro-setup'
 import { KokoroDependencyInstaller } from './engines/kokoro-install'
+import { LocalStt, localSttStatus } from './local-stt'
 
 function assertOwner(event: IpcMainInvokeEvent): void {
   assertMainFrame(event)
@@ -23,6 +24,7 @@ function assertOwner(event: IpcMainInvokeEvent): void {
 
 export function registerSpeechHandlers(ipc: IpcMain): void {
   const installer = new KokoroDependencyInstaller()
+  const stt = new LocalStt()
   const broker = new PlaybackBroker((owner, message) => {
     const win = mainWindow()
     if (!win || win.webContents.id !== owner) throw new Error('Playback window is unavailable')
@@ -65,6 +67,9 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     // An unavailable shortcut must not prevent the rest of the app from starting.
     console.warn('[speech] could not initialize voice shortcut:', error instanceof Error ? error.message : 'unknown error')
   }
+  ipcHandle(ipc, IPC.SPEECH_STT_STATUS, (event) => { assertOwner(event); return { ...localSttStatus(), busy: stt.busy } })
+  ipcHandle(ipc, IPC.SPEECH_STT_TRANSCRIBE, (event, samples, language) => { assertOwner(event); return stt.transcribe(samples, language) })
+  ipcHandle(ipc, IPC.SPEECH_STT_CANCEL, (event) => { assertOwner(event); stt.cancel() })
   ipcHandle(ipc, IPC.SPEECH_SPEAK, (event, text) => {
     assertOwner(event)
     if (typeof text !== 'string') throw new Error('Speech text must be a string')
@@ -129,5 +134,5 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     if (typeof id !== 'string' || typeof ok !== 'boolean') throw new Error('Invalid playback result')
     return broker.complete(event.sender.id, id, ok)
   })
-  registerCleanup('speech', async () => { hotkey.dispose(); controller.stop(); await installer.shutdown() })
+  registerCleanup('speech', async () => { hotkey.dispose(); controller.stop(); stt.cancel(); await installer.shutdown() })
 }
