@@ -30,6 +30,8 @@ e2e/**/.build-*/
 
 # Caches
 .vite/
+# Read-only upstream reference checkouts; never vendor their code/models into WOS.
+/.cache/reference-repos/
 *.log
 .DS_Store
 

@@ -18,7 +18,7 @@
     "lint": "eslint src --ext .ts,.tsx",
     "check:macros": "node scripts/validate-macros.mjs",
     "pretest": "npm run check:macros",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/.cache/reference-repos/**\"",
     "rebuild:electron": "electron-rebuild -f -w better-sqlite3,node-pty && node scripts/sign-native.mjs",
     "rebuild:node": "npm rebuild better-sqlite3 node-pty && node scripts/sign-native.mjs",
     "e2e": "npm run rebuild:electron && npm run build && node e2e/smoke.mjs; npm run rebuild:node",
