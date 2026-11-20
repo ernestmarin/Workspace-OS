@@ -3,10 +3,14 @@ import { CodexRpc, type RpcRecord } from './codexRpc'
 import type { McpJsonConfig } from './codex'
 import type { RunSink } from '../launchRun'
 import { parseConversation } from '../modelPick'
+import { isAssistantRunOwner, type AssistantRunOwner, type AssistantRunOutcome } from '../../../shared/agentRun'
+import { AssistantResponses } from '../assistantResponses'
 
 export interface CodexQuestion { runId: string; requestId: string; method: string; params: RpcRecord }
 export interface CodexSessionOptions {
   runId: string; cwd: string; prompt: string; instructions: string; model?: string; effort?: string
+  /** Trusted WOS caller supplies the launch epoch; never establish it from a notification. */
+  responseOwner?: AssistantRunOwner
   resumeId?: string; safeMode: boolean; env: NodeJS.ProcessEnv; connectors: McpJsonConfig
   unattended?: boolean; sink: RunSink; signal?: AbortSignal
   onQuestion: (question: CodexQuestion | { runId: string; requestId: string; resolved: true }) => void
@@ -103,6 +107,8 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
   o.signal?.throwIfAborted()
   if (o.resumeId && !parseConversation('codex:' + o.resumeId)) throw new Error('Invalid Codex thread id')
   const start = Date.now()
+  const responseOwner = isAssistantRunOwner(o.responseOwner) && o.responseOwner.runId === o.runId ? { ...o.responseOwner } : undefined
+  let responses: AssistantResponses | undefined
   let resolvedModel = o.model
   let finished = false
   let baseline: Record<string, number> | undefined
@@ -122,9 +128,10 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
     controls.delete(o.runId)
     rpc.close()
   }
-  const finish = (code: number): void => {
+  const finish = (code: number, outcome: AssistantRunOutcome = code === 0 ? 'completed' : code === 130 ? 'cancelled' : 'failed'): void => {
     if (finished) return
     teardown()
+    responses?.endRun(outcome)
     const label = resolvedModel ? `codex ${resolvedModel}` : 'codex'
     o.sink.meta({ costUsd: 0, costKnown: false, provider: 'codex', turns: 1, durationMs: Date.now() - start, model: label, ...usage })
     o.sink.output(`\n\x1b[2m${label} · ${usage.inputTokens.toLocaleString('en-US')} in / ${usage.outputTokens.toLocaleString('en-US')} out\x1b[0m\n`)
@@ -161,6 +168,7 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
     if (method === 'item/agentMessage/delta' && typeof p.delta === 'string') {
       if (!p.delta || typeof p.itemId !== 'string' || !p.itemId || completed.has(p.itemId)) return
       delivered.add(p.itemId)
+      responses?.text(p.itemId, p.delta)
       o.sink.output(p.delta)
       o.sink.assistantText?.(p.delta)
     } else if (method === 'item/completed' && p.item?.type === 'agentMessage') {
@@ -168,9 +176,10 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
       completed.add(p.item.id)
       if (!delivered.has(p.item.id) && typeof p.item.text === 'string') {
         o.sink.output(p.item.text)
-        if (p.item.text) o.sink.assistantText?.(p.item.text)
+        if (p.item.text) { responses?.text(p.item.id, p.item.text); o.sink.assistantText?.(p.item.text) }
         delivered.add(p.item.id)
       }
+      responses?.complete(p.item.id)
       o.sink.output('\n')
     } else if (method === 'item/started') {
       const item = p.item ?? {}
@@ -189,13 +198,14 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
       } else for (const key of keys) if (Number.isSafeInteger(last[key]) && last[key] >= 0) usage[key] = last[key]
     } else if (method === 'turn/completed') {
       if (p.turn?.error?.message) o.sink.output(`\n[error] ${p.turn.error.message}\n`)
-      finish(p.turn?.status === 'completed' && !p.turn.error ? 0 : p.turn?.status === 'interrupted' ? 130 : 1)
+      const outcome: AssistantRunOutcome = p.turn?.error ? 'failed' : p.turn?.status === 'completed' ? 'completed' : p.turn?.status === 'interrupted' ? 'cancelled' : 'failed'
+      finish(p.turn?.status === 'completed' && !p.turn.error ? 0 : p.turn?.status === 'interrupted' ? 130 : 1, outcome)
     }
   }
   const rpc = new CodexRpc({
     cwd: o.cwd, env: o.env,
     onDiagnostic: (text) => o.sink.output(text),
-    onClose: (error) => { if (!finished) { o.sink.output(`\n[error] ${error.message}\n`); finish(130) } },
+    onClose: (error) => { if (!finished) { o.sink.output(`\n[error] ${error.message}\n`); finish(130, 'failed') } },
     onRequest: (id, method, params) => {
       if (finished) return
       if (method === 'item/tool/call' && params.tool === 'workspace_action' && o.onAction) {
@@ -248,6 +258,11 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
     if (finished) return rpc.child
     if (typeof turn.turn?.id !== 'string' || !turn.turn.id) throw new Error('Codex returned no turn identity')
     control.turn = turn.turn.id
+    if (responseOwner && o.sink.assistantResponse) {
+      try {
+        responses = new AssistantResponses(responseOwner, { provider: 'codex', sessionId: control.thread, turnId: control.turn }, (event) => o.sink.assistantResponse?.(event))
+      } catch { /* Invalid auxiliary voice metadata must not cancel the actual agent/tools. */ }
+    }
     startingTurn = false
     for (const entry of early.splice(0)) notification(entry.method, entry.params)
     return rpc.child

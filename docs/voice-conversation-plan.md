@@ -1,7 +1,7 @@
 # Native, local-first voice conversation: atomic implementation plan
 
-Last reviewed: **2026-11-20**, completed-run ownership increment from WOS
-`8f07bb4` (merged PR #7; earlier checkpoints below remain historical).
+Last reviewed: **2026-11-20**, response-provenance/U1 foundations from WOS
+`73e32d4` (merged PR #8; earlier checkpoints below remain historical).
 **Product goal: a fully real-time voice-managed WOS interface and voice
 conversation with the selected existing agents, preserving their conversation,
 context, grants, Safe/Full mode, MCP, review and visual action approvals.**
@@ -12,8 +12,8 @@ The [Hugging Face reference review](#hugging-face-speech-to-speech-reference-rev
 records the pinned upstream checkout, adoption decisions and next atomic gates.
 The native sentence assembler is still **unwired to incremental audio**. A new
 conservative prose extractor protects completed-reply reading, now connected to
-consent-scoped tab/run ownership. See the [current checkpoint](#completed-run-ownership-checkpoint-2026-11-20)
-for implementation and validation; the post-PR #6 audit below is historical.
+consent-scoped tab/run ownership. See the [current checkpoint](#response-provenance-and-interface-proposals-checkpoint-2026-11-20)
+for implementation and validation; PR #8 ownership and post-PR #6 audit evidence below are historical.
 Neither continuous listening nor voice-interface command execution is enabled.
 
 También se han portado componentes internos de CopySpeech: sanitización de texto, paginación, estructuras de captions y orquestación de lecturas. Que existan esos componentes **no significa** que todas sus funciones estén conectadas a la interfaz.
@@ -38,10 +38,53 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 - Renderer playback now cleans up on cancel, failure and unmount, tolerates already-stopped/closed resources and ignores stale audio callbacks. These are simulated Web Audio tests, not real-device verification.
 - Individual reading IDs can be cancelled through authorized IPC; Voice settings provide stop-current and stop-all. Completed-run reservations now own cancellation through playback drain; response-level incremental scheduling and automatic interruption remain pending. Audio Stop never cancels the agent.
 - Optional, off-by-default one-fragment TTS lookahead overlaps synthesis with playback and aborts on stop/failure. It does not stream agent tokens or audio, and may send the next fragment early to a selected cloud TTS provider. Real latency and audio behavior are unmeasured.
+- A1a response event contracts and A1b's optional Codex sink path now exist, with bounded generation/run outcomes. Main IPC, preload, renderer ownership consumption and Claude's new adapter are still open; the normal reader still uses completed-run flattened text.
+- U1 can propose five reversible navigation/focus IDs from exact finalized es/en text in explicit command mode. It is a pure helper, not a wired interface-control feature or action permission.
 - No real microphone or end-to-end conversation has been validated.
+
+## Response provenance and interface proposals checkpoint (2026-11-20)
+
+**Code/fixture foundations only; no new realtime or voice-command UI behavior.**
+
+- A1a: [shared discriminated events](../src/shared/agentRun.ts) carry WOS session /
+  run / launch epoch, provider session/turn, response ID, sequence and outcomes.
+  Runtime guards check shape, not authorization or chronological acceptance.
+- [AssistantResponses](../src/main/agent/assistantResponses.ts) separates item
+  generation from run completion; neither means playback drain or heard text.
+  Bounds: 256-unit identities, 128 response IDs including completed tombstones,
+  20k UTF-16 per delta and 100k cumulative text. Overflow seals this voice source
+  without truncating a chunk; consumers must discard/cancel only its owned speech,
+  never the agent or its actions. An unclosed item stays `incomplete` on run success.
+- A1b/Codex: the optional `RunSink.assistantResponse` path binds only after RPC
+  responses establish thread/turn, then replays the bounded startup queue through
+  those identities. It preserves item boundaries, fallback/replay sealing and
+  explicit fail/cancel outcomes. RPC loss is failure, not user cancellation;
+  historical exit codes and the terminal/completed-reader path stay unchanged.
+- **Not end-to-end wired:** the normal main handler does not mint/pass this owner
+  or forward the new events; no preload/renderer consumer is added. Missing or
+  mismatched ownership emits no new response events. Claude's contract variant
+  is reserved, not an implemented adapter. A1c/A1d are still required.
+- U1: [proposal helper and tests](../src/shared/speech/interfaceCommands.test.ts)
+  accept only an exact es/en phrase in explicit command mode, a final transcript
+  and matching document/tab/epoch. Five typed focus/navigation IDs, 160 text
+  units, copied context and `requiresVisualReview: true`; no executor, menu IDs,
+  LLM, agent submission, mic or UI imports. Unknown/partial/stale/control/bidi/
+  multiline/injected text returns no proposal. U2/U3 remain unimplemented.
+- Evidence: [13 lifecycle tests](../src/main/agent/assistantResponses.test.ts),
+  26 Codex tests (8 new) and 42 command proposal tests: **81 targeted passes**.
+  Initial RED had 5 behavioral failures/19 passes plus 2 missing-module collection
+  errors; outcome regression separately failed before RPC-loss classification.
+- Final focused run: **393 passes / 41 files**. Full: **3,233 total; 2,939 pass /
+  267 fail / 27 skipped; 321 files, 41 failed**. Fresh baseline: 2,876 passes in
+  319 files with the same failures. **63 new passes**, no new failed identities/
+  files; same 26 Electron and 15 native-binding unavailable files, not a green suite.
+- Typecheck retains the **70-known-error baseline**; build passes. No dependency,
+  model, audio/device/provider/Electron acceptance. Audit: **19 high / 67 moderate**;
+  scanner retry (CLI 3.79.1) failed at ONNX 1.30.0 bootstrap, no source report.
 
 ## Completed-run ownership checkpoint (2026-11-20)
 
+Historical merged PR #8 evidence; implementation remains, latest validation is above.
 **Implemented and wired, not real-device accepted.** This is a bounded A2
 prerequisite brought forward for the existing completed-run mode, not completion
 of A1/A2 response-owned realtime scheduling or the product goal.
@@ -196,96 +239,46 @@ Each stage: implement, review adversarially, add regression tests, run relevant 
 
 ## Implementation inventory (2026-11-19)
 
-This historical inventory covers both the CopySpeech port and the conversation
-work, not just the last milestone. “Implemented” describes code and focused
-automated checks; it does **not** imply real-device or release validation. See
-[current validation](#completed-run-ownership-checkpoint-2026-11-20) rather than
-treating the old test counts or lifecycle limitations below as current.
+Consolidated historical inventory; use the [current checkpoint](#response-provenance-and-interface-proposals-checkpoint-2026-11-20)
+and [full checklist](voice-integration-checklist.md) for current evidence/open work.
+Implemented helpers are not release acceptance.
 
 ### CopySpeech-derived reading foundations
-- Shared TypeScript contracts/defaults, deterministic sanitization, text
-  pagination, UTF-16-aware fragment spans and caption data models are ported.
-  Their presence does not mean the caption UI, word highlighting, or every
-  upstream feature is connected.
-- Voice configuration is merged with defaults, shape/range checked and
-  atomically persisted under `userData/copyspeech`; malformed files are not
-  silently overwritten. Keys use the OS vault where available; config rejects
-  known credential fields and unsafe HTTP templates. Full migration and a
-  comprehensive credential audit remain open.
-- OpenAI batch synthesis and a managed local command/WAV adapter are wired to
-  a bounded reading queue and acknowledged PCM renderer playback. Stop-all and cancel-by-reading-ID are supported; the Voice settings can stop
-  the current reading without clearing other queued readings. Per-session
-  ownership and pause, resume, captions and effects remain incomplete. OpenAI sends text remotely.
-- Settings support Kokoro/OpenAI choice, a limited voice list, vault-backed
-  OpenAI key, reading text/clipboard, stop and an optional global clipboard
-  shortcut (disabled by default). Browser page text can be read. Selection and
-  word highlighting within WOS Browser remain pending; external browser
-  extensions and native-messaging hosts are out of scope for v1.
-- CopySpeech's MIT Kokoro wrapper/project manifest can be staged without
-  overwriting user files. Optional cancellable dependency setup uses `uv`; model
-  weights are manually supplied. Presence checks are not integrity/readiness
-  checks, and no real Kokoro audio or cross-platform process-tree behavior is
-  validated. This existing optional child process is not permission to add a
-  new Python Pipecat sidecar.
-- Optional one-fragment lookahead is disabled by default, separately from the
-  old `streaming_enabled` config field. It synthesizes at most one fragment in
-  advance, cancels on failure/stop and warns that a cloud provider may receive
-  text early. This is not token streaming or a benchmarked latency improvement.
+- Ported contracts/defaults, sanitization, pagination, UTF-16 spans and caption
+  data; visible captions/highlights and other flags are not working features.
+- Config is validated/atomically persisted under `userData/copyspeech`, malformed
+  files preserved, known credential/template risks rejected, keys vault-backed.
+  Full credential/config migration and non-destructive recovery remain open.
+- Batch OpenAI/local WAV, bounded queue, acknowledged PCM, manual/page/clipboard
+  Speak/Stop and opt-in shortcut exist. Lookahead prepares at most one fragment,
+  off by default; cloud text can be sent early. Not measured token/audio streaming.
+- Kokoro wrapper/project can be staged without overwrites and dependencies set
+  up with explicit opt-in uv; weights/manual prerequisites, integrity, licensing,
+  actual inference/offline behavior and platform packaging remain unverified.
 
 ### Agent and capture work
-- Assistant-only structured text events for Claude/Codex are separated from
-  terminal/tool output. Completed-reply reading is per-tab and opt-in, limited
-  to successful owned prompt runs, with bounded buffers; switching tabs disarms
-  future reading. It is not live streaming, PTY support or voice conversation.
-- The pure turn state machine and regression tests define tickets, stale-event
-  rejection, stop/interrupt effects and bounded transcripts. It is not wired
-  to the existing agent session, microphone or playback; in particular it does
-  not yet implement full-duplex barge-in or overlapping turns.
-- Offline-only Transformers.js Whisper worker and restricted main-frame IPC
-  accept bounded audio, support UUID-scoped cancellation and use a manually
-  installed compatible multilingual model. Four file-presence checks do not
-  verify ONNX files, model provenance, integrity or runtime readiness; actual
-  recognition, language quality and native packaging are untested.
-- Push-to-talk captures at most 30 seconds after per-request native consent;
-  it resamples locally to 16 kHz, transcribes and inserts text for user review
-  without submitting. Browser guest capture is denied. A time-limited audio-only
-  grant and request identities protect against ordinary stale lifecycle cleanup,
-  not a compromised trusted renderer.
-- Capture discards on tab deactivation, hidden document, pagehide, disconnect,
-  cancellation and recording error, and cleans tracks, monitor, timers,
-  decoding context and its own STT request. An optional, off-by-default RMS
-  silence heuristic is not trained VAD; no automatic background listening.
-- Dictation supports the nine requested language controls and scoped Arabic/
-  Hebrew RTL, plus per-tab in-memory microphone selection and explicit device
-  refresh. Selected devices use exact constraints and do not silently fall back.
-  Errors/native consent and other Voice surfaces remain incompletely localized;
-  selected languages and device behavior are not yet tested on real models or
-  real Electron.
+- Existing selected agent/context/grants/review are retained. PR #8 added owned
+  completed-run reading; pure turn lifecycle and sentence helpers are not realtime.
+- Offline-only Whisper worker, scoped IPC and review-first push-to-talk capture
+  up to 30 seconds at 16 kHz exist. Presence checks do not establish compatibility.
+- Request-owned cleanup covers tab/hidden/pagehide/track/disconnect/error paths;
+  RMS silence is optional, not trained VAD. No background listening or auto-submit.
+- Nine dictation control locales (en/ar/de/es/fr/he/hi/ru/zh), scoped ar/he RTL,
+  exact per-tab microphone selection and refresh exist; no silent fallback or
+  device-ID persistence. Other panels/errors/native consent remain incompletely localized.
 
 ### Validation and unresolved work
-- Latest focused simulated/unit suite at this inventory: **170 tests in 26
-  files passed**. Typecheck passes against an existing **70-error baseline**;
-  production build succeeds. These are not real microphone, speaker, model,
-  network-provider or Electron end-to-end tests. Historical full-suite failures
-  and unavailable Electron/native binaries remain separate unresolved issues.
-- Still required: real turn integration with existing WOS sessions and
-  approvals; incremental assistant-only speech; per-session audio/run ownership
-  and interruption wiring; trained local VAD and streaming/local STT with audited model
-  install; reliable barge-in and spoken-context tracking; native Browser
-  selection and word highlighting; HUD/tray/history/exports and the remaining
-  in-scope CopySpeech features; full Voice-module localization; performance,
-  security and cross-platform validation.
-- User exclusions continue to apply: no added Python sidecar, no external
-  browser extension/native-messaging host, no LLM postprocessing, telemetry,
-  CopySpeech updater, Windows ducking, retired edge-tts or landing/web routes.
-  Global hotkey and tray must be opt-in; tray on macOS must use a template icon
-  reflecting speaking/paused, and the HUD must remain above windows while
-  speaking. WAV export is always available once implemented; MP3/OGG require a
-  system ffmpeg. The existing Electron updater remains authoritative.
-- Final red/blue audit and real Electron E2E are release gates, not deferred
-  claims of success. Check relevant code throughout implementation, then repeat
-  the full audit and E2E when the complete feature is ready. No parity with
-  Pipecat or LiveKit is claimed without measurements.
+- Historical inventory evidence was 170 tests/26 files, baseline-70 typecheck and
+  build; not devices/models/providers/Electron. Current evidence is linked above.
+- All unchecked streaming, trained VAD, barge-in/heard-context, local-model,
+  CopySpeech UX/engines, localization, platform and security gates remain open.
+- Exclusions: no added Python sidecar, browser extension/native host, extra LLM,
+  telemetry, CopySpeech updater, Windows ducking, edge-tts or landing/web routes.
+- Hotkey/tray are opt-in; macOS tray must use a speaking/paused template icon;
+  speaking HUD stays above windows. WAV export, conditional system-ffmpeg MP3/OGG
+  and existing Electron updater only. Each surface needs its own implementation.
+- Final real Electron/device/platform and red/blue security acceptance must be
+  repeated after integration. No Pipecat/LiveKit parity claim without measurements.
 
 ## Hugging Face speech-to-speech reference review (2026-11-20)
 
@@ -373,14 +366,14 @@ commands, and do not add a spoken shortcut around high-risk visual approvals.
 ### Next atomic integration gates (in order)
 
 Rows are dependency gates, not permission to enable unvalidated runtime behavior.
-R1–R6, conservative extraction and the bounded completed-run A2 prerequisite are
-implemented. A1 is still open; live response scheduling must not skip it. Model/
+R1–R6, conservative extraction, completed-run A2, A1a/A1b adapter fixtures and U1
+proposals exist. A1c/A1d remain open; live scheduling must not skip them. Model/
 dependency work is a parallel **release blocker**. U is a separate interface-control
 track, never a second agent executor. Use the independently testable slices below.
 
 | Gate / state | Bounded change and exit evidence |
 | --- | --- |
-| A1 — next: response identity contract | Extend the existing assistant bridge with session/run/response/epoch identity and explicit success/failure, without changing the authoritative conversation. Test concurrent runs, tool/reasoning exclusion, item boundaries, replay and startup races. Terminal text stays separate. |
+| A1 — partial: A1c/A1d next | Typed session/run/response/epoch/outcome contract and optional Codex adapter are implemented/tested. Still required: Claude adapter, main-minted owner/dispatch acknowledgement, document-bound IPC/preload and renderer consumption. The current reader still uses flattened completed-run text; no new live audio. |
 | A2 — partial; live scheduler blocked by A1 | Completed-run open/reserve/finish/close, native frozen consent, bounded reservations and scoped Stop are wired. Still required: response/epoch-owned scheduling, bounded audio duration, producer backpressure and concurrency. Use only an explicitly consented destination snapshot, never a silent response-start config change. Test late acknowledgements, drain and stale cancellation; never cancel agent tools as an audio control. |
 | A3 — blocked by A2: opt-in incremental replies | Connect extracted blocks → sentences → scheduler. Disclose partial speech before run failure and early cloud transmission. Keep completed-reply mode/default and manual Stop. Prove generation completion and audio drain are distinct; a failed turn cannot resume audio. |
 | A4 — release blocker: dependencies and local readiness | Triage/patch the audited native dependency chain with packaging tests; pin reviewed model manifests, licenses and hashes, explicit install consent and recovery. Verify actual local Whisper inference and a Spanish-capable TTS adapter (current Kokoro wrapper is English-only). Network-blocked runtime tests, not file flags, establish offline readiness. Test Windows descendant cleanup. |
@@ -388,7 +381,7 @@ track, never a second agent executor. Use the independently testable slices belo
 | A6 — bounded capture/STT | Add AudioWorklet framing/resampling, bounded transfer/backpressure, a reviewed trained local VAD with pre-roll/hysteresis and revisable partial/final STT contracts. Test cancel, disconnect, sleep and permission loss. Only owned final transcripts can reach A5. Push-to-talk remains the fallback. |
 | A7 — PCM and interruption | Implement owned bounded PCM queues, clear/drain and rendered-progress acknowledgements; separate generated from heard text. Measure AEC/self-triggering on real speakers/headphones before enabling speech-triggered barge-in. Stopping audio never silently repeats or cancels irreversible agent actions. No full-duplex claim from mic muting. |
 | A8 — individual CopySpeech UX increments | Separate changes for browser selection/highlighting, pause/resume/effects, HUD, opt-in tray, history, WAV/conditional-ffmpeg exports and each remaining engine. Each needs tests, cleanup/privacy and user-visible evidence; flags are insufficient. Keep this backlog visible while conversation work advances. |
-| U — separate reviewed interface-command track | Explicit command mode, finite typed action allowlist and visible preview/confirmation using existing WOS callbacks. No arbitrary menu IDs, shell/tool execution, LLM routing or spoken approval bypass. Unknown/interim/ambiguous speech executes nothing. See U1–U3 below; runtime microphone wiring also needs A4/A6. |
+| U — partial: pure U1 proposals only | Exact es/en grammar and five typed navigation/focus proposals are tested, not wired. U2 visible confirmation/current-context callbacks and U3 finalized capture remain open. No arbitrary menu IDs, shell/tools, LLM routing or spoken approval bypass. Microphone integration also needs A4/A6. |
 | A9 — release gate, not yet accepted | Complete nine-locale Voice/RTL/accessibility work and fresh-install Windows/macOS/Linux Electron E2E with actual microphones/models/audible playback. Record Spanish/language quality, STT final/first audible/barge-in timings, resource use and fault recovery. Repeat end-to-end red/blue security review and dependency triage; unavailable platforms remain unchecked. |
 
 #### Atomic execution slices
@@ -397,11 +390,17 @@ Keep each slice independently reviewable; a checked pure helper does not check
 its later runtime/UI integration. Do not bundle all local-model or capture work
 into one change just because it shares a gate.
 
-- **A1a — next**: typed session/run/response/epoch and terminal outcome on the
-  existing bridge; RED fixtures, no audio change. **A1b/Codex**, then
-  **A1c/Claude**: preserve item/response boundaries and reject replay/stale/failure
-  separately per provider. **A1d**: carry identities through launchRun, IPC and
-  the current hook without flattening; prove context/grants/terminal unchanged.
+- **A1a/A1b — implemented at contract/Codex-adapter level only**: bounded source,
+  response/run outcomes, replay sealing and RED fixtures. No new dock transport.
+- **A1c — next**: pin/verify Claude stream schema; adapt message/block lifecycles
+  and final-only compatibility separately, without inventing missing identities.
+- **A1d.1**: main mints a per-launch epoch tied to the existing WOS conversation
+  and returns the owner in dispatch acknowledgement, not unsolicited push data.
+  **A1d.2**: document-bound IPC/preload, bounded early-event buffering, schema /
+  sequence / epoch validation and teardown; test same-URL reload and late acks.
+  **A1d.3**: owned renderer response assembly in completed mode first; failure,
+  incomplete/source-error or stale events discard/cancel only owned speech.
+  Prove context/grants/review/terminal unchanged before A2 live scheduling.
 - **A2-completed — implemented**: native frozen consent, narrow main/preload,
   delayed-ack lifecycle and completed-reader UI wiring, including scoped Stop.
   **A2a — open after A1**: response-owned bounded queue/duration/backpressure.
@@ -431,15 +430,14 @@ into one change just because it shares a gate.
 
 #### Voice-interface command route (separate from agent turns)
 
-- **U1 — next, parallel with A1a/A4a**: typed local allowlist and exact es/en
-  grammar, final-transcript-only proposal, no side effects. Explicit command mode
-  is separate from dictating an agent draft. Test unknowns, ambiguity, injected
-  menu IDs, interim speech, stale sessions and attempts to approve/run/delete.
-- **U2 — after U1**: visible preview and visual confirmation, bound to the active
-  document/tab/epoch. Start with reversible focus/navigation actions through
-  existing callbacks, not arbitrary `menu.runAction`. Session changes invalidate
-  pending proposals; recognition never executes tools, submits an agent prompt,
-  changes grants/Safe mode or confirms high-risk dialogs.
+- **U1 — implemented, pure only**: finite es/en grammar, finalized/current-context
+  proposal, strict limits and rejection tests. No capture, UI or execution wiring.
+- **U2a — next, parallel with A1c/A4a**: one-shot visual confirmation controller;
+  bound proposal IDs/context/expiry and invalidate on switch/hide/stop. Tests must
+  prove no replay, stale confirmation or recognition-as-approval.
+- **U2b**: visible preview and existing reversible navigation/focus callbacks in
+  the selected WOS context, not arbitrary `menu.runAction`. Recognition never
+  executes tools, submits prompts, changes grants/Safe mode or confirms high-risk dialogs.
 - **U3 — after U2/A4/A6**: wire owned finalized capture into command proposals;
   verify real Electron/device/es-en behavior and accessibility. Hands-free
   low-risk execution would require separate consent and tests; it is not enabled.

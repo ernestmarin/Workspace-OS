@@ -12,9 +12,9 @@ vi.mock('./codexRpc', () => ({ CodexRpc: class {
 } }))
 import { launchCodexSession, codexThreadConfig, answerCodex, steerCodex, cancelCodex } from './codexSession'
 const setup = async (extra = {}) => {
-  const sink = { output: vi.fn(), assistantText: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
+  const sink = { output: vi.fn(), assistantText: vi.fn(), assistantResponse: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
   const onQuestion = vi.fn(), onFinish = vi.fn()
-  await launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'persona', safeMode: true, env: {}, connectors: { mcpServers: {} }, sink, onQuestion, onFinish, ...extra })
+  await launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'persona', safeMode: true, env: {}, connectors: { mcpServers: {} }, responseOwner: { sessionId: 'wos-conversation', runId: 'test-run', epoch: 'epoch-1' }, sink, onQuestion, onFinish, ...extra })
   return { sink, onQuestion, onFinish, rpc: mock.instances.at(-1) }
 }
 beforeEach(() => { mock.instances.length = 0; mock.startFails = false; mock.startHangs = null; mock.onTurnStart = null })
@@ -171,7 +171,7 @@ describe('Codex session and isolation', () => {
   })
   it('a failed start rejects once and reports no completion (the caller reports it)', async () => {
     mock.startFails = true
-    const sink = { output: vi.fn(), assistantText: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
+    const sink = { output: vi.fn(), assistantText: vi.fn(), assistantResponse: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
     const onFinish = vi.fn()
     await expect(launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'p', safeMode: true, env: {}, connectors: { mcpServers: {} }, sink, onQuestion: vi.fn(), onFinish })).rejects.toThrow('not signed in')
     expect(onFinish).not.toHaveBeenCalled()
@@ -183,12 +183,113 @@ describe('Codex session and isolation', () => {
     let reject!: (e: Error) => void
     mock.startHangs = { promise: new Promise((_, r) => { reject = r }), reject: (e) => reject(e) }
     const controller = new AbortController()
-    const sink = { output: vi.fn(), assistantText: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
+    const sink = { output: vi.fn(), assistantText: vi.fn(), assistantResponse: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
     const onFinish = vi.fn()
     const launch = launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'p', safeMode: true, env: {}, connectors: { mcpServers: {} }, sink, onQuestion: vi.fn(), onFinish, signal: controller.signal })
     await Promise.resolve(); await Promise.resolve()
     controller.abort()
     await expect(launch).resolves.toBeDefined()
     expect(onFinish).toHaveBeenCalledExactlyOnceWith(130)
+  })
+})
+
+
+describe('Codex response provenance before live audio integration', () => {
+  const scope = { threadId: '00000000-0000-0000-0000-000000000001', turnId: 'turn-1' }
+  it('preserves response boundaries and separates item generation from run completion', async () => {
+    const s = await setup()
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'Hello.' })
+    s.rpc.options.onNotification('item/completed', { ...scope, item: { id: 'a', type: 'agentMessage', text: 'Hello.' } })
+    s.rpc.options.onNotification('item/completed', { ...scope, item: { id: 'b', type: 'agentMessage', text: 'Fallback.' } })
+    expect(s.onFinish).not.toHaveBeenCalled()
+    s.rpc.options.onNotification('turn/completed', { threadId: scope.threadId, turn: { id: scope.turnId, status: 'completed' } })
+    const events = s.sink.assistantResponse.mock.calls.map(([event]) => event)
+    expect(events.map((event) => event.type)).toEqual(['response-start', 'text-delta', 'response-end', 'response-start', 'text-delta', 'response-end', 'run-end'])
+    expect(events.every((event) => event.owner.sessionId === 'wos-conversation' && event.owner.runId === 'test-run' && event.owner.epoch === 'epoch-1')).toBe(true)
+    expect(events.every((event) => event.source.provider === 'codex' && event.source.sessionId === scope.threadId && event.source.turnId === scope.turnId)).toBe(true)
+    expect(events.filter((event) => event.type === 'text-delta').map((event) => [event.responseId, event.text])).toEqual([['a', 'Hello.'], ['b', 'Fallback.']])
+    expect(events.at(-1)).toMatchObject({ type: 'run-end', outcome: 'completed' })
+    expect(s.sink.assistantText.mock.calls).toEqual([['Hello.'], ['Fallback.']])
+  })
+  it('never emits reasoning/tool, missing-owner, foreign-thread or stale-turn text as responses', async () => {
+    const s = await setup()
+    for (const extra of [{ threadId: 'child-thread' }, { turnId: 'old-turn' }, { threadId: undefined }, { turnId: undefined }]) {
+      s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, ...extra, itemId: 'foreign', delta: 'private' })
+    }
+    for (const type of ['reasoning', 'mcpToolCall', 'commandExecution']) s.rpc.options.onNotification('item/completed', { ...scope, item: { id: type, type, text: 'private' } })
+    expect(s.sink.assistantResponse).not.toHaveBeenCalled()
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'Owned.' })
+    expect(s.sink.assistantResponse).toHaveBeenCalledWith(expect.objectContaining({ type: 'text-delta', responseId: 'a', text: 'Owned.' }))
+  })
+  it('closes open response generation on failure/cancel without treating an earlier completed item as run success', async () => {
+    const s = await setup()
+    s.rpc.options.onNotification('item/completed', { ...scope, item: { id: 'done', type: 'agentMessage', text: 'Earlier.' } })
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'live', delta: 'Partial.' })
+    s.rpc.options.onNotification('turn/completed', { threadId: scope.threadId, turn: { id: scope.turnId, status: 'completed', error: { message: 'failure' } } })
+    expect(s.sink.assistantResponse).toHaveBeenCalledWith(expect.objectContaining({ type: 'response-end', responseId: 'live', outcome: 'failed' }))
+    expect(s.sink.assistantResponse).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'run-end', outcome: 'failed' }))
+    const next = await setup()
+    next.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'live', delta: 'Waiting.' })
+    cancelCodex('test-run')
+    expect(next.sink.assistantResponse).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'run-end', outcome: 'cancelled' }))
+    const count = next.sink.assistantResponse.mock.calls.length
+    next.rpc.options.onNotification('item/completed', { ...scope, item: { id: 'live', type: 'agentMessage', text: 'late' } })
+    expect(next.sink.assistantResponse).toHaveBeenCalledTimes(count)
+  })
+  it('binds startup races only after RPC establishes thread/turn and seals repeated item events', async () => {
+    mock.onTurnStart = (notify) => {
+      notify('item/agentMessage/delta', { ...scope, turnId: 'old-turn', itemId: 'bad', delta: 'old' })
+      notify('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'New.' })
+      notify('item/completed', { ...scope, item: { id: 'a', type: 'agentMessage', text: 'New.' } })
+      notify('item/completed', { ...scope, item: { id: 'a', type: 'agentMessage', text: 'replay' } })
+      notify('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'late' })
+    }
+    const s = await setup()
+    expect(s.sink.assistantResponse.mock.calls.map(([event]) => event.type)).toEqual(['response-start', 'text-delta', 'response-end'])
+    expect(s.sink.assistantResponse).toHaveBeenCalledWith(expect.objectContaining({ type: 'text-delta', text: 'New.' }))
+  })
+  it('source limits do not cancel the agent or suppress its existing terminal/completed-run path', async () => {
+    const s = await setup()
+    const long = 'x'.repeat(20_001)
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: long })
+    expect(s.sink.assistantResponse).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'source-error', reason: 'text-limit' }))
+    expect(s.onFinish).not.toHaveBeenCalled()
+    expect(s.sink.output).toHaveBeenCalledWith(long)
+    expect(s.sink.assistantText).toHaveBeenCalledWith(long)
+    s.rpc.options.onNotification('turn/completed', { threadId: scope.threadId, turn: { id: scope.turnId, status: 'completed' } })
+    expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(0)
+  })
+  it('distinguishes unexpected RPC loss from an explicit user interruption without changing legacy exit codes', async () => {
+    const s = await setup()
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'Partial.' })
+    s.rpc.options.onClose(new Error('connection lost'))
+    expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(130)
+    expect(s.sink.assistantResponse).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'run-end', outcome: 'failed' }))
+    expect(s.sink.assistantResponse).toHaveBeenCalledWith(expect.objectContaining({ type: 'response-end', responseId: 'a', outcome: 'failed' }))
+    const next = await setup()
+    next.rpc.options.onNotification('turn/completed', { threadId: scope.threadId, turn: { id: scope.turnId, status: 'interrupted', error: { message: 'provider error' } } })
+    expect(next.sink.assistantResponse).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'run-end', outcome: 'failed' }))
+  })
+  it('snapshots WOS ownership before awaiting provider startup and isolates observer failures', async () => {
+    const responseOwner = { sessionId: 'wos-conversation', runId: 'test-run', epoch: 'epoch-1' }
+    const pending = setup({ responseOwner })
+    responseOwner.epoch = 'mutated-during-startup'
+    const s = await pending
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'Snapshot.' })
+    expect(s.sink.assistantResponse).toHaveBeenCalledWith(expect.objectContaining({ type: 'text-delta', owner: expect.objectContaining({ epoch: 'epoch-1' }) }))
+    s.sink.assistantResponse.mockImplementation(() => { throw new Error('observer unavailable') })
+    expect(() => s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'Still running.' })).not.toThrow()
+    expect(s.sink.assistantText).toHaveBeenCalledWith('Still running.')
+    s.rpc.options.onNotification('turn/completed', { threadId: scope.threadId, turn: { id: scope.turnId, status: 'completed' } })
+    expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(0)
+  })
+  it('never invents missing/mismatched WOS ownership, even while preserving the existing answer path', async () => {
+    for (const responseOwner of [undefined, { sessionId: 'wos-conversation', runId: 'another-run', epoch: 'epoch-1' }]) {
+      const s = await setup({ responseOwner })
+      s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'Legacy.' })
+      expect(s.sink.assistantResponse).not.toHaveBeenCalled()
+      expect(s.sink.assistantText).toHaveBeenCalledExactlyOnceWith('Legacy.')
+      cancelCodex('test-run')
+    }
   })
 })
