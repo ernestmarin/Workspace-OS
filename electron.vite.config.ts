@@ -1,4 +1,4 @@
-import { resolve, isAbsolute } from 'path'
+import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
@@ -9,8 +9,7 @@ import react from '@vitejs/plugin-react'
  * the runtime builtin at runtime — bundling them breaks native .node loading
  * and pulls in electron's npm installer.
  */
-const externalizeNodeModules = (id: string): boolean =>
-  !id.startsWith('.') && !isAbsolute(id) && !id.startsWith('\0')
+const externalizeNodeModules = /^(?![./\0]|[A-Za-z]:[\\/]|\\\\)/
 
 export default defineConfig({
   main: {
