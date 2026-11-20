@@ -4,6 +4,7 @@ import { app, session, shell, WebContents, BrowserWindow } from 'electron'
 import { captureBrowserGuest } from './browser/browserControl'
 import { log } from './crash-reporter'
 import { microphoneGrant } from './speech/microphone-grant'
+import { IPC } from './ipc-channels'
 
 /**
  * Central security hardening, applied in addition to the per-window
@@ -393,7 +394,7 @@ export function hardenWebContents(contents: WebContents): void {
   contents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) {
       const win = BrowserWindow.fromWebContents(contents)
-      if (win && !win.isDestroyed()) win.webContents.send('browser:open-tab', url)
+      if (win && !win.isDestroyed()) win.webContents.send(IPC.BROWSER_OPEN_TAB, url)
       else shell.openExternal(url) // no host window — better than losing the click
     }
     return { action: 'deny' }
@@ -515,7 +516,7 @@ export function hardenWebContents(contents: WebContents): void {
       // changed nothing. The opener is the guest page.
       const referrer = referrerFor(guest.getURL(), url)
       const win = BrowserWindow.fromWebContents(contents)
-      if (win && !win.isDestroyed()) win.webContents.send('browser:open-tab', { url, referrer })
+      if (win && !win.isDestroyed()) win.webContents.send(IPC.BROWSER_OPEN_TAB, { url, referrer })
       else shell.openExternal(url) // no host window — better than losing the click
       return { action: 'deny' }
     })
@@ -541,7 +542,7 @@ export function hardenWebContents(contents: WebContents): void {
       child.webContents.setWindowOpenHandler(({ url: childUrl }) => {
         if (/^https?:\/\//.test(childUrl)) {
           const win = BrowserWindow.fromWebContents(contents)
-          if (win && !win.isDestroyed()) win.webContents.send('browser:open-tab', childUrl)
+          if (win && !win.isDestroyed()) win.webContents.send(IPC.BROWSER_OPEN_TAB, childUrl)
         }
         return { action: 'deny' }
       })

@@ -110,7 +110,7 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
   })
 
   // Every file under the workspace root (bounded walk) — quick-open's data source.
-  ipcHandle(ipcMain, 'fs:list-files', async () => {
+  ipcHandle(ipcMain, IPC.FS_LIST_FILES, async () => {
     const root = getWorkspaceRoot()
     if (!root) return []
     return listWorkspaceFiles(root)
@@ -121,7 +121,7 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
     return fs.readFile(resolved, 'utf-8')
   })
 
-  ipcHandle(ipcMain, 'fs:read-file-bytes', async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_READ_FILE_BYTES, async (_event, filePath: unknown) => {
     const resolved = sanitizeRead(filePath)
     const buf = await fs.readFile(resolved)
     // Return as Uint8Array — transfers cleanly over IPC

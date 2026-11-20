@@ -47,9 +47,13 @@ export function SessionPane({ sessionId, agentName = null, caseId = null, onCrea
   useEffect(() => {
     window.workspace.skills.list().then(setSkills).catch(() => {})
   }, [])
+  // Named so the dependency is statically checkable, and so the effect re-runs
+  // when the LAST message grows (streaming) rather than on any message edit.
+  const lastMessageLength = s?.messages.length ? s.messages[s.messages.length - 1]?.text.length : -1
+  const messageCount = s?.messages.length ?? 0
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight })
-  }, [s?.messages.length, s?.messages[s.messages.length - 1]?.text.length])
+  }, [messageCount, lastMessageLength])
 
   const suggest = !!found && sessionStore.suggests(found.id)
 

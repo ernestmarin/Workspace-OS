@@ -49,7 +49,6 @@ const HEADERS: { re: RegExp; kind: PermissionKind }[] = [
   { re: /Do you want to proceed\?/i, kind: 'generic' },
 ]
 
-// eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
 
 /** Strips ANSI/VT escape sequences so the prompt text can be pattern-matched. */

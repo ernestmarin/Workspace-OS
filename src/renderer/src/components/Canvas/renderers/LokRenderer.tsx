@@ -430,7 +430,6 @@ export function LokRenderer({ filePath, onNativeFail }: LokRendererProps): JSX.E
         setRedlines(parseRedlines(r))
       } catch { /* engine busy */ }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parts.type])
   useEffect(() => { if (!loading) void refreshReview() }, [loading, parts.type, refreshReview])
   const appCode: 'w' | 'c' | 'p' = parts.type === 1 ? 'c' : parts.type === 2 ? 'p' : 'w'
@@ -773,7 +772,6 @@ export function LokRenderer({ filePath, onNativeFail }: LokRendererProps): JSX.E
     }
     return r.ok ? r.count : -1
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parts.type])
 
   // Insert a hyperlink at the cursor/selection via the parameterized command.
@@ -865,7 +863,7 @@ export function LokRenderer({ filePath, onNativeFail }: LokRendererProps): JSX.E
   useEffect(() => {
     if (!loading) void window.workspace.menu.setOfficeContext({ type: parts.type, parts: parts.names })
     if (!loading && (parts.type === 1 || parts.type === 2)) void refreshPartInfo()
-  }, [loading, parts.type, parts.names])
+  }, [loading, parts.type, parts.names, refreshPartInfo])
   useEffect(() => () => { void window.workspace.menu.setOfficeContext({ type: null }) }, [])
   // Check marks and greyed items for the native menu bar, from the engine's own
   // state. Only the compact snapshot the menus use, and only when it changed —
@@ -1122,7 +1120,6 @@ export function LokRenderer({ filePath, onNativeFail }: LokRendererProps): JSX.E
       if (parts.type === 0) void tableOp(op)
       else void slideTableOp(op, undefined, cell)
     }, 80)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableCellClick, parts.type, tableOp, slideTableOp])
   const tableResize = useCallback((kind: 'row' | 'col', index: number, mm100: number) => {
     const cell = kind === 'row' ? { row: index, col: 0 } : { row: 0, col: index }
@@ -1299,7 +1296,7 @@ export function LokRenderer({ filePath, onNativeFail }: LokRendererProps): JSX.E
       // View ▸ Components Panel (Impress) — toggle the assets panel.
       else if (id === 'office.components') setShowComponents((v) => !v)
     },
-    [runUno, doSlideOp, slideLayout, tableOp, slideTableOp, slideTableCellFmt, layoutOp, shapeInsert, shapeColor, slideBg, shapeText, shapeEffect, arrange, shapePattern, shapeStroke, chartInsert, condFormat, dataValidation, applyStyle, insertImage, vectorizeImage, goToPart, outlineFromSelection, outlineOp, requestTab, refreshSlideTexts, startSort],
+    [runUno, doSlideOp, slideLayout, tableOp, slideTableOp, slideTableCellFmt, layoutOp, shapeInsert, shapeColor, slideBg, shapeText, shapeEffect, arrange, shapePattern, shapeStroke, chartInsert, condFormat, dataValidation, applyStyle, insertImage, vectorizeImage, goToPart, outlineFromSelection, outlineOp, requestTab, refreshSlideTexts, startSort, doSave, doExport, doProperties, scheduleFullPaint],
   )
 
   // Route native office-menu clicks (Edit/Format/Insert/View) into the engine.
@@ -1603,7 +1600,7 @@ export function LokRenderer({ filePath, onNativeFail }: LokRendererProps): JSX.E
     runUno(kind === 'col' ? '.uno:SelectColumn' : '.uno:SelectRow')
     scheduleFullPaint(40)
     docWrapRef.current?.focus()
-  }, [runUno, scheduleFullPaint])
+  }, [runUno, scheduleFullPaint, docWrapRef, pxPerTwipRef])
 
   /** Run a menu choice: a uno dispatch, or a dialog the renderer owns. */
   const runMenuItem = useCallback((item: MenuItem) => {
@@ -1652,7 +1649,7 @@ export function LokRenderer({ filePath, onNativeFail }: LokRendererProps): JSX.E
     // rather than the caret-band one an ordinary keystroke uses.
     setDirty(true)
     scheduleFullPaint(60)
-  }, [runUno, scheduleFullPaint, insertImage, sheetOpAt, slideOp, goToPart])
+  }, [runUno, scheduleFullPaint, insertImage, sheetOpAt, slideOp, goToPart, requestTab])
 
   return (
     <div className={styles.root}>

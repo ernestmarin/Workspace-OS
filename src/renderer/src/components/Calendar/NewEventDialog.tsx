@@ -97,7 +97,7 @@ export function NewEventDialog({ weekStart, editing, recurring, initialDraft, on
     } finally {
       setBusy(false)
     }
-  }, [draft, targetId, editing, onCreated, onUpdated])
+  }, [draft, targetId, editing, onCreated, onUpdated, editingSeries, recurring, scope, serverEvent])
 
   return (
     <div className={styles.backdrop} onClick={onClose}>

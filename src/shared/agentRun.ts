@@ -21,7 +21,6 @@ export const continuePausedWorkPrompt = [
  * handed back: the agent continues from the actual last words.
  */
 export function pausedResumePrompt(tail?: string | null): string {
-  // eslint-disable-next-line no-control-regex
   const last = (tail ?? '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').trim().slice(-800)
   if (!last) return continuePausedWorkPrompt
   return [

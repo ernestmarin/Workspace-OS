@@ -1,4 +1,5 @@
 import { simpleParser, type ParsedMail, type AddressObject } from 'mailparser'
+import { sanitizeHtml as sanitizeSharedHtml } from '../../shared/htmlSanitize'
 
 /**
  * MIME parsing + HTML sanitization for fetched messages.
@@ -143,7 +144,7 @@ const INLINE_IMAGE_TYPES = new Set([
 ])
 
 /** `<logo@example.com>` and `logo@example.com` are the same Content-ID. */
-const normaliseCid = (cid: string): string => cid.trim().replace(/^<|>$/g, '').toLowerCase()
+const normaliseCid = (cid: string): string => cid.trim().replace(/^<+/, '').replace(/>+$/, '').toLowerCase()
 
 /**
  * FALLBACK for `src="cid:…"` references mailparser did not resolve itself.
@@ -196,11 +197,20 @@ function inlineCidImages(
   const out = html.replace(
     /\s(src|background|poster)\s*=\s*("|')\s*cid:([^"']+)\2/gi,
     (whole, attr: string, quote: string, ref: string) => {
+      // The sanitizer HTML-escapes attribute values (so a value can never close
+      // its own attribute), which turns `<logo123>` into `&lt;logo123&gt;`.
+      // Undo that here so a legal Content-ID still matches its reference.
+      const unescaped = ref
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
       let key: string
       try {
-        key = normaliseCid(decodeURIComponent(ref))
+        key = normaliseCid(decodeURIComponent(unescaped))
       } catch {
-        key = normaliseCid(ref) // a stray % is not a reason to drop the image
+        key = normaliseCid(unescaped) // a stray % is not a reason to drop the image
       }
       const att = byCid.get(key)
       if (!att) return whole
@@ -272,72 +282,22 @@ function headerToString(raw: unknown): string {
 }
 
 /**
- * Conservative allowlist-flavoured sanitizer. We do NOT ship a full DOM parser
- * into the main process; instead we aggressively remove the dangerous surface
- * with targeted passes. The result is additionally rendered inside a sandboxed,
- * CSP-locked iframe in the renderer, so this is defence-in-depth, not the sole
- * barrier.
+ * Message HTML → displayable HTML.
  *
- * Removes: <script>/<style>/<iframe>/<object>/<embed>/<link>/<meta>/<base>,
- * on* event-handler attributes, javascript:/vbabscript:/data: URLs, and
- * neutralises remote resource loads (src/srcset/background/url()) so nothing is
- * fetched from the network when the message is displayed.
+ * The implementation is shared with the renderer's markdown preview and chat
+ * replies (`src/shared/htmlSanitize.ts`) so a fix lands on every surface at
+ * once. Mail opts into anchor promotion: a click on an http(s) link must arrive
+ * as a window-open request the host routes into the in-app browser, because the
+ * reader iframe is sandboxed without navigation permission and would otherwise
+ * swallow the click silently.
+ *
+ * Removes: executable/embedding elements, every `on*` handler whatever its
+ * quoting or separator, and dangerous schemes (`javascript:`, `vbscript:`,
+ * `file:`, `data:`) after browser-style canonicalisation. Remote loads
+ * (src/srcset/background/poster/`url()`) are parked in inert `data-blocked-*`
+ * attributes, so they are never fetched while reading but the URL survives for
+ * the explicit "load remote images" action.
  */
 export function sanitizeHtml(input: string): { html: string; hadRemote: boolean } {
-  let hadRemote = false
-  let html = input
-
-  // 1. Drop entire dangerous elements (open→close, and self-closed/void forms).
-  const dropTags = ['script', 'style', 'iframe', 'object', 'embed', 'applet', 'noscript', 'template', 'frame', 'frameset']
-  for (const tag of dropTags) {
-    html = html.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, 'gi'), '')
-    html = html.replace(new RegExp(`<${tag}\\b[^>]*/?>`, 'gi'), '')
-  }
-  // Head-only elements that can leak or redirect: <link>, <meta http-equiv>, <base>.
-  html = html.replace(/<(?:link|meta|base)\b[^>]*>/gi, '')
-
-  // 2. Strip on* event-handler attributes (onclick, onload, onerror, …).
-  html = html.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-
-  // 2b. Give http(s) links a target so a click becomes a window-open request
-  //     the host can intercept and route into the in-app browser.
-  //
-  //     Without this a link in a mail does NOTHING: the reader iframe is
-  //     sandboxed with no navigation permission, so the click is swallowed
-  //     silently — which reads as the app being broken.
-  //
-  //     rel="noopener noreferrer" because the opened page must not get a handle
-  //     back to the opener, and a mail link should not leak the referrer.
-  html = html.replace(
-    /<a\b([^>]*?)href\s*=\s*("|')(https?:\/\/[^"']*)\2([^>]*)>/gi,
-    (_m, pre, quote, url, post) => {
-      const cleaned = `${pre} ${post}`.replace(/\s(?:target|rel)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-      return `<a${cleaned} href=${quote}${url}${quote} target="_blank" rel="noopener noreferrer">`
-    },
-  )
-
-  // 3. Neutralise javascript:/vbscript: URLs anywhere in an attribute value.
-  html = html.replace(/(href|src|action|formaction)\s*=\s*("|')\s*(?:javascript|vbscript):[^"']*\2/gi, '$1=$2#$2')
-
-  // 4. Block remote resource loads. Rewrite remote src/srcset/background/poster
-  //    to a blocked placeholder so the browser never issues the request, and
-  //    flag that we did so the UI can offer an opt-in "load images" later.
-  //    The original URL is PRESERVED in the data attribute. It used to be
-  //    replaced with "1", which discarded it — and made the "load images"
-  //    the comment promised impossible, because nothing remembered where the
-  //    image had been. The value is inert in a data-* attribute; the renderer
-  //    only promotes it back to src when the user explicitly asks.
-  const remoteAttr = /\s(src|srcset|background|poster)\s*=\s*("|')((?:https?:\/\/|\/\/)[^"']*)\2/gi
-  html = html.replace(remoteAttr, (_m, attr, quote, url) => {
-    hadRemote = true
-    return ` data-blocked-${String(attr).toLowerCase()}=${quote}${String(url).replace(/[<>]/g, '')}${quote}`
-  })
-  // CSS url(...) references to remote content inside style="" attributes.
-  const remoteUrl = /url\(\s*['"]?(https?:\/\/|\/\/)[^)'"]*['"]?\s*\)/gi
-  if (remoteUrl.test(html)) {
-    hadRemote = true
-    html = html.replace(remoteUrl, "url('')")
-  }
-
-  return { html, hadRemote }
+  return sanitizeSharedHtml(input, { promoteAnchors: true })
 }

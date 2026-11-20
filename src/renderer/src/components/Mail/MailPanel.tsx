@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Mail, Plus, RefreshCw, Inbox, Send, FileText, Trash2, AlertCircle, ChevronLeft, Circle, PenSquare, Sparkles, Search, Archive, Star, Undo2, ChevronUp, ChevronDown, MailOpen, ChevronRight, FolderPlus, Coffee } from 'lucide-react'
 // NewsletterCompose retired: the advanced-email capability now lives inside the
 // normal MailCompose (a "Rich" mode toggle), not a standalone broadcast surface.
@@ -143,6 +143,25 @@ function rowFromSummary(m: MessageSummary, folder: string): ListRow {
     // The IMAP summary carries no Message-ID; it arrives with the deep fetch.
     messageId: '',
   }
+}
+
+/**
+ * The real Trash/Archive path for a folder list, from the server's special-use
+ * flags rather than the (localised) names: this mailbox calls it "Gelöscht".
+ *
+ * Module-level and pure so the caller can memoise it on `folders` — a helper
+ * defined inside the component would be a new identity every render, which is
+ * exactly the kind of unstable dependency the hooks linter is warning about.
+ */
+function resolveSpecialUse(
+  folders: { path: string; name: string; specialUse?: string }[],
+  flag: string,
+  ...names: string[]
+): string {
+  const byFlag = folders.find((f) => (f.specialUse || '').toLowerCase() === flag)
+  if (byFlag) return byFlag.path
+  const byName = folders.find((f) => names.some((n) => f.name.toLowerCase().startsWith(n)))
+  return byName?.path ?? names[0]
 }
 
 function rowFromIndex(r: IndexedMailRow & { threadCount?: number }): ListRow {
@@ -379,24 +398,21 @@ export function MailPanel({ active }: MailPanelProps): JSX.Element {
 
   // Resolve the real Trash/Archive paths from the server's special-use flags
   // rather than guessing names — they are localised ("Deleted", "Archiv").
-  const special = (flag: string, ...names: string[]): string => {
-    const byFlag = folders.find((f) => (f.specialUse || '').toLowerCase() === flag)
-    if (byFlag) return byFlag.path
-    const byName = folders.find((f) => names.some((n) => f.name.toLowerCase().startsWith(n)))
-    return byName?.path ?? names[0]
-  }
-  const trashFolder = special('\\trash', 'trash', 'deleted', 'gelöscht')
-  const archiveFolder = special('\\archive', 'archive', 'archiv')
+  const trashFolder = useMemo(() => resolveSpecialUse(folders, '\\trash', 'trash', 'deleted', 'gelöscht'), [folders])
+  const archiveFolder = useMemo(() => resolveSpecialUse(folders, '\\archive', 'archive', 'archiv'), [folders])
 
   // Search results when searching, otherwise the live folder page.
   // Precedence: an explicit search wins; then the live IMAP page once it lands;
   // then the cached view. The cache is only ever a stand-in for a page that has
   // not arrived — it never overrides fresher truth from the server.
-  const rows: ListRow[] =
-    searchHits ? searchHits.map(rowFromIndex)
-    : messages.length > 0 ? messages.map((m) => rowFromSummary(m, folder ?? ''))
-    : cachedRows ? cachedRows.map(rowFromIndex)
-    : []
+  const rows: ListRow[] = useMemo(
+    () =>
+      searchHits ? searchHits.map(rowFromIndex)
+      : messages.length > 0 ? messages.map((m) => rowFromSummary(m, folder ?? ''))
+      : cachedRows ? cachedRows.map(rowFromIndex)
+      : [],
+    [searchHits, messages, folder, cachedRows],
+  )
 
   const refreshCounts = useCallback(async (id: string, paths: string[]) => {
     if (paths.length === 0) return
@@ -486,7 +502,7 @@ export function MailPanel({ active }: MailPanelProps): JSX.Element {
       }
       void refreshUndo(accountId)
     },
-    [accountId, selected, refreshUndo],
+    [accountId, selected, refreshUndo, trashFolder, archiveFolder],
   )
 
   // Drop the undo offer the moment the hold expires. Showing "Undo" for a
@@ -592,7 +608,7 @@ export function MailPanel({ active }: MailPanelProps): JSX.Element {
     setActionNote(res.ok ? null : res.error.message)
     void refreshUndo(accountId)
     if (folder) void loadMessages(accountId, folder)
-  }, [accountId, undoStack, folder, refreshUndo])
+  }, [accountId, undoStack, folder, refreshUndo, loadMessages])
 
   useEffect(() => { rowsRef.current = rows }, [rows])
   useEffect(() => { actionErrorRef.current = actionNote }, [actionNote])

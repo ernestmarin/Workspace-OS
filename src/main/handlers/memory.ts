@@ -90,7 +90,7 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     return id
   }
 
-  ipcHandle(ipcMain, 'memory:remember', (_e, input: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_REMEMBER, (_e, input: unknown) => {
     const i = (input ?? {}) as Record<string, unknown>
     const kind: Kind = KINDS.includes(i.kind as Kind) ? (i.kind as Kind) : 'fact'
     return embedSoon(mem.remember(ctx(), {
@@ -104,27 +104,27 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
   })
 
   // Correct (the old version stays as history), keep (confirm), what it said before, and what is already known.
-  ipcHandle(ipcMain, 'memory:correct', (_e, id: unknown, text: unknown, author: unknown, source: unknown) =>
+  ipcHandle(ipcMain, IPC.MEMORY_CORRECT, (_e, id: unknown, text: unknown, author: unknown, source: unknown) =>
     embedSoon(mem.correct(ctx(), memoryId(id), memoryText(text), authorOf(author), typeof source === 'string' ? source.slice(0, 300) : undefined)),
   )
-  ipcHandle(ipcMain, 'memory:confirm', (_e, id: unknown) => ({ ok: mem.confirm(ctx(), memoryId(id)) }))
-  ipcHandle(ipcMain, 'memory:history', (_e, id: unknown) => mem.history(ctx(), memoryId(id)))
-  ipcHandle(ipcMain, 'memory:similar', (_e, text: unknown, scope: unknown) => mem.similar(ctx(), memoryText(text), scope === 'global' ? 'global' : 'workspace'))
+  ipcHandle(ipcMain, IPC.MEMORY_CONFIRM, (_e, id: unknown) => ({ ok: mem.confirm(ctx(), memoryId(id)) }))
+  ipcHandle(ipcMain, IPC.MEMORY_HISTORY, (_e, id: unknown) => mem.history(ctx(), memoryId(id)))
+  ipcHandle(ipcMain, IPC.MEMORY_SIMILAR, (_e, text: unknown, scope: unknown) => mem.similar(ctx(), memoryText(text), scope === 'global' ? 'global' : 'workspace'))
 
-  ipcHandle(ipcMain, 'memory:search', (_e, query: unknown, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_SEARCH, (_e, query: unknown, limit: unknown) => {
     const q = typeof query === 'string' ? query : ''
     const n = typeof limit === 'number' && Number.isFinite(limit) ? Math.min(50, Math.max(1, limit)) : 10
     // A question finds by words and meaning; no words at all lists the newest.
     return mem.toMatchQuery(q) ? mem.recallMeaning(ctx(), q, n) : mem.search(ctx(), q, n)
   })
 
-  ipcHandle(ipcMain, 'memory:meaning', () => ({ status: mem.embedderStatus() }))
+  ipcHandle(ipcMain, IPC.MEMORY_MEANING, () => ({ status: mem.embedderStatus() }))
 
   // ── memory that fills and tidies itself ──
   // A quiet session, read once by the person's light model: what is worth
   // remembering goes to the Inbox, unconfirmed. The model is the person's
   // setting passed through, never a name in source.
-  ipcHandle(ipcMain, 'memory:propose', async (_e, digest: unknown, model: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_PROPOSE, async (_e, digest: unknown, model: unknown) => {
     const d = (digest ?? {}) as Record<string, unknown>
     const str = (v: unknown, n: number): string => (typeof v === 'string' ? v.slice(0, n) : '')
     const turns: SessionTurn[] = (Array.isArray(d.turns) ? d.turns : [])
@@ -158,8 +158,8 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     if (!c.root) return null
     return tidy(c, { outside: pulseDecisions(c.root) })
   }
-  ipcHandle(ipcMain, 'memory:tidy', () => runTidy())
-  ipcHandle(ipcMain, 'memory:lastTidy', () => lastTidy(ctx()))
+  ipcHandle(ipcMain, IPC.MEMORY_TIDY, () => runTidy())
+  ipcHandle(ipcMain, IPC.MEMORY_LASTTIDY, () => lastTidy(ctx()))
   // Once a day, checked hourly (and soon after start): no model, nothing the person would not do.
   const tidyIfDue = (): void => {
     try {
@@ -173,7 +173,7 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     setInterval(tidyIfDue, 60 * 60_000).unref()
   }
 
-  ipcHandle(ipcMain, 'memory:list', (_e, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_LIST, (_e, opts: unknown) => {
     const o = (opts ?? {}) as { kind?: unknown; limit?: unknown; unconfirmed?: unknown }
     return mem.list(ctx(), {
       ...(typeof o.kind === 'string' ? { kind: o.kind as 'fact' } : {}),
@@ -182,12 +182,12 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     })
   })
 
-  ipcHandle(ipcMain, 'memory:forget', (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_FORGET, (_e, id: unknown) => {
     if (typeof id !== 'string' || !id) throw new IpcValidationError('Which memory?')
     return { ok: mem.forget(ctx(), id) }
   })
 
-  ipcHandle(ipcMain, 'memory:stats', () => mem.stats(ctx()))
+  ipcHandle(ipcMain, IPC.MEMORY_STATS, () => mem.stats(ctx()))
 
   ipcHandle(ipcMain, IPC.MEMORY_STATUS, () => {
     return { status: ensureMemory().status() }

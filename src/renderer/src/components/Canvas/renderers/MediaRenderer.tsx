@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
 import { bytesToBlob } from '../../../lib/bytesToBlob'
+import { useSafeObjectUrl } from '../../../lib/useSafeObjectUrl'
 import styles from './MediaRenderer.module.css'
 import { basename as pathBase } from '../../../lib/paths'
 
@@ -9,28 +9,26 @@ interface MediaRendererProps {
 }
 
 export function MediaRenderer({ filePath, type }: MediaRendererProps): JSX.Element {
-  const [src, setSrc] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setSrc(null)
-    setError(null)
-
-    window.workspace.fs.readFileBytes(filePath)
-      .then((bytes: Uint8Array) => {
-        const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
-        const mimeMap: Record<string, string> = {
-          mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
-          avi: 'video/x-msvideo', mkv: 'video/x-matroska',
-          mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac',
-          aac: 'audio/aac', ogg: 'audio/ogg', m4a: 'audio/mp4',
-        }
-        setSrc(URL.createObjectURL(bytesToBlob(bytes, mimeMap[ext] ?? `${type}/*`)))
-      })
-      .catch((e: Error) => setError(e.message))
-
-    return () => { if (src) URL.revokeObjectURL(src) }
-  }, [filePath, type])
+  /*
+   * Lifetime lives in `useSafeObjectUrl` (see its note): the inlined version
+   * revoked from `src` STATE, always `null` in a `[filePath]`-keyed cleanup, so
+   * each media switch leaked a blob. `type` is part of the key because the same
+   * path can be rendered as either element.
+   */
+  const { url: src, error } = useSafeObjectUrl(
+    () => window.workspace.fs.readFileBytes(filePath),
+    (bytes) => {
+      const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+      const mimeMap: Record<string, string> = {
+        mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+        avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+        mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac',
+        aac: 'audio/aac', ogg: 'audio/ogg', m4a: 'audio/mp4',
+      }
+      return bytesToBlob(bytes, mimeMap[ext] ?? `${type}/*`)
+    },
+    `${filePath}\u0000${type}`,
+  )
 
   if (error) return <div className={styles.error}>Cannot open media: {error}</div>
   if (!src) return <div className={styles.loading}>Loading…</div>

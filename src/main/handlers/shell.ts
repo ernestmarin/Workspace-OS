@@ -10,7 +10,6 @@ import { sendToWindow, setMainWindow } from '../main-window'
 import { envWithPath, seededPath } from '../platform-tools'
 
 // node-pty is a native module loaded at runtime
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const pty = require('node-pty')
 
 interface PtySession {

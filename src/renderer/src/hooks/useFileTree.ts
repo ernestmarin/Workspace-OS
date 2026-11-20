@@ -92,7 +92,6 @@ export function useFileTree(): FileTreeHook {
       cur = joinPath(cur, seg)
       const children = await loadChildren(cur).catch(() => null) // null if it's a file, not a dir
       if (children) setNodes((prev) => updateSubtree(prev, cur, children))
-      // eslint-disable-next-line no-loop-func
       setExpandedPaths((s) => new Set(s).add(cur))
     }
   }, [root])

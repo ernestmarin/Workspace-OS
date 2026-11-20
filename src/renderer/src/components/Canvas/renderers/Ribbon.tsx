@@ -157,7 +157,11 @@ export const Ribbon = memo(function Ribbon(props: RibbonProps): JSX.Element {
     prevContextTab.current = contextTab
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextTab])
-  useEffect(() => { if (requestTab && tabs.includes(requestTab.tab)) setTab(requestTab.tab) // eslint-disable-line react-hooks/exhaustive-deps
+  // `tabs` is read only to reject an unknown tab id; re-running this effect
+  // whenever the tab list changes would also re-apply a stale `requestTab`.
+  useEffect(() => {
+    if (requestTab && tabs.includes(requestTab.tab)) setTab(requestTab.tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-running on every tabs[] change would re-apply a stale request
   }, [requestTab])
   // Animations: the trigger the next added effect gets.
   const [animStart, setAnimStart] = useState(1)

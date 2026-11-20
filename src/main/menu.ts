@@ -15,6 +15,7 @@ import {
 } from './recent-workspaces'
 import { snapshots } from './snapshots'
 import { checkForUpdatesManual } from './updater'
+import { IPC } from './ipc-channels'
 
 /**
  * Owns the native application menu: static chrome (File/View/Go/Agent/Window)
@@ -66,13 +67,13 @@ async function openWorkspaceFolder(): Promise<void> {
   const dir = result.filePaths[0]
   if (!dir) return
   setWorkspaceRoot(dir)
-  sendToWindow('workspace:root-changed', dir)
+  sendToWindow(IPC.WORKSPACE_ROOT_CHANGED, dir)
   rebuildMenu()
 }
 
 function closeWorkspaceFolder(): void {
   clearWorkspaceRoot()
-  sendToWindow('workspace:root-changed', null)
+  sendToWindow(IPC.WORKSPACE_ROOT_CHANGED, null)
 }
 
 /** Opens a known directory (Open Recent / empty-state list) without a dialog. */
@@ -83,7 +84,7 @@ function openWorkspacePath(dir: string): boolean {
     return false
   }
   setWorkspaceRoot(dir)
-  sendToWindow('workspace:root-changed', dir)
+  sendToWindow(IPC.WORKSPACE_ROOT_CHANGED, dir)
   rebuildMenu()
   return true
 }
@@ -375,18 +376,18 @@ export function registerMenu(ipcMain: IpcMain, isDev: boolean): void {
   buildMenu()
 
   // Panel close-folder button uses this; menu items call the helpers directly.
-  ipcHandle(ipcMain, 'workspace:close', () => closeWorkspaceFolder())
+  ipcHandle(ipcMain, IPC.WORKSPACE_CLOSE, () => closeWorkspaceFolder())
 
   // Recent workspace roots — File ▸ Open Recent and the empty-state list.
-  ipcHandle(ipcMain, 'workspace:recents', () => pruneRecentWorkspaces())
-  ipcHandle(ipcMain, 'workspace:open-recent', (_event, dir: unknown) => {
+  ipcHandle(ipcMain, IPC.WORKSPACE_RECENTS, () => pruneRecentWorkspaces())
+  ipcHandle(ipcMain, IPC.WORKSPACE_OPEN_RECENT, (_event, dir: unknown) => {
     if (typeof dir !== 'string') return false
     return openWorkspacePath(dir)
   })
 
   // The renderer pushes the active file's applicable actions; rebuild the menu
   // so the File menu reflects exactly what the action registry allows.
-  ipcHandle(ipcMain, 'menu:set-actions', (_event, items: unknown) => {
+  ipcHandle(ipcMain, IPC.MENU_SET_ACTIONS, (_event, items: unknown) => {
     fileActionItems = Array.isArray(items)
       ? items.filter((i): i is MenuActionItem =>
           typeof i?.id === 'string' && typeof i?.label === 'string')
@@ -396,7 +397,7 @@ export function registerMenu(ipcMain: IpcMain, isDev: boolean): void {
 
   // The active agent session pushes its current agents/skills/mode so the
   // top-level Agent menu mirrors it.
-  ipcHandle(ipcMain, 'menu:set-agent-menu', (_event, data: unknown) => {
+  ipcHandle(ipcMain, IPC.MENU_SET_AGENT_MENU, (_event, data: unknown) => {
     const d = data as Partial<AgentMenuData>
     const items = (v: unknown): MenuActionItem[] =>
       Array.isArray(v) ? v.filter((i): i is MenuActionItem => typeof i?.id === 'string' && typeof i?.label === 'string') : []
@@ -418,7 +419,7 @@ export function registerMenu(ipcMain: IpcMain, isDev: boolean): void {
    * Sending null (leaving the surface) removes the menus entirely — a History
    * menu that is present but does nothing is worse than no History menu.
    */
-  ipcHandle(ipcMain, 'menu:set-browser-context', (_event, data: unknown) => {
+  ipcHandle(ipcMain, IPC.MENU_SET_BROWSER_CONTEXT, (_event, data: unknown) => {
     if (data === null || data === undefined) {
       if (browserCtx === null) return
       browserCtx = null
@@ -453,15 +454,15 @@ export function registerMenu(ipcMain: IpcMain, isDev: boolean): void {
   })
 
   // The ⌘K palette lists the same commands the office menu bar shows.
-  ipcHandle(ipcMain, 'menu:office-commands', () => (officeDocType === null ? [] : paletteCommands(officeDocType)))
+  ipcHandle(ipcMain, IPC.MENU_OFFICE_COMMANDS, () => (officeDocType === null ? [] : paletteCommands(officeDocType)))
   // A palette pick runs exactly like a menu click: every subscriber of
   // menu:run-action sees it (edit router, shell, the LOK canvas).
-  ipcHandle(ipcMain, 'menu:run-action', (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.MENU_RUN_ACTION, (_event, id: unknown) => {
     if (typeof id !== 'string' || id.length > 400 || /[\r\n]/.test(id)) return
     sendToWindow('menu:run-action', id)
   })
 
-  ipcHandle(ipcMain, 'menu:set-office-context', (_event, data: unknown) => {
+  ipcHandle(ipcMain, IPC.MENU_SET_OFFICE_CONTEXT, (_event, data: unknown) => {
     const d = data as { type?: unknown; parts?: unknown }
     const next = d?.type === 0 || d?.type === 1 || d?.type === 2 ? d.type : null
     const parts = Array.isArray(d?.parts)
@@ -478,7 +479,7 @@ export function registerMenu(ipcMain: IpcMain, isDev: boolean): void {
   // renderer already sends only when the compact snapshot changed; coalesce here
   // too, because a cursor move can flip several states within a few ms and the
   // macOS menu bar should be rebuilt once for the lot.
-  ipcHandle(ipcMain, 'menu:set-office-state', (_event, data: unknown) => {
+  ipcHandle(ipcMain, IPC.MENU_SET_OFFICE_STATE, (_event, data: unknown) => {
     const d = data as { checked?: unknown; disabled?: unknown }
     const checked: Record<string, boolean> = {}
     if (d?.checked && typeof d.checked === 'object') {

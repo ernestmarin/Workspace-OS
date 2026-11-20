@@ -86,6 +86,29 @@ describe('BrandStore', () => {
     const b = s.set({ logoPath: '/etc/passwd' })
     expect(b.logoPath).toBeUndefined()
   })
+
+  /**
+   * RT-08 — the lexical check above cannot see a symlink.
+   *
+   * A renderer-chosen `logoPath` is rendered by `<img src={fileUrl(logoPath)}>`,
+   * so a link that resolves outside the brand directory turns the brand preview
+   * into a reader for any file the main process can open. The link has to be
+   * made by something with filesystem access (the agent's shell, an imported
+   * project), which is exactly why the check cannot assume a benign path.
+   */
+  it('set() refuses a logoPath that escapes through a symlink', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-brand-outside-'))
+    try {
+      fs.writeFileSync(path.join(outside, 'private.txt'), 'not a logo')
+      const link = path.join(dir, 'brand', 'linked.txt')
+      fs.mkdirSync(path.dirname(link), { recursive: true })
+      fs.symlinkSync(path.join(outside, 'private.txt'), link)
+      const b = new BrandStore(dir).set({ logoPath: link })
+      expect(b.logoPath).toBeUndefined()
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('coerceBrand', () => {

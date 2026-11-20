@@ -1,6 +1,7 @@
 import { BrowserWindow, type IpcMain } from 'electron'
 import { ipcHandle } from './ipc-registry'
 import { IpcValidationError } from './ipc-validator'
+import { IPC } from './ipc-channels'
 
 const PRINT_CSS = `
   @page { margin: 16mm; }
@@ -53,7 +54,7 @@ export async function printDocument(title: string, html: string): Promise<void> 
 
 export function registerPrintHandlers(ipcMain: IpcMain): void {
   const active = new Set<number>()
-  ipcHandle(ipcMain, 'print:document', async (event, title, html) => {
+  ipcHandle(ipcMain, IPC.PRINT_DOCUMENT, async (event, title, html) => {
     if (typeof title !== 'string' || typeof html !== 'string') {
       throw new IpcValidationError('A document title and HTML content are required')
     }

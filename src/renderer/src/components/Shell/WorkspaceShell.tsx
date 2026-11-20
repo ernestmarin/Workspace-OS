@@ -560,6 +560,18 @@ export function WorkspaceShell({ stage }: { stage?: StageHost } = {}): JSX.Eleme
     if (dockOpen) setDockMounted(true)
   }, [dockOpen])
   const [floatRect, setFloatRect] = useState<Rect>(() => parseRect(settings.terminalFloat, { w: window.innerWidth, h: window.innerHeight }))
+  /*
+   * Move the dock node into its current slot — and only look when something it
+   * depends on actually changed.
+   *
+   * This ran with no dependency list, i.e. after EVERY render, and bumped
+   * `dockResizeSignal` whenever it moved. That is a state update inside an
+   * effect with no guard: the signal re-renders the dock, the re-render runs the
+   * effect again, and only the `parentElement !== target` check stops it from
+   * looping forever. Listing the dependencies makes the intent explicit and
+   * removes the reachability of that loop entirely; the guard stays as the
+   * cheap second net for a re-render caused by something else.
+   */
   useLayoutEffect(() => {
     if (!dockMounted) return
     const target = !dockOpen ? parkSlot.current : dockFloat ? floatBody : dockRight ? rightSlot.current : bottomSlot.current
@@ -567,7 +579,7 @@ export function WorkspaceShell({ stage }: { stage?: StageHost } = {}): JSX.Eleme
       target.appendChild(dockNode)
       setDockResizeSignal((n) => n + 1)
     }
-  })
+  }, [dockMounted, dockOpen, dockFloat, dockRight, floatBody, dockNode])
   // The window stays on screen when the app window shrinks.
   useEffect(() => {
     const onResize = (): void => setFloatRect((r) => clampRect(r, { w: window.innerWidth, h: window.innerHeight }))

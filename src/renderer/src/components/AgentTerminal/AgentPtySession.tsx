@@ -71,7 +71,11 @@ export function AgentPtySession({ sessionId, model, agentName, mode, activeFile,
     fit.fit()
     termRef.current = term
 
-    window.workspace.agentPty.spawn(sessionId, { model, agentName, mode, activeFile }).then((result) => { providerRef.current = result.provider ?? 'claude' }).catch((err: Error) => {
+    // The spawn options are read ONCE, when the PTY starts, and the effect is
+    // keyed on the session id alone: re-spawning on every model/mode change
+    // would kill the running agent. A ref carries the current values without
+    // adding them to the dependency list.
+    window.workspace.agentPty.spawn(sessionId, spawnOptions.current).then((result) => { providerRef.current = result.provider ?? 'claude' }).catch((err: Error) => {
       term.write(`\r\n\x1b[38;5;209m[could not start agent: ${err.message}]\x1b[0m\r\n`)
       setExited(-1)
     })
@@ -118,6 +122,11 @@ export function AgentPtySession({ sessionId, model, agentName, mode, activeFile,
       termRef.current = null
     }
   }, [sessionId])
+
+  const spawnOptions = useRef({ model, agentName, mode, activeFile })
+  useEffect(() => {
+    spawnOptions.current = { model, agentName, mode, activeFile }
+  }, [model, agentName, mode, activeFile])
 
   const decide = useCallback((decision: HitlDecision) => {
     window.workspace.agentPty.input(sessionId, decisionToKeys(decision))

@@ -68,9 +68,13 @@ export function TerminalAgentPane({ sessionId, context, agentName, onOpenFile }:
   const ctxRef = useRef(context)
   ctxRef.current = context
 
+  // Named: a complex expression in the dep array cannot be statically checked,
+  // and "the last message grew" is the actual trigger (streaming text).
+  const lastMessageLength = messages.length ? messages[messages.length - 1]?.text.length : -1
+  const messageCount = messages.length
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
-  }, [messages.length, messages[messages.length - 1]?.text.length])
+  }, [messageCount, lastMessageLength])
 
   const submit = useCallback(
     (raw: string, mentions: string[]) => {

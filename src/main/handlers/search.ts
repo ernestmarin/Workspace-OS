@@ -48,7 +48,7 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
   })
 
   // Starts indexing the active workspace; called after a folder is opened.
-  ipcHandle(ipcMain, 'search:start', async () => {
+  ipcHandle(ipcMain, IPC.SEARCH_START, async () => {
     const root = getWorkspaceRoot()
     if (!root) return
     ensureIndex()
@@ -58,7 +58,7 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
   // Index a file ahead of the queue (called when a file is opened) so its content
   // is searchable almost immediately, even mid-scan of a huge workspace. Scoped
   // to the workspace root.
-  ipcHandle(ipcMain, 'search:prioritize', (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.SEARCH_PRIORITIZE, (_event, filePath: unknown) => {
     const root = getWorkspaceRoot()
     if (!root || typeof filePath !== 'string') return
     const resolved = path.resolve(filePath)
@@ -71,14 +71,14 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
   // Ranked any-word search over every indexed file's text (office files too), and
   // one file's text as the index read it, so an agent can cite and quote a
   // .docx/.xlsx/.pptx/.pdf it cannot read itself.
-  ipcHandle(ipcMain, 'knowledge:search', (_event, query: unknown, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.KNOWLEDGE_SEARCH, (_event, query: unknown, limit: unknown) => {
     const q = validateSearchQuery(query)
     const n = typeof limit === 'number' && limit > 0 ? Math.min(25, Math.floor(limit)) : 8
     const root = getWorkspaceRoot()
     return scopeByPath(ensureIndex().ask(q, n, under()), root, (h) => h.path).map((h) => ({ ...h, path: root ? path.relative(root, h.path) : h.path }))
   })
 
-  ipcHandle(ipcMain, 'knowledge:read', async (_event, filePath: unknown, offset: unknown) => {
+  ipcHandle(ipcMain, IPC.KNOWLEDGE_READ, async (_event, filePath: unknown, offset: unknown) => {
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace is open')
     const abs = validateFilePath(typeof filePath === 'string' && !path.isAbsolute(filePath) ? path.join(root, filePath) : filePath, root)

@@ -4,6 +4,7 @@ import electronUpdater from 'electron-updater'
 import { app, BrowserWindow, dialog, IpcMain } from 'electron'
 import { ipcHandle, registerCleanup } from './ipc-registry'
 import { log } from './crash-reporter'
+import { IPC } from './ipc-channels'
 
 /**
  * Auto-update wiring (electron-updater).
@@ -130,7 +131,7 @@ export function initUpdater(win: BrowserWindow, isDev: boolean): void {
     // Subtle renderer affordance: "update ready — restart" banner.
     const w = liveWin()
     if (w && !w.webContents.isDestroyed()) {
-      w.webContents.send('updater:update-ready', { version: info.version })
+      w.webContents.send(IPC.UPDATER_UPDATE_READY, { version: info.version })
     }
   })
 
@@ -180,14 +181,14 @@ export function checkForUpdatesManual(): void {
 
 /** Registers the renderer-facing updater IPC (install / manual check). */
 export function registerUpdaterHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, 'updater:install', () => {
+  ipcHandle(ipcMain, IPC.UPDATER_INSTALL, () => {
     try {
       autoUpdater.quitAndInstall()
     } catch (err) {
       log('error', '[updater] quitAndInstall failed', err)
     }
   })
-  ipcHandle(ipcMain, 'updater:check', () => {
+  ipcHandle(ipcMain, IPC.UPDATER_CHECK, () => {
     checkForUpdatesManual()
   })
 }

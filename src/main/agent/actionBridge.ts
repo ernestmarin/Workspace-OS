@@ -84,6 +84,18 @@ const pending = new Map<string, (reply: ActionReply) => void>()
 let reqSeq = 0
 
 /**
+ * Ceiling on in-flight renderer round-trips.
+ *
+ * Every entry is a promise held until the renderer replies or the 30s timer
+ * fires, and the socket accepts one connection per request with no limit on how
+ * many run at once. An agent (or a buggy action loop) that fans out without
+ * awaiting would otherwise grow this map and the open sockets without bound.
+ * Refusing is the honest failure: the caller is told to slow down, rather than
+ * the process quietly growing until it is killed.
+ */
+const MAX_PENDING_ACTIONS = 64
+
+/**
  * Handle one parsed request against the live context / focused window. Pure of
  * socket concerns so it is unit-testable with a fake webContents.
  */
@@ -175,6 +187,9 @@ function invokeInRenderer(actionId: string, args: unknown, runId?: string): Prom
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
   if (!win || win.isDestroyed()) {
     return Promise.resolve({ ok: false, error: 'no window available to run the action' })
+  }
+  if (pending.size >= MAX_PENDING_ACTIONS) {
+    return Promise.resolve({ ok: false, error: 'too many actions in flight; wait for the current ones to finish' })
   }
   const reqId = `a${Date.now()}-${reqSeq++}`
   return new Promise<ActionReply>((resolve) => {

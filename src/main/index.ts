@@ -52,7 +52,7 @@ import { installMcpTokenCli } from './install-mcp-token-cli'
 import { installActionCli } from './install-action-cli'
 import { startActionBridge, stopActionBridge, resolveActionResult } from './agent/actionBridge'
 import { lokDispose } from './office/lokEngine'
-import { applySessionSecurity, hardenWindow } from './security'
+import { applySessionSecurity, assertMainFrame, hardenWindow } from './security'
 import { loadPersistedRoot, setWorkspaceRoot } from './workspace-root'
 import { registerMenu } from './menu'
 import { initCrashReporter } from './crash-reporter'
@@ -291,7 +291,14 @@ app.whenReady().then(() => {
   startActionBridge()
   // The renderer executor replies with a fire-and-forget `send` (not invoke),
   // so this is ipcMain.on, not ipcHandle. Payload is reqId-correlated in main.
-  ipcMain.on(IPC.AGENT_ACTION_RESULT, (_event, payload: unknown) => {
+  //
+  // The frame check is not decorative: this payload RESOLVES a pending action,
+  // so an unchecked sender could report an action as successful that never ran
+  // (the agent then proceeds on a result that does not exist) or report a real
+  // action as refused. Every other sensitive channel validates the frame; this
+  // one is `on` rather than `ipcHandle`, which is exactly how it was missed.
+  ipcMain.on(IPC.AGENT_ACTION_RESULT, (event, payload: unknown) => {
+    assertMainFrame(event)
     const p = (payload ?? {}) as { reqId?: unknown; ok?: unknown; error?: unknown; result?: unknown }
     resolveActionResult(p.reqId, p.ok, p.error, p.result)
   })

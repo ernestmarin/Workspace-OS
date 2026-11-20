@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { bytesToBlob } from '../../../lib/bytesToBlob'
+import { useSafeObjectUrl } from '../../../lib/useSafeObjectUrl'
 import styles from './ImageRenderer.module.css'
 import { basename as pathBase } from '../../../lib/paths'
 
@@ -8,34 +9,41 @@ interface ImageRendererProps {
 }
 
 export function ImageRenderer({ filePath }: ImageRendererProps): JSX.Element {
-  const [src, setSrc] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const dragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0 })
   const offsetStart = useRef({ x: 0, y: 0 })
 
-  useEffect(() => {
-    setSrc(null)
-    setError(null)
+  /*
+   * The object URL is created, owned and revoked by `useSafeObjectUrl` over a
+   * per-run local (the inlined version revoked from `src` STATE, which is always
+   * `null` in the cleanup of a `[filePath]`-keyed effect, so every image switch
+   * leaked its blob). `filePath` is the "these are different bytes" key.
+   */
+  const { url: src, error } = useSafeObjectUrl(
+    () => window.workspace.fs.readFileBytes(filePath),
+    (bytes) => {
+      const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
+      const mimeMap: Record<string, string> = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+        gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+        ico: 'image/x-icon', bmp: 'image/bmp',
+      }
+      return bytesToBlob(bytes, mimeMap[ext] ?? 'image/png')
+    },
+    filePath,
+  )
+
+  // View state (zoom/pan) belongs to the image on screen: reset it when the file
+  // changes. This is a render-time derivation from the key, not an effect, so it
+  // cannot race the fetch.
+  const [shownPath, setShownPath] = useState(filePath)
+  if (shownPath !== filePath) {
+    setShownPath(filePath)
     setScale(1)
     setOffset({ x: 0, y: 0 })
-
-    window.workspace.fs.readFileBytes(filePath)
-      .then((bytes: Uint8Array) => {
-        const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
-        const mimeMap: Record<string, string> = {
-          jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-          gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-          ico: 'image/x-icon', bmp: 'image/bmp',
-        }
-        setSrc(URL.createObjectURL(bytesToBlob(bytes, mimeMap[ext] ?? 'image/png')))
-      })
-      .catch((e: Error) => setError(e.message))
-
-    return () => { if (src) URL.revokeObjectURL(src) }
-  }, [filePath])
+  }
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()

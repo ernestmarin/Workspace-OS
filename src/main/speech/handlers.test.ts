@@ -16,6 +16,10 @@ const mock = vi.hoisted(() => ({
   sttCancel: vi.fn(),
   grant: { begin: vi.fn(), approve: vi.fn(() => true), revoke: vi.fn(), revokePending: vi.fn(), clear: vi.fn() },
   assertMainFrame: vi.fn((event: any) => { if (!event.senderFrame?.trusted) throw new Error('untrusted frame') }),
+  enginesDir: '/engines',
+  sttDir: '/stt/whisper-onnx-local',
+  verifyModels: vi.fn(),
+  resolveDir: vi.fn(),
 }))
 vi.mock('electron', () => ({ app: {}, clipboard: {}, dialog: { showMessageBox: mock.showMessageBox }, globalShortcut: {} }))
 vi.mock('../main-window', () => ({ mainWindow: () => mock.win, sendToWindow: (channel: string, ...args: unknown[]) => mock.win?.webContents.send(channel, ...args) }))
@@ -29,7 +33,18 @@ vi.mock('./secrets', () => ({ speechKeyStatus: vi.fn(), setSpeechKey: vi.fn() })
 vi.mock('./engines', () => ({ synthesizeFragment: mock.synthesize }))
 vi.mock('./hotkey', () => ({ VoiceHotkey: class { dispose() {} } }))
 vi.mock('./engines/kokoro-install', () => ({ KokoroDependencyInstaller: class { get busy() { return mock.installerBusy }; install = mock.install; cancel() {}; async shutdown() {} } }))
-vi.mock('./local-stt', () => ({ LocalStt: class { cancel = mock.sttCancel }, localSttStatus: vi.fn() }))
+vi.mock('./local-stt', () => ({ LocalStt: class { cancel = mock.sttCancel }, localSttStatus: vi.fn(), sttModelDir: () => mock.sttDir }))
+// VOX-A4c: the real verifier hashes the filesystem; here we assert the WIRING
+// (frame check, directory resolution, report passthrough). The hashing itself is
+// covered by modelDiagnostics.test.ts against real temporary files.
+vi.mock('./paths', () => ({ speechEnginesDir: () => mock.enginesDir }))
+vi.mock('./modelDiagnostics', () => ({
+  verifyReviewedSpeechModels: mock.verifyModels,
+  modelDirFor: (entry: any, engineRoot: string, sttRoot: string) => {
+    mock.resolveDir(entry, engineRoot, sttRoot)
+    return entry.role === 'stt' ? sttRoot : engineRoot
+  },
+}))
 vi.mock('./microphone-grant', () => ({ microphoneGrant: mock.grant }))
 
 import { registerSpeechHandlers } from './handlers'
@@ -267,5 +282,35 @@ describe('owned completed-reply speech IPC', () => {
     expect(await result).toEqual({ finished: false, error: 'Cancelled' })
     expect(() => reserve(session.id, 'late')).toThrow('session')
     await expect(read(session.id, reply.id, 'late')).rejects.toThrow('session')
+  })
+})
+
+describe('local model integrity handler (VOX-A4c)', () => {
+  const report = { manifestVersion: 3, checkedAt: '2026-11-20T10:00:00.000Z', models: [] }
+
+  beforeEach(() => { mock.verifyModels.mockResolvedValue(report) })
+
+  it('refuses a request from an untrusted frame before touching the models folder', async () => {
+    await expect(invoke(IPC.SPEECH_MODEL_DIAGNOSTICS, { ...owner(), senderFrame: { trusted: false } })).rejects.toThrow('untrusted frame')
+    expect(mock.verifyModels).not.toHaveBeenCalled()
+  })
+
+  it('refuses a sender that is not the workspace window', async () => {
+    await expect(invoke(IPC.SPEECH_MODEL_DIAGNOSTICS, { ...owner(), sender: { id: 11 } })).rejects.toThrow('workspace window')
+    expect(mock.verifyModels).not.toHaveBeenCalled()
+  })
+
+  it('resolves each reviewed model against the engine or STT root, not the renderer', async () => {
+    await expect(invoke(IPC.SPEECH_MODEL_DIAGNOSTICS, owner())).resolves.toBe(report)
+    expect(mock.verifyModels).toHaveBeenCalledTimes(1)
+    const resolve = mock.verifyModels.mock.calls[0][0] as (entry: { role: string }) => string
+    expect(resolve({ role: 'tts' })).toBe(mock.enginesDir)
+    expect(resolve({ role: 'stt' })).toBe(mock.sttDir)
+    expect(mock.resolveDir).toHaveBeenCalledWith(expect.anything(), mock.enginesDir, mock.sttDir)
+  })
+
+  it('passes a verification failure through instead of reporting an empty success', async () => {
+    mock.verifyModels.mockRejectedValue(new Error('Model folder is unreadable'))
+    await expect(invoke(IPC.SPEECH_MODEL_DIAGNOSTICS, owner())).rejects.toThrow('Model folder is unreadable')
   })
 })

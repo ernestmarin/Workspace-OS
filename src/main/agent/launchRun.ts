@@ -43,6 +43,7 @@ import { documentOutputGuidance, type AgentRunFailure, type AssistantRunOwner, t
 import { envWithPath, findTool } from '../platform-tools'
 import { ClaudeAssistantText } from './assistantText'
 import { ClaudeAssistantResponses } from './claudeResponses'
+import { IPC } from '../ipc-channels'
 
 /**
  * ONE way to launch a `claude -p` run, whoever asks for it.
@@ -279,7 +280,7 @@ export async function launchRun(o: LaunchRunOptions): Promise<{ child: ChildProc
           runId: id, responseOwner: o.responseOwner, cwd, prompt: fullPrompt, model: o.model, effort: getCodexEffort(), resumeId,
           instructions: codexGuidance(cwd, openFile, agent, safeMode, memoryBlock),
           safeMode, env: childEnv, connectors, skills, signal: o.signal, unattended: o.unattended, sink,
-          onQuestion: (q) => sendToWindow('codex:question', q),
+          onQuestion: (q) => sendToWindow(IPC.CODEX_QUESTION, q),
           onAction: (actionId, args) => invokeGrantedAction({ cmd: 'run', actionId, args, token: childEnv[AGENT_TOKEN_ENV] }),
           onFinish: (code) => {
             try {

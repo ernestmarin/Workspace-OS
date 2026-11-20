@@ -13,7 +13,6 @@ export interface OutputTail {
   at: number
 }
 
-// eslint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
 
 /** Strip terminal colour codes and carriage returns; keep line breaks. */

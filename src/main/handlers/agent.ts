@@ -151,31 +151,31 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
 
   // Settings → Agent model, mirrored here so routines and the interactive
   // session (which start in main) use the same default as dock runs.
-  ipcHandle(ipcMain, 'agent:set-default-model', (event, model: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENT_SET_DEFAULT_MODEL, (event, model: unknown) => {
     assertMainFrame(event)
     setProviderModel(model)
   })
 
   // The models a run can be pinned to beyond the Claude aliases: what the Codex
   // install actually offers right now (its own cache), never a list typed into source.
-  ipcHandle(ipcMain, 'agent:list-models', async (event) => {
+  ipcHandle(ipcMain, IPC.AGENT_LIST_MODELS, async (event) => {
     assertMainFrame(event)
     const catalog = await codexCatalog(getWorkspaceRoot() ?? undefined)
     return { codex: catalog.models, status: { available: catalog.available, account: catalog.account, error: catalog.error } }
   })
 
-  ipcHandle(ipcMain, 'codex:set-effort', (event, effort) => { assertMainFrame(event); setCodexEffort(effort) })
-  ipcHandle(ipcMain, 'codex:respond', (event, runId, requestId, response) => {
+  ipcHandle(ipcMain, IPC.CODEX_SET_EFFORT, (event, effort) => { assertMainFrame(event); setCodexEffort(effort) })
+  ipcHandle(ipcMain, IPC.CODEX_RESPOND, (event, runId, requestId, response) => {
     assertMainFrame(event)
     if (typeof runId !== 'string' || typeof requestId !== 'string') throw new IpcValidationError('Invalid Codex request')
     return answerCodex(runId, requestId, response)
   })
-  ipcHandle(ipcMain, 'codex:open-request', async (event, runId, requestId) => {
+  ipcHandle(ipcMain, IPC.CODEX_OPEN_REQUEST, async (event, runId, requestId) => {
     assertMainFrame(event)
     if (typeof runId !== 'string' || typeof requestId !== 'string') throw new IpcValidationError('Invalid Codex request')
     await shell.openExternal(codexRequestUrl(runId, requestId))
   })
-  ipcHandle(ipcMain, 'codex:steer', (event, runId, text) => {
+  ipcHandle(ipcMain, IPC.CODEX_STEER, (event, runId, text) => {
     assertMainFrame(event)
     if (typeof runId !== 'string' || typeof text !== 'string' || !text.trim() || text.length > 20000) throw new IpcValidationError('Invalid Codex input')
     return steerCodex(runId, text)

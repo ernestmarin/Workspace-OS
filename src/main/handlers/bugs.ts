@@ -18,6 +18,7 @@ import {
   type ExistingBug,
 } from '../bugs/bug-log'
 import { analyzeBug, toReport, unanalyzedReport, type Analysis } from '../bugs/bug-analyzer'
+import { IPC } from '../ipc-channels'
 
 /**
  * The in-app bug reporter's main-process half.
@@ -163,7 +164,7 @@ function str(v: unknown, field: string): string {
 
 export function registerBugHandlers(ipcMain: IpcMain): void {
   /** Where reports will land, and whether analysis can see the source. */
-  ipcHandle(ipcMain, 'bug:status', () => {
+  ipcHandle(ipcMain, IPC.BUG_STATUS, () => {
     const repoRoot = resolveRepoRoot()
     return {
       repoRoot,
@@ -173,7 +174,7 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
   })
 
   /** Point the reporter at the development repo (validated). */
-  ipcHandle(ipcMain, 'bug:setRepo', (_e, dir: unknown) => {
+  ipcHandle(ipcMain, IPC.BUG_SETREPO, (_e, dir: unknown) => {
     const d = str(dir, 'repo path')
     if (!isWorkspaceOsRepo(d)) {
       throw new IpcValidationError('That folder is not the Workspace-OS repository')
@@ -183,7 +184,7 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
   })
 
   /** Everything the app knows about right now — shown to the user before filing. */
-  ipcHandle(ipcMain, 'bug:context', (_e, surface: unknown, openFile: unknown) =>
+  ipcHandle(ipcMain, IPC.BUG_CONTEXT, (_e, surface: unknown, openFile: unknown) =>
     gatherContext(
       typeof surface === 'string' ? surface : null,
       typeof openFile === 'string' ? openFile : null,
@@ -194,7 +195,7 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
    * Analyze — read-only, and returns a PROPOSAL. Nothing is written here; the
    * user reviews and corrects it first.
    */
-  ipcHandle(ipcMain, 'bug:analyze', async (_e, text: unknown, surface: unknown, openFile: unknown, kind: unknown) => {
+  ipcHandle(ipcMain, IPC.BUG_ANALYZE, async (_e, text: unknown, surface: unknown, openFile: unknown, kind: unknown) => {
     const body = str(text, 'report')
     const repoRoot = resolveRepoRoot()
     const k: ReportKind = kind === 'idea' ? 'idea' : 'bug'
@@ -212,7 +213,7 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
    * File it. Accepts the (possibly user-edited) analysis, or none at all — a
    * failed analysis must never cost the user their report.
    */
-  ipcHandle(ipcMain, 'bug:file', (_e, text: unknown, analysis: unknown, context: unknown, kind: unknown) => {
+  ipcHandle(ipcMain, IPC.BUG_FILE, (_e, text: unknown, analysis: unknown, context: unknown, kind: unknown) => {
     const body = str(text, 'report')
     const repoRoot = resolveRepoRoot()
     if (!repoRoot) {
@@ -239,7 +240,7 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
   })
 
   /** The current log, for an in-app list of what's outstanding. */
-  ipcHandle(ipcMain, 'bug:list', () => {
+  ipcHandle(ipcMain, IPC.BUG_LIST, () => {
     const repoRoot = resolveRepoRoot()
     return repoRoot ? parseBugs(readBugLog(repoRoot)) : []
   })

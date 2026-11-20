@@ -5,6 +5,7 @@ import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError, validateFilePath } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import { buildPptxFromImages, type PptxImage } from '../office/pptx-from-images'
+import { IPC } from '../ipc-channels'
 
 /**
  * Canvas → deck bridge (v1): turns ordered PNG buffers from the open-canvas
@@ -29,7 +30,7 @@ interface ExportPptxArg {
 }
 
 export function registerCanvasHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, 'canvas:export-pptx', async (_event, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.CANVAS_EXPORT_PPTX, async (_event, arg: unknown) => {
     const a = arg as ExportPptxArg
     if (!a || typeof a !== 'object') throw new IpcValidationError('bad export payload')
 

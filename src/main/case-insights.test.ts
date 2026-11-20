@@ -84,7 +84,6 @@ describe('computeCsvInsight — real Phase1 bookings (if present)', () => {
   const p = process.env['WOS_CSV_FIXTURE_BOOKINGS'] ?? ''
   it.skipIf(!readable(p))('yields a sane amount chart, no quadrillion KPI', () => {
     const ins = computeCsvInsight('Phase1_Buchungen_2025.csv', fs.readFileSync(p, 'utf-8'))!
-    // eslint-disable-next-line no-console
     console.log('Phase1 KPIs:', ins.kpis, '| chart:', ins.chart?.valueColumn, 'by', ins.chart?.byColumn)
     // No KPI may be astronomically large (the Buchungstext bug summed to 1e23).
     for (const k of ins.kpis) {
@@ -103,7 +102,6 @@ describe('computeCsvInsight — real Amazon extract (if present)', () => {
     const ins = computeCsvInsight('00_Amazon_Betraege.csv', fs.readFileSync(p, 'utf-8'))!
     expect(ins.rows).toBe(272)
     const byType = Object.fromEntries(ins.chart!.bars.map((b) => [b.label, Math.round(b.value)]))
-    // eslint-disable-next-line no-console
     console.log('real Amazon chart:', byType, '| KPIs:', ins.kpis)
     expect(ins.chart?.byColumn).toBe('Typ')
     // Grouped by the euro amount (dates must NOT be summed): FBA ~31k, Ads ~10k.

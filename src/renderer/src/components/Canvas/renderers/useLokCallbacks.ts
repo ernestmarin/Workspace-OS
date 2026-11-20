@@ -335,5 +335,8 @@ export function useLokCallbacks({
       if (dirtyRafRef.current != null) { cancelAnimationFrame(dirtyRafRef.current); dirtyRafRef.current = null }
       dirtyRectRef.current = null
     }
-  }, [scheduleRepaint, scheduleRegionRepaint, cancelSettleRepaint])
+    // The refs used above are stable identities; listing them documents that the
+    // subscription never needs re-binding when the document changes, only when a
+    // repaint scheduler does.
+  }, [scheduleRepaint, scheduleRegionRepaint, cancelSettleRepaint, caretTwRef, cellCurTwRef, dirtyRafRef, dirtyRectRef, pxPerTwipRef, contextMenuRef, reviewRef, jsDialogRef, tableSelectedRef, searchRef, contextChangedRef, setDialog, setCellSelArea, evictTilePart, evictTiles, graphicSelTwRef, onDocSizeChanged, setActive, setCaret, setCaretVisible, setCellAddr, setCellContent, setCellCursor, setGraphicSel, setSelRects, textEditRef])
 }

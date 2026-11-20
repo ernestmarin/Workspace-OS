@@ -9,6 +9,7 @@ import { setCellValue } from '../xlsx-cell-writer'
 import { readCell } from '../xlsx-cell-reader'
 import { setContentControlText } from '../docx-cc-writer'
 import { setShapeText } from '../pptx-shape-writer'
+import { IPC } from '../ipc-channels'
 
 /** Outcome of refreshing one metric from its source cell (fed to the renderer). */
 interface RefreshResult {
@@ -90,9 +91,9 @@ function readSyncAllArgs(id: unknown, openFilePath: unknown): { id: string; open
  */
 export function registerMetricHandlers(ipcMain: IpcMain): void {
   // ---- metrics ----
-  ipcHandle(ipcMain, 'metric:list', () => metrics.list())
+  ipcHandle(ipcMain, IPC.METRIC_LIST, () => metrics.list())
 
-  ipcHandle(ipcMain, 'metric:create', (_event, name: unknown, value: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_CREATE, (_event, name: unknown, value: unknown) => {
     if (typeof name !== 'string' || !name.trim()) {
       throw new IpcValidationError('Metric name must be a non-empty string')
     }
@@ -102,7 +103,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
     return metrics.create(name, value)
   })
 
-  ipcHandle(ipcMain, 'metric:update', (_event, id: unknown, patch: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_UPDATE, (_event, id: unknown, patch: unknown) => {
     readMetricId(id)
     const p = (patch ?? {}) as { name?: unknown; value?: unknown; source?: unknown }
     if (p.name !== undefined && typeof p.name !== 'string') {
@@ -126,7 +127,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   // Create-from-cell: a metric whose value is READ LIVE from a real spreadsheet
   // cell. The cell is read once now to seed the cache; a source we can't read is
   // rejected (you're pointing at a real cell — no point creating a dead link).
-  ipcHandle(ipcMain, 'metric:createFromSource', async (_event, name: unknown, source: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_CREATEFROMSOURCE, async (_event, name: unknown, source: unknown) => {
     if (typeof name !== 'string' || !name.trim()) {
       throw new IpcValidationError('Metric name must be a non-empty string')
     }
@@ -143,14 +144,14 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
 
   // Refresh ONE sourced metric from disk; propagates downstream if the value
   // changed (via the ordinary update path). Returns a stale flag on read failure.
-  ipcHandle(ipcMain, 'metric:refreshFromSource', async (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_REFRESHFROMSOURCE, async (_event, id: unknown) => {
     const res = await refreshMetric(readMetricId(id))
     if (!res) throw new IpcValidationError('Unknown metric')
     return res
   })
 
   // Refresh EVERY sourced metric ("refresh all"). Literal metrics are skipped.
-  ipcHandle(ipcMain, 'metric:refreshAllFromSource', async () => {
+  ipcHandle(ipcMain, IPC.METRIC_REFRESHALLFROMSOURCE, async () => {
     const out: RefreshResult[] = []
     for (const m of metrics.list()) {
       if (!isSourced(m)) continue
@@ -167,7 +168,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   // root (rejecting `../../etc/...` traversal and symlink escapes) before using
   // it — a refresh must never be steered at a path outside the workspace. The
   // stored source filePaths are compared against the resolved, in-root path.
-  ipcHandle(ipcMain, 'metric:refreshForFile', async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_REFRESHFORFILE, async (_event, filePath: unknown) => {
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
@@ -182,7 +183,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
     return out
   })
 
-  ipcHandle(ipcMain, 'metric:delete', (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_DELETE, (_event, id: unknown) => {
     if (typeof id !== 'string' || !/^metric-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid metric id')
     }
@@ -190,7 +191,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   })
 
   // ---- transclusion links ----
-  ipcHandle(ipcMain, 'transclusion:forFile', (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_FORFILE, (_event, filePath: unknown) => {
     if (typeof filePath !== 'string' || !filePath) {
       throw new IpcValidationError('Invalid file path')
     }
@@ -199,7 +200,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
 
   // Read-only: every link bound to one metric, across ALL files (the "where is
   // this linked" view — group-by-file happens in the renderer).
-  ipcHandle(ipcMain, 'transclusion:forMetric', (_event, metricId: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_FORMETRIC, (_event, metricId: unknown) => {
     if (typeof metricId !== 'string' || !/^metric-[\w-]+$/.test(metricId)) {
       throw new IpcValidationError('Invalid metric id')
     }
@@ -207,9 +208,9 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   })
 
   // Read-only: every link in the store (drives the per-metric link-count badges).
-  ipcHandle(ipcMain, 'transclusion:allLinks', () => transclusions.allLinks())
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_ALLLINKS, () => transclusions.allLinks())
 
-  ipcHandle(ipcMain, 'transclusion:add', (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_ADD, (_event, input: unknown) => {
     const i = (input ?? {}) as {
       metricId?: unknown
       filePath?: unknown
@@ -245,7 +246,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
     return transclusions.add({ metricId: i.metricId, filePath: linkFilePath, target, lastValue: i.lastValue })
   })
 
-  ipcHandle(ipcMain, 'transclusion:remove', (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_REMOVE, (_event, id: unknown) => {
     if (typeof id !== 'string' || !/^link-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid link id')
     }
@@ -257,7 +258,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   // PREVIEW (no writes): report the impact so the UI can confirm first. The open
   // file is excluded (the engine's live path owns it); unchanged links are shown
   // as such; everything else is a closed-file cell that WOULD change.
-  ipcHandle(ipcMain, 'transclusion:previewSyncAll', (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_PREVIEWSYNCALL, (_event, id: unknown, openFilePath: unknown) => {
     const { id: metricId, open } = readSyncAllArgs(id, openFilePath)
     const metric = metrics.get(metricId)
     if (!metric) throw new IpcValidationError('Unknown metric')
@@ -281,7 +282,7 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   // (atomic + verified). On success we advance the link's lastValue. The OPEN file
   // is never written here — it is handled live by the renderer. STRICT fail-safe:
   // any file we can't safely write is skipped and reported, never corrupted.
-  ipcHandle(ipcMain, 'transclusion:syncAll', async (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_SYNCALL, async (_event, id: unknown, openFilePath: unknown) => {
     const { id: metricId, open } = readSyncAllArgs(id, openFilePath)
     const metric = metrics.get(metricId)
     if (!metric) throw new IpcValidationError('Unknown metric')

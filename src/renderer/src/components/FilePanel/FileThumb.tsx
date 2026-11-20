@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   Folder,
   FileText,
@@ -9,6 +9,7 @@ import {
   File as FileIcon,
 } from 'lucide-react'
 import { bytesToBlob } from '../../lib/bytesToBlob'
+import { useSafeObjectUrl } from '../../lib/useSafeObjectUrl'
 import type { FileEntry } from '../../types/fs'
 import { isThumbnailable, kindOf, type FileKind } from './fileBrowserModel'
 import styles from './FileViews.module.css'
@@ -44,31 +45,22 @@ const MIME: Record<string, string> = {
 }
 
 export function FileThumb({ entry, size = 44 }: { entry: FileEntry; size?: number }): JSX.Element {
-  const [src, setSrc] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
 
-  useEffect(() => {
-    if (!isThumbnailable(entry)) return
-    let url: string | null = null
-    let cancelled = false
-
-    window.workspace.fs
-      .readFileBytes(entry.path)
-      .then((bytes: Uint8Array) => {
-        if (cancelled) return
-        const ext = entry.name.split('.').pop()?.toLowerCase() ?? 'png'
-        url = URL.createObjectURL(bytesToBlob(bytes, MIME[ext] ?? 'image/png'))
-        setSrc(url)
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true)
-      })
-
-    return () => {
-      cancelled = true
-      if (url) URL.revokeObjectURL(url)
-    }
-  }, [entry.path, entry.name, entry.isDirectory])
+  // Depend on the values the read uses. The `entry` object is rebuilt by several
+  // callers on every render, so keying on it re-fetched the thumbnail on each
+  // render; these primitives are the real inputs. Lifetime (including "do not
+  // read at all") is handled inside the hook via the null key.
+  const { path: entryPath, name: entryName, isDirectory } = entry
+  const thumbnailable = isThumbnailable({ name: entryName, isDirectory })
+  const { url: src } = useSafeObjectUrl(
+    () => window.workspace.fs.readFileBytes(entryPath),
+    (bytes) => {
+      const ext = entryName.split('.').pop()?.toLowerCase() ?? 'png'
+      return bytesToBlob(bytes, MIME[ext] ?? 'image/png')
+    },
+    thumbnailable ? entryPath : null,
+  )
 
   if (src && !failed) {
     return (

@@ -472,7 +472,7 @@ export function useLokPaint({ canvasRef, docRef, caretTwRef, setPxSize, setThumb
     const doc = docRef.current
     if (full || chooseSettleMode(band, doc) === 'full' || !band) { void paint(); return }
     void paintRegion(band.x, band.y, band.w, band.h)
-  }, [paint, paintRegion])
+  }, [paint, paintRegion, docRef])
 
   // Schedule (or coalesce into) the single settle timer at the given delay. A
   // shorter requested delay wins so an urgent pass isn't held back by a lazy one.
