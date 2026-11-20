@@ -11,7 +11,7 @@ vi.mock('./codexRpc', () => ({ CodexRpc: class {
 } }))
 import { launchCodexSession, codexThreadConfig, answerCodex, steerCodex, cancelCodex } from './codexSession'
 const setup = async (extra = {}) => {
-  const sink = { output: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
+  const sink = { output: vi.fn(), assistantText: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
   const onQuestion = vi.fn(), onFinish = vi.fn()
   await launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'persona', safeMode: true, env: {}, connectors: { mcpServers: {} }, sink, onQuestion, onFinish, ...extra })
   return { sink, onQuestion, onFinish, rpc: mock.instances.at(-1) }
@@ -68,8 +68,11 @@ describe('Codex session and isolation', () => {
     s.rpc.options.onNotification('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 50 } } })
     s.rpc.options.onNotification('turn/completed', { turn: { status: 'completed' } })
     expect(s.sink.output.mock.calls.filter(([t]) => t === 'hello')).toHaveLength(1)
+    expect(s.sink.assistantText).toHaveBeenCalledExactlyOnceWith('hello')
     expect(s.sink.meta).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex', costKnown: false, inputTokens: 100, outputTokens: 20, cachedInputTokens: 50 }))
     expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(0)
+    s.rpc.options.onNotification('item/agentMessage/delta', { itemId: 'b', delta: 'late' })
+    expect(s.sink.assistantText).toHaveBeenCalledTimes(1)
   })
   it('routes structured app actions through the supplied grant handler in unattended Safe mode', async () => {
     const onAction = vi.fn(async () => ({ ok: true, result: { path: '/workspace/report.md' } }))
@@ -114,7 +117,7 @@ describe('Codex session and isolation', () => {
   })
   it('a failed start rejects once and reports no completion (the caller reports it)', async () => {
     mock.startFails = true
-    const sink = { output: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
+    const sink = { output: vi.fn(), assistantText: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
     const onFinish = vi.fn()
     await expect(launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'p', safeMode: true, env: {}, connectors: { mcpServers: {} }, sink, onQuestion: vi.fn(), onFinish })).rejects.toThrow('not signed in')
     expect(onFinish).not.toHaveBeenCalled()
@@ -126,7 +129,7 @@ describe('Codex session and isolation', () => {
     let reject!: (e: Error) => void
     mock.startHangs = { promise: new Promise((_, r) => { reject = r }), reject: (e) => reject(e) }
     const controller = new AbortController()
-    const sink = { output: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
+    const sink = { output: vi.fn(), assistantText: vi.fn(), meta: vi.fn(), activity: vi.fn(), artifacts: vi.fn(), artifact: vi.fn(), done: vi.fn(), sessionId: vi.fn() }
     const onFinish = vi.fn()
     const launch = launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'p', safeMode: true, env: {}, connectors: { mcpServers: {} }, sink, onQuestion: vi.fn(), onFinish, signal: controller.signal })
     await Promise.resolve(); await Promise.resolve()

@@ -511,6 +511,7 @@ export interface WorkspaceApi {
     cancel: (runId: string) => Promise<void>
     forgetConversation: (conversationId: string) => Promise<void>
     onOutput: (callback: (runId: string, chunk: string) => void) => () => void
+    onAssistantText: (callback: (runId: string, text: string) => void) => () => void
     onDone: (callback: (runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) => void) => () => void
     onArtifact: (callback: (runId: string, path: string) => void) => () => void
     /** Classified list of a run's output files, surfaced as openable artifact cards. */

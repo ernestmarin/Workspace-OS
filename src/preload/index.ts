@@ -270,6 +270,11 @@ contextBridge.exposeInMainWorld('workspace', {
       ipcRenderer.on(IPC.AGENT_OUTPUT, handler)
       return () => ipcRenderer.removeListener(IPC.AGENT_OUTPUT, handler)
     },
+    onAssistantText: (callback: (runId: string, text: string) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, runId: string, text: string) => callback(runId, text)
+      ipcRenderer.on(IPC.AGENT_ASSISTANT_TEXT, handler)
+      return () => ipcRenderer.removeListener(IPC.AGENT_ASSISTANT_TEXT, handler)
+    },
     onDone: (callback: (runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) =>
         callback(runId, code, checkpointId, failure)

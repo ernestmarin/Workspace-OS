@@ -42,6 +42,7 @@ export const IPC = {
   // Agent (Claude CLI bridge — `-p`/stream-json pipeline)
   AGENT_RUN: 'agent:run',
   AGENT_OUTPUT: 'agent:output',
+  AGENT_ASSISTANT_TEXT: 'agent:assistant-text',
   AGENT_DONE: 'agent:done',
   AGENT_CANCEL: 'agent:cancel',
   // Drop a closed tab's conversation → claude-session-id mapping so the LRU map

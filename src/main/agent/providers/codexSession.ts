@@ -154,12 +154,17 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
       o.onQuestion({ runId: o.runId, requestId, method, params })
     },
     onNotification: (method, p) => {
+      if (finished) return
       // Subagent turns share the server but must never finish the parent run.
       if (control.thread && p.threadId && p.threadId !== control.thread) return
       if (method === 'turn/started') control.turn = p.turn?.id ?? ''
-      else if (method === 'item/agentMessage/delta' && typeof p.delta === 'string') { delivered.add(p.itemId); o.sink.output(p.delta) }
+      else if (method === 'item/agentMessage/delta' && typeof p.delta === 'string') { delivered.add(p.itemId); o.sink.output(p.delta); if (p.delta) o.sink.assistantText?.(p.delta) }
       else if (method === 'item/completed' && p.item?.type === 'agentMessage') {
-        if (!delivered.has(p.item.id) && typeof p.item.text === 'string') o.sink.output(p.item.text)
+        if (!delivered.has(p.item.id) && typeof p.item.text === 'string') {
+          o.sink.output(p.item.text)
+          if (p.item.text) o.sink.assistantText?.(p.item.text)
+          delivered.add(p.item.id)
+        }
         o.sink.output('\n')
       } else if (method === 'item/started') {
         const item = p.item ?? {}

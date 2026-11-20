@@ -240,6 +240,7 @@ export function registerAgentHandlers(ipcMain: IpcMain, win: BrowserWindow): voi
       appSlug: profile === 'app' && typeof appSlug === 'string' ? appSlug : undefined,
       sink: {
         output: (t) => sendToWindow(IPC.AGENT_OUTPUT, id, t),
+        assistantText: (t) => sendToWindow(IPC.AGENT_ASSISTANT_TEXT, id, t),
         sessionId: convoId ? (sid) => {
           sessionCaptured = true
           setConversation(convoId, `${pick.provider}:${sid}`)
