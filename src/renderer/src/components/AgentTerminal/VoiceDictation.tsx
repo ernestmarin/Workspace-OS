@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import styles from './TerminalSession.module.css'
+import { startEnergyMonitor } from './energyMonitor'
 
 const MAX_RECORDING_MS = 30_000
 const MAX_BYTES = 5 * 1024 * 1024
@@ -11,10 +12,12 @@ type Phase = 'idle' | 'requesting' | 'recording' | 'transcribing'
 export function VoiceDictation({ active, onTranscript }: { active: boolean; onTranscript: (text: string) => void }): JSX.Element {
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState('')
+  const [autoEnd, setAutoEnd] = useState(false)
   const generation = useRef(0)
   const recorder = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stopMonitor = useRef<(() => void) | null>(null)
   const transcribing = useRef(false)
   const mounted = useRef(true)
   const activeRef = useRef(active)
@@ -22,6 +25,8 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
 
   const discard = useCallback(() => {
     generation.current++
+    stopMonitor.current?.()
+    stopMonitor.current = null
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
     const current = recorder.current
@@ -70,6 +75,8 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
       }
       current.onerror = () => { if (valid()) { discard(); setError('Microphone recording failed.'); setPhase('idle') } }
       current.onstop = () => {
+        stopMonitor.current?.()
+        stopMonitor.current = null
         media.getTracks().forEach((track) => track.stop())
         if (stream.current === media) stream.current = null
         if (recorder.current === current) recorder.current = null
@@ -113,11 +120,14 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
       current.start(1000)
       if (!valid()) { discard(); return }
       setPhase('recording')
+      if (autoEnd) stopMonitor.current = startEnergyMonitor(media, () => {
+        if (valid() && current.state === 'recording') current.stop()
+      }, () => { if (valid()) setError('Automatic end is unavailable. Use Stop recording.') })
       timer.current = setTimeout(() => { if (current.state !== 'inactive') current.stop() }, MAX_RECORDING_MS)
     } catch (e) {
       if (valid()) { discard(); setError(e instanceof Error ? e.message : 'Could not start dictation.'); setPhase('idle') }
     }
-  }, [active, phase, discard, onTranscript])
+  }, [active, phase, autoEnd, discard, onTranscript])
 
   const stop = useCallback(() => {
     if (recorder.current?.state === 'recording') recorder.current.stop()
@@ -125,6 +135,9 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
   const cancel = useCallback(() => { discard(); setPhase('idle'); setError('') }, [discard])
 
   return <span>
+    <label title="Experimental energy-based silence detection may end early in noisy environments.">
+      <input type="checkbox" checked={autoEnd} disabled={!active || phase !== 'idle'} onChange={(event) => setAutoEnd(event.target.checked)} /> Auto-stop on silence
+    </label>{' '}
     {phase === 'idle' ? <button className={styles.modeToggle} type="button" disabled={!active} onClick={() => void start()} title="Record up to 30 seconds for local Spanish transcription; review before sending">🎙 Dictate locally (experimental)</button>
       : phase === 'recording' ? <button className={styles.modeToggle} type="button" onClick={stop}>■ Stop recording</button>
         : <span role="status">{phase === 'requesting' ? 'Requesting microphone…' : 'Transcribing locally…'}</span>}
