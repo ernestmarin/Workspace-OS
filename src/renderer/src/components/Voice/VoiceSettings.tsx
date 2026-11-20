@@ -58,6 +58,7 @@ export function VoiceSettings(): JSX.Element {
       <button type="button" className={engine === 'openai' ? styles.segOn : styles.segOff} onClick={() => void choose('openai')}>OpenAI</button>
     </div>
     {engine === 'kokoro' && <div className={styles.field}>
+      <p className={styles.hint}>The bundled Kokoro wrapper supports English voices only. Spanish and other local output languages need a different or extended adapter.</p>
       <button type="button" className={styles.btn} onClick={() => void window.workspace.speech.prepareKokoro().then((s) => { setKokoroFiles(s); setNotice('Project files prepared. Python dependencies and model files must still be installed separately.') }).catch((error: Error) => setNotice(error.message))}>Prepare Kokoro project files</button>
       <p className={styles.hint}>Installing dependencies downloads and runs third-party packages using uv. Model weights are not downloaded by this step.</p>
       <button type="button" className={styles.btn} disabled={installing || !kokoroFiles?.project || !kokoroFiles?.wrapper} onClick={() => {

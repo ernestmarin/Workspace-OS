@@ -23,8 +23,12 @@ export async function synthesizeFragment(text: string, config: AppConfig, signal
     const engineDir = speechEnginesDir()
     if (engine === 'kokoro') assertKokoroInstalled(engineDir)
     const argsTemplate = [...config.tts.args_template]
-    // A speech request must never implicitly install packages. Installation is opt-in.
-    if (engine === 'kokoro' && config.tts.command === 'uv' && argsTemplate[0] === 'run' && !argsTemplate.includes('--no-sync')) argsTemplate.splice(1, 0, '--no-sync')
+    // The default uv invocation must neither sync packages nor fetch Python.
+    // These flags constrain uv, not arbitrary third-party executable network access.
+    if (engine === 'kokoro' && config.tts.command === 'uv' && argsTemplate[0] === 'run') {
+      const guards = ['--no-sync', '--offline', '--no-python-downloads'].filter((flag) => !argsTemplate.includes(flag))
+      argsTemplate.splice(1, 0, ...guards)
+    }
     return synthesizeLocal({ text, voice, command: config.tts.command, argsTemplate, engineDir, signal })
   }
   throw new Error(`Speech engine ${engine} is not implemented`)

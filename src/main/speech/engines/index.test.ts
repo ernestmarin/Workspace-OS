@@ -12,7 +12,8 @@ describe('engine dispatch', () => {
   it('dispatches the active local profile', async () => {
     const audio = await synthesizeFragment('hello', defaultConfig(), new AbortController().signal)
     expect(audio.sampleRate).toBe(24000)
-    expect(vi.mocked(synthesizeLocal).mock.calls.at(-1)?.[0].argsTemplate.slice(0, 2)).toEqual(['run', '--no-sync'])
+    const args = vi.mocked(synthesizeLocal).mock.calls.at(-1)?.[0].argsTemplate ?? []
+    expect(args.slice(0, 4)).toEqual(['run', '--no-sync', '--offline', '--no-python-downloads'])
   })
   it('returns a clear failure for unsupported engines', async () => {
     const cfg = defaultConfig()

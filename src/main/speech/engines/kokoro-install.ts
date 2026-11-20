@@ -1,57 +1,16 @@
-import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { kokoroFilesStatus } from './kokoro-setup'
 
-/** Do not hand obvious provider credentials to the dependency installer. */
-export function installerEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const clean: NodeJS.ProcessEnv = {}
-  for (const [key, value] of Object.entries(env)) {
-    if (/(?:^|_)(?:api_?key|token|secret|password|credential|private_key|access_key)(?:_|$)/i.test(key) || key === 'SSH_AUTH_SOCK') continue
-    clean[key] = value
-  }
-  return clean
-}
+import { runSpeechCommand } from './process'
 
-/** Execute without a shell and without logging dependency output. */
+// Preserve the existing test/public helper name; synthesis uses the same policy.
+export { speechProcessEnvironment as installerEnvironment } from './process'
+
+/** Explicit dependency installation only; synthesis must never call this. */
 export function runInstallerCommand(command: string, args: string[], signal: AbortSignal, timeoutMs = 20 * 60_000): Promise<void> {
-  if (signal.aborted) return Promise.reject(new Error('Kokoro dependency setup cancelled'))
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { shell: false, windowsHide: true, stdio: 'ignore', env: installerEnvironment(), detached: process.platform !== 'win32' })
-    let reason = ''
-    let killTimer: ReturnType<typeof setTimeout> | undefined
-    const terminate = (force: boolean): void => {
-      try {
-        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM')
-        else child.kill(force ? 'SIGKILL' : 'SIGTERM')
-      } catch { /* already exited */ }
-    }
-    const stop = (message: string): void => {
-      if (reason) return
-      reason = message
-      terminate(false)
-      killTimer = setTimeout(() => terminate(true), 2000)
-      killTimer.unref()
-    }
-    const abort = (): void => stop('Kokoro dependency setup cancelled')
-    const timer = setTimeout(() => stop('Kokoro dependency setup timed out'), timeoutMs)
-    timer.unref()
-    signal.addEventListener('abort', abort, { once: true })
-    let settled = false
-    const finish = (error?: Error): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      if (killTimer) clearTimeout(killTimer)
-      signal.removeEventListener('abort', abort)
-      if (error) reject(error); else resolve()
-    }
-    child.once('error', () => finish(new Error('Could not start uv. Install uv and make it available on the app PATH.')))
-    child.once('close', (code) => {
-      if (reason) finish(new Error(reason))
-      else if (code !== 0) finish(new Error(`Kokoro dependency setup failed (exit ${code ?? 'unknown'}). Check uv and network access.`))
-      else finish()
-    })
-    if (signal.aborted) abort()
+  return runSpeechCommand(command, args, {
+    signal, timeoutMs, label: 'Kokoro dependency setup',
+    startError: 'Could not start uv. Install uv and make it available on the app PATH.',
   })
 }
 

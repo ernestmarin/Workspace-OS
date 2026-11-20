@@ -1,7 +1,7 @@
-import { app, clipboard, dialog, globalShortcut, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { app, clipboard, dialog, globalShortcut, type IpcMain, type IpcMainInvokeEvent, type BrowserWindow, type WebContents } from 'electron'
 import path from 'node:path'
 import { defaultKokoroProfile } from '../../shared/speech/defaults'
-import type { VoiceProfile } from '../../shared/speech/types'
+import type { AppConfig, VoiceProfile } from '../../shared/speech/types'
 import { mainWindow, sendToWindow } from '../main-window'
 import { ipcHandle, registerCleanup } from '../ipc-registry'
 import { IPC } from '../ipc-channels'
@@ -18,45 +18,91 @@ import { KokoroDependencyInstaller } from './engines/kokoro-install'
 import { LocalStt, localSttStatus } from './local-stt'
 import { microphoneGrant } from './microphone-grant'
 
-function assertOwner(event: IpcMainInvokeEvent): void {
+interface SpeechDocument {
+  window: BrowserWindow
+  contents: WebContents
+  active: boolean
+  invalidate(): void
+}
+
+function assertWorkspace(event: IpcMainInvokeEvent): BrowserWindow {
   assertMainFrame(event)
-  if (!event.senderFrame || mainWindow()?.webContents.id !== event.sender.id) throw new Error('Speech IPC rejected: not the workspace window')
+  const win = mainWindow()
+  if (!win || win.webContents.isDestroyed() || event.sender !== win.webContents ||
+      !event.senderFrame || event.senderFrame !== win.webContents.mainFrame) {
+    throw new Error('Speech IPC rejected: not the workspace window/main frame')
+  }
+  return win
 }
 
 export function registerSpeechHandlers(ipc: IpcMain): void {
   const installer = new KokoroDependencyInstaller()
   const stt = new LocalStt()
   let microphonePromptOpen = false
+  let document: SpeechDocument | undefined
+  const send = (scope: SpeechDocument | undefined, channel: string, message: unknown): void => {
+    if (!scope?.active || mainWindow() !== scope.window || scope.contents.isDestroyed()) return
+    try { scope.contents.send(channel, message) } catch { /* raced with teardown */ }
+  }
   const broker = new PlaybackBroker((owner, message) => {
-    const win = mainWindow()
-    if (!win || win.webContents.id !== owner) throw new Error('Playback window is unavailable')
-    win.webContents.send(IPC.SPEECH_PLAYBACK, message)
+    const contents = document?.contents
+    if (!contents || contents.id !== owner || contents.isDestroyed()) throw new Error('Playback window is unavailable')
+    contents.send(IPC.SPEECH_PLAYBACK, message)
   })
-  const controller = new ReadingController({
-    synthesize: synthesizeFragment,
-    play: (audio, text, signal, config) => {
-      const win = mainWindow()
-      if (!win) throw new Error('Playback window is unavailable')
-      const owner = win.webContents.id
-      const closed = (): void => broker.closeOwner(owner)
-      win.webContents.once('destroyed', closed)
-      return broker.play(owner, audio, text, config.playback.volume, signal).finally(() => win.webContents.removeListener('destroyed', closed))
-    },
-    onStatus: (status) => sendToWindow(IPC.SPEECH_EVENT, { type: 'state', status }),
-  })
-  const start = (text: string): { readingId: number } => {
-    const config = getConfig()
+  const assertEngineAvailable = (config: AppConfig): void => {
     const engine = config.tts.profiles.find((profile) => profile.id === config.tts.active_profile_id)?.engine ?? config.tts.active_backend
     if (installer.busy && engine === 'kokoro') throw new Error('Wait for Kokoro dependency setup to finish before speaking')
-    const reading = controller.read(text, config)
-    void reading.result.then((result) => sendToWindow(IPC.SPEECH_EVENT, { type: 'result', readingId: reading.id, result }))
+  }
+  const controller = new ReadingController<SpeechDocument>({
+    synthesize: (text, config, signal) => { assertEngineAvailable(config); return synthesizeFragment(text, config, signal) },
+    play: (audio, text, signal, config, scope) => {
+      if (!scope?.active || mainWindow() !== scope.window || scope.contents.isDestroyed()) throw new Error('Playback document is unavailable')
+      return broker.play(scope.contents.id, audio, text, config.playback.volume, signal)
+    },
+    onStatus: (status, scope) => send(scope, IPC.SPEECH_EVENT, { type: 'state', status }),
+  })
+  // Bind all pending work to the document that authorized it, not whichever
+  // window happens to be current after synthesis or a native prompt resolves.
+  const documentFor = (win: BrowserWindow): SpeechDocument => {
+    if (document?.active && document.window === win) return document
+    document?.invalidate()
+    const contents = win.webContents
+    const scope: SpeechDocument = { window: win, contents, active: true, invalidate: () => {
+      if (!scope.active) return
+      scope.active = false
+      contents.removeListener('destroyed', scope.invalidate)
+      contents.removeListener('render-process-gone', scope.invalidate)
+      contents.removeListener('did-start-navigation', navigation)
+      controller.stop()
+      broker.closeOwner(contents.id)
+      stt.cancel()
+      microphoneGrant.clear()
+      installer.cancel()
+    } }
+    const navigation = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
+      if (details.isMainFrame && !details.isSameDocument) scope.invalidate()
+    }
+    contents.once('destroyed', scope.invalidate)
+    contents.once('render-process-gone', scope.invalidate)
+    contents.on('did-start-navigation', navigation)
+    document = scope
+    return scope
+  }
+  const assertOwner = (event: IpcMainInvokeEvent): SpeechDocument => documentFor(assertWorkspace(event))
+  const start = (text: string, scope: SpeechDocument): { readingId: number } => {
+    if (!scope.active) throw new Error('Speech document is unavailable')
+    const config = getConfig()
+    assertEngineAvailable(config)
+    const reading = controller.read(text, config, scope)
+    void reading.result.then((result) => send(scope, IPC.SPEECH_EVENT, { type: 'result', readingId: reading.id, result }))
     return { readingId: reading.id }
   }
-  const startClipboard = (): { readingId: number } => start(clipboard.readText())
+  const startClipboard = (scope: SpeechDocument): { readingId: number } => start(clipboard.readText(), scope)
   const hotkey = new VoiceHotkey(globalShortcut, () => {
     try {
       // Don't read or transmit clipboard text while no workspace window is open.
-      if (mainWindow()) startClipboard()
+      const win = mainWindow()
+      if (win) startClipboard(documentFor(win))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to read clipboard'
       sendToWindow(IPC.SPEECH_EVENT, { type: 'error', message })
@@ -70,7 +116,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     console.warn('[speech] could not initialize voice shortcut:', error instanceof Error ? error.message : 'unknown error')
   }
   ipcHandle(ipc, IPC.SPEECH_MICROPHONE_AUTHORIZE, async (event, token) => {
-    assertOwner(event)
+    const scope = assertOwner(event)
     if (microphonePromptOpen) throw new Error('A microphone permission request is already open')
     const win = mainWindow()
     if (!win) throw new Error('Workspace window is unavailable')
@@ -89,6 +135,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
         detail: 'Audio is intended for local transcription. The agent or voice engine you select may still use an external service. Microphone access ends when recording stops.',
       })
       if (result.response !== 1) return false
+      if (!scope.active) throw new Error('Workspace document changed during microphone approval')
       assertOwner(event)
       if (win.isDestroyed() || mainWindow() !== win || event.sender.id !== owner || event.senderFrame !== frame || frame.url !== url || event.sender.getURL() !== url) throw new Error('Workspace window changed during microphone approval')
       return microphoneGrant.approve(token, owner, url)
@@ -103,11 +150,11 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
   })
   ipcHandle(ipc, IPC.SPEECH_STT_CANCEL, (event, id) => { assertOwner(event); if (typeof id === 'string') stt.cancel(id) })
   ipcHandle(ipc, IPC.SPEECH_SPEAK, (event, text) => {
-    assertOwner(event)
+    const scope = assertOwner(event)
     if (typeof text !== 'string') throw new Error('Speech text must be a string')
-    return start(text)
+    return start(text, scope)
   })
-  ipcHandle(ipc, IPC.SPEECH_READ_CLIPBOARD, (event) => { assertOwner(event); return startClipboard() })
+  ipcHandle(ipc, IPC.SPEECH_READ_CLIPBOARD, (event) => startClipboard(assertOwner(event)))
   ipcHandle(ipc, IPC.SPEECH_SET_HOTKEY, (event, value) => {
     assertOwner(event)
     if (typeof value !== 'string' || value.length > 128) throw new Error('Invalid shortcut')
@@ -130,7 +177,13 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
   })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_STATUS, (event) => { assertOwner(event); return { busy: installer.busy } })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL_CANCEL, (event) => { assertOwner(event); installer.cancel() })
-  ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL, async (event) => { assertOwner(event); await installer.install(speechEnginesDir()); return kokoroFilesStatus(speechEnginesDir()) })
+  ipcHandle(ipc, IPC.SPEECH_KOKORO_INSTALL, async (event) => {
+    assertOwner(event)
+    const status = controller.getStatus()
+    if (status.speaking && status.engine === 'kokoro') throw new Error('Stop Kokoro readings before changing their Python dependencies')
+    await installer.install(speechEnginesDir())
+    return kokoroFilesStatus(speechEnginesDir())
+  })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_STATUS, (event) => { assertOwner(event); return kokoroFilesStatus(speechEnginesDir()) })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_PREPARE, (event) => {
     assertOwner(event)
@@ -178,5 +231,5 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     if (typeof id !== 'string' || typeof ok !== 'boolean') throw new Error('Invalid playback result')
     return broker.complete(event.sender.id, id, ok)
   })
-  registerCleanup('speech', async () => { hotkey.dispose(); controller.stop(); stt.cancel(); microphoneGrant.clear(); await installer.shutdown() })
+  registerCleanup('speech', async () => { document?.invalidate(); hotkey.dispose(); controller.stop(); stt.cancel(); microphoneGrant.clear(); await installer.shutdown() })
 }
