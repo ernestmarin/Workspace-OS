@@ -35,3 +35,94 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 8. **Release gate.** Cross-platform fresh-install Electron E2E with actual models and audio, permissions, sleep/restart, recovery and security red/blue review; fix and repeat. Record unavailable environments and never claim tests passed when mocked.
 
 Each stage: implement, review adversarially, add regression tests, run relevant checks, commit a logically bounded change. Do not treat a completed foundation as production readiness.
+
+## Implementation inventory (2026-11-19)
+
+This inventory covers both the CopySpeech port and the conversation work, not
+just the last milestone. “Implemented” describes code and focused automated
+checks; it does **not** imply real-device or release validation.
+
+### CopySpeech-derived reading foundations
+- Shared TypeScript contracts/defaults, deterministic sanitization, text
+  pagination, UTF-16-aware fragment spans and caption data models are ported.
+  Their presence does not mean the caption UI, word highlighting, or every
+  upstream feature is connected.
+- Voice configuration is merged with defaults, shape/range checked and
+  atomically persisted under `userData/copyspeech`; malformed files are not
+  silently overwritten. Keys use the OS vault where available; config rejects
+  known credential fields and unsafe HTTP templates. Full migration and a
+  comprehensive credential audit remain open.
+- OpenAI batch synthesis and a managed local command/WAV adapter are wired to
+  a bounded reading queue and acknowledged PCM renderer playback. Stop and
+  interruption are implemented globally; single-reading ownership and pause,
+  resume, captions and effects remain incomplete. OpenAI sends text remotely.
+- Settings support Kokoro/OpenAI choice, a limited voice list, vault-backed
+  OpenAI key, reading text/clipboard, stop and an optional global clipboard
+  shortcut (disabled by default). Browser page text can be read. Selection and
+  word highlighting within WOS Browser remain pending; external browser
+  extensions and native-messaging hosts are out of scope for v1.
+- CopySpeech's MIT Kokoro wrapper/project manifest can be staged without
+  overwriting user files. Optional cancellable dependency setup uses `uv`; model
+  weights are manually supplied. Presence checks are not integrity/readiness
+  checks, and no real Kokoro audio or cross-platform process-tree behavior is
+  validated. This existing optional child process is not permission to add a
+  new Python Pipecat sidecar.
+- Optional one-fragment lookahead is disabled by default, separately from the
+  old `streaming_enabled` config field. It synthesizes at most one fragment in
+  advance, cancels on failure/stop and warns that a cloud provider may receive
+  text early. This is not token streaming or a benchmarked latency improvement.
+
+### Agent and capture work
+- Assistant-only structured text events for Claude/Codex are separated from
+  terminal/tool output. Completed-reply reading is per-tab and opt-in, limited
+  to successful owned prompt runs, with bounded buffers; switching tabs disarms
+  future reading. It is not live streaming, PTY support or voice conversation.
+- The pure turn state machine and regression tests define tickets, stale-event
+  rejection, stop/interrupt effects and bounded transcripts. It is not wired
+  to the existing agent session, microphone or playback; in particular it does
+  not yet implement full-duplex barge-in or overlapping turns.
+- Offline-only Transformers.js Whisper worker and restricted main-frame IPC
+  accept bounded audio, support UUID-scoped cancellation and use a manually
+  installed compatible multilingual model. Four file-presence checks do not
+  verify ONNX files, model provenance, integrity or runtime readiness; actual
+  recognition, language quality and native packaging are untested.
+- Push-to-talk captures at most 30 seconds after per-request native consent;
+  it resamples locally to 16 kHz, transcribes and inserts text for user review
+  without submitting. Browser guest capture is denied. A time-limited audio-only
+  grant and request identities protect against ordinary stale lifecycle cleanup,
+  not a compromised trusted renderer.
+- Capture discards on tab deactivation, hidden document, pagehide, disconnect,
+  cancellation and recording error, and cleans tracks, monitor, timers,
+  decoding context and its own STT request. An optional, off-by-default RMS
+  silence heuristic is not trained VAD; no automatic background listening.
+- Dictation supports the nine requested language controls and scoped Arabic/
+  Hebrew RTL, plus per-tab in-memory microphone selection and explicit device
+  refresh. Selected devices use exact constraints and do not silently fall back.
+  Errors/native consent and other Voice surfaces remain incompletely localized;
+  selected languages and device behavior are not yet tested on real models or
+  real Electron.
+
+### Validation and unresolved work
+- Latest focused simulated/unit suite at this inventory: **154 tests in 24
+  files passed**. Typecheck passes against an existing **70-error baseline**;
+  production build succeeds. These are not real microphone, speaker, model,
+  network-provider or Electron end-to-end tests. Historical full-suite failures
+  and unavailable Electron/native binaries remain separate unresolved issues.
+- Still required: real turn integration with existing WOS sessions and
+  approvals; incremental assistant-only speech; audio/run ownership and scoped
+  cancellation; trained local VAD and streaming/local STT with audited model
+  install; reliable barge-in and spoken-context tracking; native Browser
+  selection and word highlighting; HUD/tray/history/exports and the remaining
+  in-scope CopySpeech features; full Voice-module localization; performance,
+  security and cross-platform validation.
+- User exclusions continue to apply: no added Python sidecar, no external
+  browser extension/native-messaging host, no LLM postprocessing, telemetry,
+  CopySpeech updater, Windows ducking, retired edge-tts or landing/web routes.
+  Global hotkey and tray must be opt-in; tray on macOS must use a template icon
+  reflecting speaking/paused, and the HUD must remain above windows while
+  speaking. WAV export is always available once implemented; MP3/OGG require a
+  system ffmpeg. The existing Electron updater remains authoritative.
+- Final red/blue audit and real Electron E2E are release gates, not deferred
+  claims of success. Check relevant code throughout implementation, then repeat
+  the full audit and E2E when the complete feature is ready. No parity with
+  Pipecat or LiveKit is claimed without measurements.

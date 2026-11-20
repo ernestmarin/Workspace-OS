@@ -13,7 +13,7 @@ validated for the stated scope, not that real audio or cross-platform E2E passed
 ## Implementation and security still required
 - [ ] Complete Kokoro installation/model provisioning, integrity checks, daemon lifecycle and real audio readiness.
 - [ ] Remaining agreed engines, voice catalogs, streaming, playback controls and effects.
-- [ ] Browser selection and word-level highlighting; in-app Speak actions; opt-in agent replies.
+- [ ] Browser selection and word-level highlighting; remaining in-app Speak actions. Completed agent-reply reading is available as a limited opt-in; incremental/PTy support remains open.
 - [ ] Always-on-top HUD, opt-in tray, history database, WAV and conditional ffmpeg exports.
 - [ ] Voice-module localization for the nine agreed languages and RTL support.
 - [ ] Safe credential/config migration, comprehensive validation and non-destructive recovery.
