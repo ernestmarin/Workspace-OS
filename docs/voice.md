@@ -21,7 +21,18 @@ This copies the bundled CopySpeech wrapper and a pinned project manifest into
 `userData/copyspeech/engines/kokoro` without overwriting existing files. It does
 not install `uv`, Python packages, or download any models. The status indicators
 show file existence only; they do not establish that a model or environment is
-valid.
+valid. The default speech path now refuses missing/empty wrapper, project, Python
+interpreter, model or voices files before starting uv. It also passes
+`--no-sync --offline --no-python-downloads` to default uv synthesis. The in-app
+dependency action is blocked during a Kokoro reading; queued Kokoro synthesis
+rechecks the installer lock before dispatch. These are prerequisite/uv guards,
+**not** verified model readiness or a network sandbox. External terminal installers
+and arbitrary custom local commands are not covered by this in-app lock; do not
+modify the engine environment while speech is active.
+
+**The bundled Kokoro wrapper supports English voices only.** Spanish and other
+local output languages need a different or extended adapter; choosing a dictation
+language does not change this limitation.
 
 Install [uv](https://docs.astral.sh/uv/) and select **Install Python dependencies** in Voice settings. Alternatively, run `uv sync` from a terminal inside the project folder shown in Settings. This downloads and executes
 third-party Python dependencies, including a spaCy model wheel; inspect the
@@ -95,3 +106,22 @@ other queued readings intact, or stop all readings and clear the queue. Neither
 control cancels an agent run or reverses its actions. A stale identity cannot
 stop a later reading. This is a shared playback controller, not yet per-tab
 voice-conversation ownership or automatic barge-in.
+
+
+### Agent reply speech and lifecycle limits
+Completed-reply reading is opt-in per prompt-mode agent tab. It now derives a
+conservative spoken representation without changing terminal text: code, images,
+link destinations, tables and quoted/indented blocks are omitted; ambiguous inline
+markup or raw HTML can disable that reply's reading. Buffers remain bounded and
+failed/cancelled runs are not read. This does **not** enable incremental TTS.
+
+Reloading, crashing or closing the workspace document now cancels its speech,
+transcription, permission grants and dependency setup, and drops late replies to a
+replacement window. This is not yet per-tab/run audio ownership: disabling a tab's
+reply reader disarms future reading but does not promise to stop already-started
+shared audio. Use Voice Stop for that. POSIX batch-process groups are cleaned up;
+Windows descendant-process cleanup still needs implementation/validation.
+
+See the [red-team findings and remaining release blockers](voice-conversation-plan.md#red-team-audit-after-pr-6-2026-11-20),
+including dependency advisories. No fully offline, secure/release-ready or real-time
+voice-conversation claim is made by these experimental features.

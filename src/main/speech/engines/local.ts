@@ -1,9 +1,9 @@
 /** Batch local TTS runner. Never invokes a shell or places text on the command line. */
-import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { decodePcmWav, type PcmAudio } from './wav'
+import { runSpeechCommand } from './process'
 
 export interface LocalSynthesisRequest {
   text: string
@@ -32,36 +32,11 @@ export async function synthesizeLocal(request: LocalSynthesisRequest): Promise<P
     await fs.writeFile(input, request.text, { encoding: 'utf8', mode: 0o600 })
     const substitutions: Record<string, string> = { input, output, voice: request.voice, engine_dir: request.engineDir }
     const args = request.argsTemplate.map((arg) => arg.replace(/\{(input|output|voice|engine_dir)\}/g, (_match, name: string) => substitutions[name]))
-    await new Promise<void>((resolve, reject) => {
-      if (request.signal?.aborted) { reject(new Error('Local speech cancelled')); return }
-      const child = spawn(request.command, args, { shell: false, windowsHide: true, stdio: 'ignore' })
-      let reason: string | undefined
-      let killTimer: ReturnType<typeof setTimeout> | undefined
-      const stop = (why: string): void => {
-        if (reason) return
-        reason = why
-        child.kill('SIGTERM')
-        killTimer = setTimeout(() => child.kill('SIGKILL'), 2000)
-        killTimer.unref()
-      }
-      const abort = (): void => stop('Local speech cancelled')
-      request.signal?.addEventListener('abort', abort, { once: true })
-      const timer = setTimeout(() => stop('Local speech timed out'), request.timeoutMs ?? 120_000)
-      timer.unref()
-      const cleanup = (): void => {
-        clearTimeout(timer)
-        if (killTimer) clearTimeout(killTimer)
-        request.signal?.removeEventListener('abort', abort)
-      }
-      child.once('error', () => { cleanup(); reject(new Error('Could not start local speech engine')) })
-      child.once('close', (code) => {
-        cleanup()
-        if (reason) reject(new Error(reason))
-        else if (code !== 0) reject(new Error(`Local speech engine exited with code ${code}`))
-        else resolve()
-      })
-      if (request.signal?.aborted) abort()
+    await runSpeechCommand(request.command, args, {
+      signal: request.signal, timeoutMs: request.timeoutMs ?? 120_000,
+      label: 'Local speech', startError: 'Could not start local speech engine',
     })
+    if (request.signal?.aborted) throw new Error('Local speech cancelled')
     const stat = await fs.stat(output)
     if (!stat.isFile() || stat.size > MAX_WAV_BYTES) throw new Error('Invalid or oversized local audio')
     const data = await fs.readFile(output)

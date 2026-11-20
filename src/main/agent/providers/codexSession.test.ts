@@ -1,8 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-const mock = vi.hoisted(() => ({ instances: [] as any[], startFails: false, startHangs: null as null | { promise: Promise<any>; reject: (e: Error) => void } }))
+const mock = vi.hoisted(() => ({ instances: [] as any[], startFails: false, onTurnStart: null as null | ((notify: (method: string, params: any) => void) => void), startHangs: null as null | { promise: Promise<any>; reject: (e: Error) => void } }))
 vi.mock('./codexRpc', () => ({ CodexRpc: class {
   child = { pid: 42 }; options: any; respond = vi.fn(); reject = vi.fn(); close = vi.fn(); initialize = vi.fn(async () => {})
   request = vi.fn(async (method: string) => {
+    if (method === 'turn/start') mock.onTurnStart?.(this.options.onNotification)
     if (method === 'thread/start' && mock.startFails) throw new Error('not signed in')
     if (method === 'thread/start' && mock.startHangs) return mock.startHangs.promise
     return method === 'config/read' ? { config: { mcp_servers: { ambient: {} } } } : method === 'thread/start' || method === 'thread/resume' ? { thread: { id: '00000000-0000-0000-0000-000000000001' } } : { turn: { id: 'turn-1' } }
@@ -16,7 +17,7 @@ const setup = async (extra = {}) => {
   await launchCodexSession({ runId: 'test-run', cwd: '/workspace', prompt: 'user', instructions: 'persona', safeMode: true, env: {}, connectors: { mcpServers: {} }, sink, onQuestion, onFinish, ...extra })
   return { sink, onQuestion, onFinish, rpc: mock.instances.at(-1) }
 }
-beforeEach(() => { mock.instances.length = 0; mock.startFails = false; mock.startHangs = null })
+beforeEach(() => { mock.instances.length = 0; mock.startFails = false; mock.startHangs = null; mock.onTurnStart = null })
 afterEach(() => { cancelCodex('test-run'); vi.useRealTimers() })
 describe('Codex session and isolation', () => {
   it('disables inherited connectors and uses refreshable authentication helpers', () => {
@@ -63,16 +64,69 @@ describe('Codex session and isolation', () => {
   })
   it('streams an answer once and reports tokens separately from unknown dollar cost', async () => {
     const s = await setup()
-    s.rpc.options.onNotification('item/agentMessage/delta', { itemId: 'a', delta: 'hello' })
-    s.rpc.options.onNotification('item/completed', { item: { id: 'a', type: 'agentMessage', text: 'hello' } })
-    s.rpc.options.onNotification('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 50 } } })
-    s.rpc.options.onNotification('turn/completed', { turn: { status: 'completed' } })
+    const scope = { threadId: '00000000-0000-0000-0000-000000000001', turnId: 'turn-1' }
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'hello' })
+    s.rpc.options.onNotification('item/completed', { ...scope, item: { id: 'a', type: 'agentMessage', text: 'hello' } })
+    s.rpc.options.onNotification('thread/tokenUsage/updated', { ...scope, tokenUsage: { last: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 50 } } })
+    s.rpc.options.onNotification('turn/completed', { ...scope, turn: { id: 'turn-1', status: 'completed' } })
     expect(s.sink.output.mock.calls.filter(([t]) => t === 'hello')).toHaveLength(1)
     expect(s.sink.assistantText).toHaveBeenCalledExactlyOnceWith('hello')
     expect(s.sink.meta).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex', costKnown: false, inputTokens: 100, outputTokens: 20, cachedInputTokens: 50 }))
     expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(0)
     s.rpc.options.onNotification('item/agentMessage/delta', { itemId: 'b', delta: 'late' })
     expect(s.sink.assistantText).toHaveBeenCalledTimes(1)
+  })
+  it('rejects uncorrelated and stale-turn speech and completion notifications', async () => {
+    const s = await setup()
+    const threadId = '00000000-0000-0000-0000-000000000001'
+    for (const scope of [{}, { threadId: 'child-thread', turnId: 'turn-1' }, { threadId, turnId: 'old-turn' }, { threadId }, { turnId: 'turn-1' }]) {
+      s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'bad', delta: 'foreign' })
+      s.rpc.options.onNotification('item/completed', { ...scope, item: { id: 'bad', type: 'agentMessage', text: 'foreign' } })
+      s.rpc.options.onNotification('turn/completed', { ...scope, turn: { id: scope.turnId, status: 'completed' } })
+    }
+    expect(s.sink.assistantText).not.toHaveBeenCalled()
+    expect(s.onFinish).not.toHaveBeenCalled()
+    s.rpc.options.onNotification('turn/started', { threadId, turn: { id: 'another-turn' } })
+    expect(await steerCodex('test-run', 'still owned')).toBe(true)
+    expect(s.rpc.request).toHaveBeenLastCalledWith('turn/steer', expect.objectContaining({ expectedTurnId: 'turn-1' }))
+  })
+  it('ignores empty deltas and terminal item replays without losing a fallback answer', async () => {
+    const s = await setup()
+    const scope = { threadId: '00000000-0000-0000-0000-000000000001', turnId: 'turn-1' }
+    const completed = { ...scope, item: { id: 'a', type: 'agentMessage', text: 'fallback' } }
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: '' })
+    s.rpc.options.onNotification('item/completed', completed)
+    s.rpc.options.onNotification('item/completed', completed)
+    s.rpc.options.onNotification('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'late' })
+    expect(s.sink.assistantText).toHaveBeenCalledExactlyOnceWith('fallback')
+    expect(s.sink.output.mock.calls.filter(([text]) => text === '\n')).toHaveLength(1)
+  })
+  it('does not report a completion with an error as speech success', async () => {
+    const s = await setup()
+    s.rpc.options.onNotification('turn/completed', { threadId: '00000000-0000-0000-0000-000000000001', turn: { id: 'turn-1', status: 'completed', error: { message: 'provider failure' } } })
+    expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(1)
+  })
+  it('filters notifications racing ahead of turn/start against the returned identity', async () => {
+    mock.onTurnStart = (notify) => {
+      const threadId = '00000000-0000-0000-0000-000000000001'
+      notify('turn/started', { threadId, turn: { id: 'old-turn' } })
+      notify('item/agentMessage/delta', { threadId, turnId: 'old-turn', itemId: 'old', delta: 'foreign' })
+      notify('turn/completed', { threadId, turn: { id: 'old-turn', status: 'completed' } })
+      notify('item/agentMessage/delta', { threadId, turnId: 'turn-1', itemId: 'a', delta: 'owned' })
+      notify('turn/completed', { threadId, turn: { id: 'turn-1', status: 'completed' } })
+    }
+    const s = await setup()
+    expect(s.sink.assistantText).toHaveBeenCalledExactlyOnceWith('owned')
+    expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(0)
+  })
+  it('fails once rather than buffering unlimited startup notifications', async () => {
+    mock.onTurnStart = (notify) => {
+      const scope = { threadId: '00000000-0000-0000-0000-000000000001', turnId: 'turn-1' }
+      for (let i = 0; i < 1025; i++) notify('item/agentMessage/delta', { ...scope, itemId: 'a', delta: 'queued' })
+    }
+    const s = await setup()
+    expect(s.sink.assistantText).not.toHaveBeenCalled()
+    expect(s.onFinish).toHaveBeenCalledExactlyOnceWith(1)
   })
   it('routes structured app actions through the supplied grant handler in unattended Safe mode', async () => {
     const onAction = vi.fn(async () => ({ ok: true, result: { path: '/workspace/report.md' } }))

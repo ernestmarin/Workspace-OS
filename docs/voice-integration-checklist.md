@@ -1,6 +1,7 @@
 # Voice implementation plan & integration checklist
 
-Last reviewed: **2026-11-20**, starting from WOS `1547e75` (PR #5).
+Last reviewed: **2026-11-20**, post-PR #6 red-team source/regression audit
+from `cef73ff8` (including the PR #5 unfinished-work inventory).
 
 This checklist combines the TTS foundations from PR #3 with the newer
 experimental dictation, assistant reply and playback work. For the detailed
@@ -10,14 +11,40 @@ atomic conversation plan, pinned Hugging Face reference review and status, see
 **Current position: partial batch text-to-speech and experimental push-to-talk;
 continuous real-time conversation is not implemented or production-ready.**
 
-Checked items indicate implemented code, not release acceptance. At this
-2026-11-20 checkpoint the focused voice/agent suite passed **208 tests in 29
-files**, including **31 new sentence-stream tests**; build passed and typecheck
-passed against the unchanged **70-error baseline**. Test discovery also confirms
-that the ignored upstream checkout is excluded from WOS tests. These are
-simulated/fixture tests, not real audio, cloud-provider, Electron E2E or
-cross-platform validation. Unchecked items remain open, including validation of
-implemented features. See the [validation details](voice-conversation-plan.md#validation-for-the-2026-11-20-reference-checkpoint).
+Checked items indicate implemented code, not release acceptance. Latest evidence
+and the PR #5 reconciliation are in the
+[post-PR #6 audit](voice-conversation-plan.md#red-team-audit-after-pr-6-2026-11-20),
+not the historical 208-test PR #6 checkpoint. No real audio, cloud-provider,
+Electron E2E or cross-platform validation is claimed. The full suite and
+production dependency audit are **not green**.
+
+## Audit increment — implemented, bounded
+
+- [x] Bind readings/results to their originating workspace document, not a later
+      window. Reload/crash/destroy cancel pending speech, STT, grants and setup;
+      native approval cannot survive same-URL reload. Reject stale frame objects.
+- [x] Correlate Codex text/completion with response-established thread/turn IDs;
+      bound/filter startup races, reject terminal item replays/late deltas and
+      error-bearing success. Claude terminal results also close its speech source.
+- [x] Share filtered child environments and POSIX process-group cleanup between
+      batch local synthesis and the installer. A real Linux Node-child regression
+      covers a SIGTERM-resistant descendant; **Windows tree cleanup stays open**.
+- [x] Guard all five nonempty Kokoro prerequisites, constrain default uv with
+      no-sync/offline/no-python-downloads and exclude dependency setup from active
+      or queued-at-dispatch Kokoro synthesis. No hash/readiness claim.
+- [x] Add conservative bounded block-stable prose extraction to completed-reply
+      buffers, leaving terminal text/manual reading unchanged. Unsupported HTML
+      or ambiguous inline markup disables reading rather than guessing.
+- [ ] Remediate the dependency audit: npm reported **19 high + 67 moderate**
+      entries, including Transformers → sharp. Reachability is not proven;
+      forced major native-runtime upgrades without model/packaging tests are not
+      a fix. This blocks security/release acceptance.
+
+Evidence: **285 focused tests / 34 files pass**; final full run has 2,831 passing,
+267 failing and 27 skipped tests, with the same 41 environment-blocked files as
+before edits. Typecheck passes the unchanged 70-error baseline; build passes.
+The additional CLI security scanner failed during installation, producing no scan.
+Commands, baseline comparison and limits: [audit validation](voice-conversation-plan.md#validation-for-the-post-pr-6-audit).
 
 ## Implemented foundations
 
@@ -56,7 +83,8 @@ Evidence: [shared helpers/tests](../src/shared/speech/),
 
 The preparation/dependency steps below are implemented. They do **not** make a
 fresh install ready to synthesize; `uv` and model files are still external prerequisites.
-See [manual setup](voice.md#kokoro-manual-setup).
+See [manual setup](voice.md#kokoro-manual-setup). The bundled wrapper accepts
+**English voices only**; a Spanish-capable local output adapter is still required.
 
 - [x] Bundle the CopySpeech Kokoro wrapper/project manifest and stage them without
       overwriting existing user files; include resources in platform package configs.
@@ -67,7 +95,8 @@ See [manual setup](voice.md#kokoro-manual-setup).
       filtering of obvious credentials from the installer environment.
       This installs neither `uv` nor model weights.
 - [x] Keep dependency installation out of the normal default Kokoro speech path
-      (`uv run --no-sync`); reject Kokoro speech while dependency setup is busy.
+      (`uv run --no-sync --offline --no-python-downloads`); reject setup/synthesis
+      overlap, including a reading that was queued before setup began.
 - [ ] Complete the fresh-install prerequisite/model flow: `uv`/Python detection,
       provisioning and integrity checks for `kokoro-v1.0-duration.onnx` and
       `voices-v1.0.bin`, with third-party license/download consent.
@@ -119,9 +148,11 @@ not a full playback/queue control surface.
 - [x] Add a bounded, tested native prose sentence assembler with Unicode/source
       spans and terminal success/cancel semantics. **Not wired to assistant
       deltas, TTS or UI**; it does not parse Markdown or authorize any action.
-- [ ] Add streaming-safe assistant prose extraction, response-owned bounded
-      scheduling and explicit opt-in before connecting incremental speech.
-      Existing completed-reply reading and review-first dictation are unchanged.
+- [x] Add conservative streaming-safe **text** extraction with split-markup,
+      limits/failure and sentence-composition tests; use it in completed-reply
+      buffers. No incremental TTS or microphone behavior is activated.
+- [ ] Add response-owned bounded scheduling, frozen destination/consent and
+      explicit incremental-mode opt-in. Review-first dictation remains unchanged.
 
 ## Realtime conversation — partial foundations, not implemented
 
@@ -153,7 +184,7 @@ No real microphone/model or Electron validation has been completed.
 Targeted regression command (after installing project dependencies):
 
 ```sh
-npm test -- src/main/speech src/shared/speech/__tests__
+npm test -- --maxWorkers=2 src/main/speech src/shared/speech src/renderer/src/components/Voice src/renderer/src/components/AgentTerminal src/main/agent/assistantText.test.ts src/main/agent/providerText.test.ts src/main/agent/providers/codexSession.test.ts
 ```
 
 Unit/fixture tests do not satisfy the real-audio or release gates above.
@@ -161,9 +192,18 @@ No `uv`/model installation or provider-credential exercise is claimed.
 
 ## Immediate next steps
 
-1. Finish verified Kokoro setup/readiness, without confusing staged files or
-   installed dependencies with a working model.
-2. Exercise real OpenAI/Kokoro TTS, audible playback and cancellation in Electron;
-   record platform-specific evidence before checking off release gates.
-3. Continue the agreed local-first two-way conversation plan while keeping the
-   remaining TTS UX/security backlog visible until implemented and validated.
+Follow [atomic gates A1–A9](voice-conversation-plan.md#next-atomic-integration-gates-in-order)
+and their [independently testable execution slices](voice-conversation-plan.md#atomic-execution-slices),
+without the previous conflict between “Kokoro first” and “scheduler first”:
+
+1. Response/session/epoch contracts, then bounded response-owned scheduling and
+   delayed-IPC/config/consent cancellation tests (A1/A2).
+2. Explicit incremental reply opt-in with failure/drain handling (A3); never loop
+   global interrupting Speak for every sentence or claim token/audio streaming yet.
+3. In parallel, remediate native dependencies and prove model integrity, actual
+   offline Whisper and Spanish local TTS readiness (A4). This blocks release and
+   automatic voice turns, even if fixture-only orchestration tests pass.
+4. Existing-session finalized turns, bounded streaming capture/STT, PCM/AEC and
+   barge-in (A5–A7), while shipping the individual UX backlog safely (A8).
+5. Real-device multilingual/cross-platform, latency and final security evidence
+   before release acceptance (A9). Every unchecked release gate above remains open.

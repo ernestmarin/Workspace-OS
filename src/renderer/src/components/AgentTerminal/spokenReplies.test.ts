@@ -22,6 +22,19 @@ describe('opt-in agent reply buffers', () => {
     replies.begin('c'); replies.append('c', 'text'); replies.clear()
     expect(replies.finish('c', true)).toBeNull()
   })
+  it('extracts prose across deltas, excluding fenced/inline code and link destinations', () => {
+    const replies = new SpokenReplies()
+    replies.begin('a')
+    for (const delta of 'Read [guide](https://private).\n\n```\nprivate\n```\n\nDone `code`.'.split('')) replies.append('a', delta)
+    expect(replies.finish('a', true)).toBe('Read guide.\n\nDone.')
+  })
+  it('fails closed instead of reading incomplete code, invalid Unicode or unsupported markup', () => {
+    const replies = new SpokenReplies()
+    for (const text of ['```\nprivate', '`private', '[label](private', '<script>private</script>', '\ud800']) {
+      replies.begin('a'); replies.append('a', text)
+      expect(replies.finish('a', true)).toBeNull()
+    }
+  })
   it('bounds concurrent runs and never resets an existing run', () => {
     const replies = new SpokenReplies(10, 1)
     expect(replies.begin('a')).toBe(true)

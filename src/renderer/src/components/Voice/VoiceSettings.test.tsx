@@ -23,6 +23,11 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.restoreAllMocks() })
 
 describe('voice lookahead setting', () => {
+  it('discloses that the bundled local wrapper is English-only, not multilingual voice readiness', async () => {
+    await act(async () => { root.render(<VoiceSettings />); await flush() })
+    expect(element.textContent).toContain('English voices only')
+    expect(element.textContent).toContain('Spanish and other local output languages')
+  })
   it('loads the persisted choice and saves a boolean for future readings', async () => {
     await act(async () => { root.render(<VoiceSettings />); await flush() })
     const control = element.querySelector<HTMLInputElement>('input[type="checkbox"]')!

@@ -4,13 +4,13 @@ import { paginateText } from '../../shared/speech/paginate'
 import type { AppConfig, SpeechStatus } from '../../shared/speech/types'
 import type { PcmAudio } from './engines/wav'
 
-export interface ReadingDependencies {
+export interface ReadingDependencies<Context = undefined> {
   synthesize(text: string, config: AppConfig, signal: AbortSignal): Promise<PcmAudio>
-  play(audio: PcmAudio, text: string, signal: AbortSignal, config: AppConfig): Promise<void>
-  onStatus(status: SpeechStatus): void
+  play(audio: PcmAudio, text: string, signal: AbortSignal, config: AppConfig, context?: Context): Promise<void>
+  onStatus(status: SpeechStatus, context?: Context): void
 }
 export type ReadingOutcome = { finished: true } | { finished: false; error: string }
-interface Job { id: number; text: string; config: AppConfig; resolve: (outcome: ReadingOutcome) => void }
+interface Job<Context> { id: number; text: string; config: AppConfig; context?: Context; resolve: (outcome: ReadingOutcome) => void }
 const MAX_QUEUE = 10
 const OPENAI_MAX_UTF16 = 4096
 
@@ -36,23 +36,23 @@ export function splitProviderText(text: string, limit: number): string[] {
   return result
 }
 
-export class ReadingController {
-  private active: { job: Job; abort: AbortController } | undefined
-  private queue: Job[] = []
+export class ReadingController<Context = undefined> {
+  private active: { job: Job<Context>; abort: AbortController } | undefined
+  private queue: Job<Context>[] = []
   private nextId = 1
   private status: SpeechStatus = { speaking: false, synthesizing: false, engine: null, profileName: null, fragment: 0, fragmentTotal: 0, readingId: 0, paused: false }
-  constructor(private readonly deps: ReadingDependencies) {}
+  constructor(private readonly deps: ReadingDependencies<Context>) {}
 
   getStatus(): SpeechStatus { return { ...this.status } }
 
-  read(text: string, config: AppConfig): { id: number; result: Promise<ReadingOutcome> } {
+  read(text: string, config: AppConfig, context?: Context): { id: number; result: Promise<ReadingOutcome> } {
     if (typeof text !== 'string' || !text.trim()) throw new Error('Speech text is empty')
     if (text.length > config.trigger.max_text_length) throw new Error('Speech text exceeds configured limit')
     if (this.active && config.playback.on_retrigger === 'queue' && this.queue.length >= MAX_QUEUE) throw new Error('Speech queue is full')
     const id = this.nextId++
     let resolve!: (result: ReadingOutcome) => void
     const result = new Promise<ReadingOutcome>((done) => { resolve = done })
-    const job: Job = { id, text, config: structuredClone(config), resolve }
+    const job: Job<Context> = { id, text, config: structuredClone(config), context, resolve }
     if (this.active && config.playback.on_retrigger === 'interrupt') {
       this.stop()
     }
@@ -89,13 +89,13 @@ export class ReadingController {
     void this.run(job, abort.signal)
   }
 
-  private update(job: Job, patch: Partial<SpeechStatus>): void {
+  private update(job: Job<Context>, patch: Partial<SpeechStatus>): void {
     if (this.active?.job !== job) return
     this.status = { ...this.status, ...patch }
-    try { this.deps.onStatus(this.getStatus()) } catch { /* observers must not interrupt playback */ }
+    try { this.deps.onStatus(this.getStatus(), job.context) } catch { /* observers must not interrupt playback */ }
   }
 
-  private async run(job: Job, signal: AbortSignal): Promise<void> {
+  private async run(job: Job<Context>, signal: AbortSignal): Promise<void> {
     // A scoped signal also cancels lookahead when playback fails without a user stop.
     const synthesisAbort = new AbortController()
     const abortSynthesis = (): void => synthesisAbort.abort()
@@ -137,7 +137,7 @@ export class ReadingController {
         // reading buffered in advance. Off retains strictly serial behavior.
         const next = fragments[fragment.index + 1]
         if (job.config.playback.prefetch_next_fragment && next) pending = prepare(next.text)
-        await this.deps.play(prepared.audio, fragment.text, signal, job.config)
+        await this.deps.play(prepared.audio, fragment.text, signal, job.config, job.context)
         signal.throwIfAborted()
       }
       outcome = { finished: true }

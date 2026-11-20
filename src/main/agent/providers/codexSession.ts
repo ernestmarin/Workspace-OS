@@ -109,9 +109,14 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
   let usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
   let control: Control
   const delivered = new Set<string>()
+  const completed = new Set<string>()
+  let startingTurn = false
+  let earlyBytes = 0
+  const early: { method: string; params: RpcRecord }[] = []
   /** Release everything without reporting a completion (a failed start is reported by the caller). */
   const teardown = (): void => {
     finished = true
+    early.length = 0
     o.signal?.removeEventListener('abort', abort)
     for (const id of control?.requests.keys() ?? []) o.onQuestion({ runId: o.runId, requestId: id, resolved: true })
     controls.delete(o.runId)
@@ -125,11 +130,74 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
     o.sink.output(`\n\x1b[2m${label} · ${usage.inputTokens.toLocaleString('en-US')} in / ${usage.outputTokens.toLocaleString('en-US')} out\x1b[0m\n`)
     o.onFinish(code)
   }
+  const notification = (method: string, p: RpcRecord): void => {
+    if (finished) return
+    if (method === 'serverRequest/resolved') {
+      if (p.threadId && p.threadId !== control.thread) return
+      const requestId = String(p.requestId)
+      if (!control.requests.delete(requestId)) return
+      o.onQuestion({ runId: o.runId, requestId, resolved: true })
+      return
+    }
+    // Only RPC responses establish thread/turn ownership. Missing identities,
+    // replayed history and child-agent notifications cannot speak or finish it.
+    if (!control.thread || p.threadId !== control.thread) return
+    if (!control.turn) {
+      // Notifications can arrive before turn/start's response. Retain bounded
+      // candidates, then filter them against the response-owned turn below.
+      if (startingTurn) {
+        earlyBytes += JSON.stringify(p).length
+        if (early.length >= 1024 || earlyBytes > 1_000_000) {
+          o.sink.output('\n[error] Codex startup notifications exceeded the safety limit.\n')
+          finish(1)
+          return
+        }
+        early.push({ method, params: p })
+      }
+      return
+    }
+    const turnId = method === 'turn/started' || method === 'turn/completed' ? p.turn?.id : p.turnId
+    if (turnId !== control.turn) return
+    if (method === 'item/agentMessage/delta' && typeof p.delta === 'string') {
+      if (!p.delta || typeof p.itemId !== 'string' || !p.itemId || completed.has(p.itemId)) return
+      delivered.add(p.itemId)
+      o.sink.output(p.delta)
+      o.sink.assistantText?.(p.delta)
+    } else if (method === 'item/completed' && p.item?.type === 'agentMessage') {
+      if (typeof p.item.id !== 'string' || !p.item.id || completed.has(p.item.id)) return
+      completed.add(p.item.id)
+      if (!delivered.has(p.item.id) && typeof p.item.text === 'string') {
+        o.sink.output(p.item.text)
+        if (p.item.text) o.sink.assistantText?.(p.item.text)
+        delivered.add(p.item.id)
+      }
+      o.sink.output('\n')
+    } else if (method === 'item/started') {
+      const item = p.item ?? {}
+      const labels: Record<string, string> = { commandExecution: 'Running a command', mcpToolCall: `Calling ${item.server ?? 'connector'}.${item.tool ?? 'tool'}`, fileChange: 'Editing a file', webSearch: 'Searching', reasoning: 'Thinking' }
+      if (labels[item.type]) o.sink.activity({ tool: item.type === 'mcpToolCall' ? `${item.server}.${item.tool}` : item.type, label: labels[item.type], kind: item.type === 'mcpToolCall' ? 'app' : item.type === 'fileChange' ? 'write' : 'run' })
+    } else if (method === 'thread/tokenUsage/updated') {
+      if (!control.turn) return
+      const last = p.tokenUsage?.last ?? {}, total = p.tokenUsage?.total
+      const keys = ['inputTokens', 'outputTokens', 'cachedInputTokens'] as const
+      if (total && keys.every((key) => Number.isSafeInteger(total[key]) && Number.isSafeInteger(last[key]) && total[key] >= last[key] && last[key] >= 0)) {
+        // The first event's total includes earlier resumed turns. Subtract that
+        // history once, then include every model call in this turn, without
+        // double-counting repeated notifications.
+        baseline ??= Object.fromEntries(keys.map((key) => [key, total[key] - last[key]]))
+        for (const key of keys) usage[key] = Math.max(0, total[key] - baseline[key])
+      } else for (const key of keys) if (Number.isSafeInteger(last[key]) && last[key] >= 0) usage[key] = last[key]
+    } else if (method === 'turn/completed') {
+      if (p.turn?.error?.message) o.sink.output(`\n[error] ${p.turn.error.message}\n`)
+      finish(p.turn?.status === 'completed' && !p.turn.error ? 0 : p.turn?.status === 'interrupted' ? 130 : 1)
+    }
+  }
   const rpc = new CodexRpc({
     cwd: o.cwd, env: o.env,
     onDiagnostic: (text) => o.sink.output(text),
     onClose: (error) => { if (!finished) { o.sink.output(`\n[error] ${error.message}\n`); finish(130) } },
     onRequest: (id, method, params) => {
+      if (finished) return
       if (method === 'item/tool/call' && params.tool === 'workspace_action' && o.onAction) {
         const input = params.arguments
         if (!input || typeof input.actionId !== 'string' || JSON.stringify(input).length > 2_000_000) { rpc.reject(id, 'Invalid Workspace action'); return }
@@ -153,43 +221,7 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
       control.requests.set(requestId, { id, method, params })
       o.onQuestion({ runId: o.runId, requestId, method, params })
     },
-    onNotification: (method, p) => {
-      if (finished) return
-      // Subagent turns share the server but must never finish the parent run.
-      if (control.thread && p.threadId && p.threadId !== control.thread) return
-      if (method === 'turn/started') control.turn = p.turn?.id ?? ''
-      else if (method === 'item/agentMessage/delta' && typeof p.delta === 'string') { delivered.add(p.itemId); o.sink.output(p.delta); if (p.delta) o.sink.assistantText?.(p.delta) }
-      else if (method === 'item/completed' && p.item?.type === 'agentMessage') {
-        if (!delivered.has(p.item.id) && typeof p.item.text === 'string') {
-          o.sink.output(p.item.text)
-          if (p.item.text) o.sink.assistantText?.(p.item.text)
-          delivered.add(p.item.id)
-        }
-        o.sink.output('\n')
-      } else if (method === 'item/started') {
-        const item = p.item ?? {}
-        const labels: Record<string, string> = { commandExecution: 'Running a command', mcpToolCall: `Calling ${item.server ?? 'connector'}.${item.tool ?? 'tool'}`, fileChange: 'Editing a file', webSearch: 'Searching', reasoning: 'Thinking' }
-        if (labels[item.type]) o.sink.activity({ tool: item.type === 'mcpToolCall' ? `${item.server}.${item.tool}` : item.type, label: labels[item.type], kind: item.type === 'mcpToolCall' ? 'app' : item.type === 'fileChange' ? 'write' : 'run' })
-      } else if (method === 'thread/tokenUsage/updated') {
-        if (!control.turn) return
-        const last = p.tokenUsage?.last ?? {}, total = p.tokenUsage?.total
-        const keys = ['inputTokens', 'outputTokens', 'cachedInputTokens'] as const
-        if (total && keys.every((key) => Number.isSafeInteger(total[key]) && Number.isSafeInteger(last[key]) && total[key] >= last[key] && last[key] >= 0)) {
-          // The first event's total includes earlier resumed turns. Subtract that
-          // history once, then include every model call in this turn, without
-          // double-counting repeated notifications.
-          baseline ??= Object.fromEntries(keys.map((key) => [key, total[key] - last[key]]))
-          for (const key of keys) usage[key] = Math.max(0, total[key] - baseline[key])
-        } else for (const key of keys) if (Number.isSafeInteger(last[key]) && last[key] >= 0) usage[key] = last[key]
-      } else if (method === 'serverRequest/resolved') {
-        const requestId = String(p.requestId)
-        control.requests.delete(requestId)
-        o.onQuestion({ runId: o.runId, requestId, resolved: true })
-      } else if (method === 'turn/completed') {
-        if (p.turn?.error?.message) o.sink.output(`\n[error] ${p.turn.error.message}\n`)
-        finish(p.turn?.status === 'completed' ? 0 : p.turn?.status === 'interrupted' ? 130 : 1)
-      }
-    },
+    onNotification: notification,
   })
   control = { rpc, thread: '', turn: '', requests: new Map(), resolved: (requestId) => o.onQuestion({ runId: o.runId, requestId, resolved: true }), cancel: () => {
     if (control.turn) void rpc.request('turn/interrupt', { threadId: control.thread, turnId: control.turn }, 2000).catch(() => {})
@@ -207,10 +239,17 @@ export async function launchCodexSession(o: CodexSessionOptions): Promise<ChildP
     // Registered on resume too: a follow-up turn must keep the app tool the guidance promises.
     const result = await rpc.request(o.resumeId ? 'thread/resume' : 'thread/start', { ...params, ...tools, ...(o.resumeId ? { threadId: o.resumeId } : {}) }, 60000)
     resolvedModel = result.model || o.model
+    if (finished) return rpc.child
+    if (typeof result.thread?.id !== 'string' || !result.thread.id) throw new Error('Codex returned no thread identity')
     control.thread = result.thread.id
     o.sink.sessionId?.(control.thread)
+    startingTurn = true
     const turn = await rpc.request('turn/start', { threadId: control.thread, effort: o.effort || null, input: [{ type: 'text', text: o.prompt, text_elements: [] }, ...(o.skills ?? []).map((s) => ({ type: 'skill', ...s }))] })
+    if (finished) return rpc.child
+    if (typeof turn.turn?.id !== 'string' || !turn.turn.id) throw new Error('Codex returned no turn identity')
     control.turn = turn.turn.id
+    startingTurn = false
+    for (const entry of early.splice(0)) notification(entry.method, entry.params)
     return rpc.child
   } catch (err) {
     // Cancelled while starting: finish(130) already reported the run once.
