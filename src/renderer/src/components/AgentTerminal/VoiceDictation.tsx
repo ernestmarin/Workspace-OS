@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import styles from './TerminalSession.module.css'
 import { startEnergyMonitor } from './energyMonitor'
-import { SUPPORTED_VOICE_LANGUAGES, dictationText, isRtlVoiceLanguage, voiceLanguageName, type VoiceLanguage } from './voiceDictationI18n'
+import { microphoneConstraints, useMicrophoneDevices } from './useMicrophoneDevices'
+import { SUPPORTED_VOICE_LANGUAGES, dictationDeviceText, dictationText, isRtlVoiceLanguage, voiceLanguageName, type VoiceLanguage } from './voiceDictationI18n'
 
 const MAX_RECORDING_MS = 30_000
 const MAX_BYTES = 5 * 1024 * 1024
@@ -16,6 +17,9 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
   const [autoEnd, setAutoEnd] = useState(false)
   const [language, setLanguage] = useState<VoiceLanguage>('es')
   const labels = dictationText(language)
+  const deviceLabels = dictationDeviceText(language)
+  const [deviceId, setDeviceId] = useState('')
+  const microphones = useMicrophoneDevices(active && phase === 'idle')
   const generation = useRef(0)
   const recorder = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
@@ -38,7 +42,12 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
     detachTrackListeners.current = null
     const current = recorder.current
     recorder.current = null
-    if (current && current.state !== 'inactive') { current.ondataavailable = null; current.onstop = null; try { current.stop() } catch { /* already stopped */ } }
+    if (current) {
+      current.ondataavailable = null
+      current.onstop = null
+      current.onerror = null
+      if (current.state !== 'inactive') { try { current.stop() } catch { /* already stopped */ } }
+    }
     stream.current?.getTracks().forEach((track) => track.stop())
     stream.current = null
     const token = permissionToken.current
@@ -84,7 +93,7 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
       const allowed = await window.workspace.speech.authorizeMicrophone(token)
       if (!valid()) { if (allowed) await window.workspace.speech.revokeMicrophone(token); return }
       if (!allowed) { permissionToken.current = null; setPhase('idle'); return }
-      const media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false })
+      const media = await navigator.mediaDevices.getUserMedia(microphoneConstraints(deviceId))
       if (!valid()) { media.getTracks().forEach((track) => track.stop()); await window.workspace.speech.revokeMicrophone(token); return }
       stream.current = media
       const chunks: Blob[] = []
@@ -93,12 +102,14 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
       const current = new MediaRecorder(media)
       recorder.current = current
       current.ondataavailable = (event) => {
+        if (!valid()) return
         size += event.data.size
         if (size > MAX_BYTES) { tooLarge = true; chunks.length = 0; if (current.state !== 'inactive') current.stop(); return }
         if (event.data.size) chunks.push(event.data)
       }
       current.onerror = () => { if (valid()) { discard(); setError('Microphone recording failed.'); setPhase('idle') } }
       current.onstop = () => {
+        if (!valid()) { media.getTracks().forEach((track) => track.stop()); return }
         stopMonitor.current?.()
         stopMonitor.current = null
         detachTrackListeners.current?.()
@@ -166,7 +177,7 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
     } catch (e) {
       if (valid()) { discard(); setError(e instanceof Error ? e.message : 'Could not start dictation.'); setPhase('idle') }
     }
-  }, [active, phase, autoEnd, language, discard, onTranscript])
+  }, [active, phase, autoEnd, language, deviceId, discard, onTranscript])
 
   const stop = useCallback(() => {
     if (recorder.current?.state === 'recording') recorder.current.stop()
@@ -189,6 +200,15 @@ export function VoiceDictation({ active, onTranscript }: { active: boolean; onTr
       : phase === 'recording' ? <button className={styles.modeToggle} type="button" onClick={stop}>■ {labels.stop}</button>
         : <span role="status">{phase === 'requesting' ? labels.requesting : labels.transcribing}</span>}
     {phase !== 'idle' && <button className={styles.modeToggle} type="button" onClick={cancel}>{labels.cancel}</button>}
+    <label>{deviceLabels.microphone}{' '}
+      <select aria-label="Dictation microphone" value={deviceId} disabled={!active || phase !== 'idle'} onChange={(event) => setDeviceId(event.target.value)}>
+        <option value="">{deviceLabels.systemDefault}</option>
+        {deviceId && !microphones.devices.some((device) => device.id === deviceId) && <option value={deviceId}>{deviceLabels.unavailable}</option>}
+        {microphones.devices.map((device, index) => <option key={device.id} value={device.id}>{device.label || deviceLabels.unnamed.replace('{number}', String(index + 1))}</option>)}
+      </select>
+    </label>{' '}
+    <button className={styles.modeToggle} type="button" disabled={!active || phase !== 'idle' || microphones.refreshing} onClick={microphones.refresh}>{deviceLabels.refresh}</button>
+    {microphones.error && <span className={styles.statusError} role="alert" dir="auto">{microphones.error}</span>}
     {error && <span className={styles.statusError} role="alert" dir="auto">{error}</span>}
   </span>
 }

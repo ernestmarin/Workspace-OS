@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { VoiceDictation } from './VoiceDictation'
+import { microphoneDevices, microphoneConstraints } from './useMicrophoneDevices'
 
 let recorder: FakeRecorder
 class FakeRecorder {
@@ -65,6 +66,79 @@ describe('local dictation interaction', () => {
     expect(speech.transcribeLocal).toHaveBeenCalledWith(expect.any(Float32Array), 'es', expect.any(String))
     expect(transcript).toHaveBeenCalledExactlyOnceWith('Hola mundo')
     expect(element.textContent).toContain('Dictar localmente')
+  })
+  it('lists microphones without capture and requests only the explicitly selected device', async () => {
+    const enumerateDevices = vi.fn(async () => [
+      { kind: 'audioinput', deviceId: 'usb-mic', label: 'USB microphone' },
+      { kind: 'audiooutput', deviceId: 'speaker', label: 'Speaker' },
+    ])
+    Object.assign(navigator.mediaDevices, { enumerateDevices })
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    expect(enumerateDevices).not.toHaveBeenCalled()
+    await act(async () => { element.querySelectorAll('button')[1].click(); await flush() })
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
+    expect(speech.authorizeMicrophone).not.toHaveBeenCalled()
+    const devices = element.querySelector<HTMLSelectElement>('[aria-label="Dictation microphone"]')!
+    expect(devices.options).toHaveLength(2)
+    await act(async () => { devices.value = 'usb-mic'; devices.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledExactlyOnceWith({ audio: { deviceId: { exact: 'usb-mic' }, echoCancellation: true, noiseSuppression: true }, video: false })
+    expect(devices.disabled).toBe(true)
+  })
+  it('does not fall back to another microphone when the selected device fails', async () => {
+    Object.assign(navigator.mediaDevices, { enumerateDevices: vi.fn(async () => [{ kind: 'audioinput', deviceId: 'usb-mic', label: '' }]) })
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    await act(async () => { element.querySelectorAll('button')[1].click(); await flush() })
+    const select = element.querySelector<HTMLSelectElement>('[aria-label="Dictation microphone"]')!
+    await act(async () => { select.value = 'usb-mic'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(new Error('Selected microphone unavailable'))
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce()
+    expect(element.textContent).toContain('Selected microphone unavailable')
+    expect(speech.transcribeLocal).not.toHaveBeenCalled()
+    expect(speech.revokeMicrophone).toHaveBeenCalledWith(speech.authorizeMicrophone.mock.calls[0][0])
+  })
+  it('refreshes an opened list on device change without silently changing the selection', async () => {
+    const changes = new EventTarget()
+    const enumerateDevices = vi.fn(async () => [{ kind: 'audioinput', deviceId: 'usb-mic', label: 'USB microphone' }])
+    Object.assign(navigator.mediaDevices, {
+      enumerateDevices,
+      addEventListener: changes.addEventListener.bind(changes),
+      removeEventListener: changes.removeEventListener.bind(changes),
+    })
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    await act(async () => { changes.dispatchEvent(new Event('devicechange')); await flush() })
+    expect(enumerateDevices).not.toHaveBeenCalled()
+    await act(async () => { element.querySelectorAll('button')[1].click(); await flush() })
+    const select = element.querySelector<HTMLSelectElement>('[aria-label="Dictation microphone"]')!
+    await act(async () => { select.value = 'usb-mic'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    enumerateDevices.mockResolvedValue([])
+    await act(async () => { changes.dispatchEvent(new Event('devicechange')); await flush() })
+    expect(enumerateDevices).toHaveBeenCalledTimes(2)
+    expect(select.value).toBe('usb-mic')
+    expect(select.textContent).toContain('no listado')
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
+  })
+  it('ignores a late enumeration when the tab becomes inactive', async () => {
+    let resolve!: (devices: unknown[]) => void
+    Object.assign(navigator.mediaDevices, { enumerateDevices: vi.fn(() => new Promise((done) => { resolve = done })) })
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    await act(async () => { element.querySelectorAll('button')[1].click(); await flush() })
+    await act(async () => root.render(<VoiceDictation active={false} onTranscript={vi.fn()} />))
+    await act(async () => { resolve([{ kind: 'audioinput', deviceId: 'old', label: 'Stale microphone' }]); await flush() })
+    expect(element.textContent).not.toContain('Stale microphone')
+  })
+  it('ignores saved stop callbacks from a discarded recording', async () => {
+    await act(async () => root.render(<VoiceDictation active onTranscript={vi.fn()} />))
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    const lateStop = recorder.onstop!
+    await act(async () => { element.querySelectorAll('button')[1].click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    const nextRecorder = recorder
+    await act(async () => { lateStop(); await flush() })
+    expect(nextRecorder.state).toBe('recording')
+    expect(speech.transcribeLocal).not.toHaveBeenCalled()
+    expect(element.textContent).toContain('Detener grabación')
   })
   it('discards recording on microphone disconnect instead of transcribing partial audio', async () => {
     const transcript = vi.fn()
@@ -148,5 +222,17 @@ describe('local dictation interaction', () => {
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
     expect(speech.revokeMicrophone).toHaveBeenCalled()
     expect(transcript).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('microphone metadata limits', () => {
+  it('filters outputs, empty IDs, duplicate IDs and bounds labels/list size', () => {
+    const inputs = Array.from({ length: 110 }, (_, i) => ({ kind: 'audioinput', deviceId: String(i), label: 'x'.repeat(300) }))
+    const result = microphoneDevices([{ kind: 'audiooutput', deviceId: 'out', label: '' }, { kind: 'audioinput', deviceId: '', label: '' }, inputs[0], ...inputs] as MediaDeviceInfo[])
+    expect(result).toHaveLength(100)
+    expect(new Set(result.map(({ id }) => id)).size).toBe(100)
+    expect(result[0].label).toHaveLength(256)
+    expect(microphoneConstraints('')).toEqual({ audio: { echoCancellation: true, noiseSuppression: true }, video: false })
   })
 })

@@ -55,3 +55,14 @@ from malicious code executing in that renderer.
 Hiding the app document or losing the microphone track discards the current
 recording instead of submitting partial audio. This cleanup is covered by
 simulated renderer tests, not yet by real Electron/device validation.
+
+
+### Choosing a microphone
+Use **Refresh microphones** in the dictation control to list audio inputs without
+starting a recording. Browsers/Electron may conceal names or devices until
+permission is granted; refresh again after an approved recording if necessary.
+The selection is per-tab and memory-only. A specific selection uses an exact
+device constraint: if it disappears the recording fails rather than switching
+to another microphone. Select **System default** explicitly to return to the
+system's routing. Device changes refresh an already-open list while idle but
+never start capture. This flow has simulated tests only, not real-device E2E.

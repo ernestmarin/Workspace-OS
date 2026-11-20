@@ -46,3 +46,17 @@ export function dictationText(language: VoiceLanguage): DictationText {
 export function voiceLanguageName(language: VoiceLanguage): string {
   return SUPPORTED_VOICE_LANGUAGES.find((entry) => entry.code === language)?.name ?? language
 }
+
+/** Device selection labels kept in the voice module. Device names are OS metadata. */
+const DEVICE_TEXT: Record<VoiceLanguage, { microphone: string; systemDefault: string; refresh: string; unnamed: string; unavailable: string }> = {
+  en: { microphone: 'Microphone', systemDefault: 'System default', refresh: 'Refresh microphones', unnamed: 'Microphone {number}', unavailable: 'Selected microphone (not listed)' },
+  ar: { microphone: 'الميكروفون', systemDefault: 'افتراضي النظام', refresh: 'تحديث الميكروفونات', unnamed: 'ميكروفون {number}', unavailable: 'الميكروفون المحدد (غير مدرج)' },
+  de: { microphone: 'Mikrofon', systemDefault: 'Systemstandard', refresh: 'Mikrofone aktualisieren', unnamed: 'Mikrofon {number}', unavailable: 'Ausgewähltes Mikrofon (nicht aufgeführt)' },
+  es: { microphone: 'Micrófono', systemDefault: 'Predeterminado del sistema', refresh: 'Actualizar micrófonos', unnamed: 'Micrófono {number}', unavailable: 'Micrófono seleccionado (no listado)' },
+  fr: { microphone: 'Microphone', systemDefault: 'Par défaut du système', refresh: 'Actualiser les microphones', unnamed: 'Microphone {number}', unavailable: 'Microphone sélectionné (non répertorié)' },
+  he: { microphone: 'מיקרופון', systemDefault: 'ברירת המחדל של המערכת', refresh: 'רענון מיקרופונים', unnamed: 'מיקרופון {number}', unavailable: 'המיקרופון שנבחר (לא ברשימה)' },
+  hi: { microphone: 'माइक्रोफ़ोन', systemDefault: 'सिस्टम डिफ़ॉल्ट', refresh: 'माइक्रोफ़ोन रीफ़्रेश करें', unnamed: 'माइक्रोफ़ोन {number}', unavailable: 'चयनित माइक्रोफ़ोन (सूची में नहीं)' },
+  ru: { microphone: 'Микрофон', systemDefault: 'Системный по умолчанию', refresh: 'Обновить микрофоны', unnamed: 'Микрофон {number}', unavailable: 'Выбранный микрофон (не в списке)' },
+  zh: { microphone: '麦克风', systemDefault: '系统默认', refresh: '刷新麦克风', unnamed: '麦克风 {number}', unavailable: '所选麦克风（未列出）' },
+}
+export const dictationDeviceText = (language: VoiceLanguage): (typeof DEVICE_TEXT)[VoiceLanguage] => DEVICE_TEXT[language] ?? DEVICE_TEXT.en
