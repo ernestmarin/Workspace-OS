@@ -2,6 +2,7 @@
 import type { AgentRunFailure } from '../../../shared/agentRun'
 import type { SpeechStatus, TtsEngine } from '../../../shared/speech/types'
 import type { PlaybackMessage, SpeechUiEvent } from '../../../shared/speech/playback'
+import type { ReplySpeechApi } from '../../../shared/speech/replies'
 
 /** A case's numbers, computed from one CSV artifact (see main/case-insights). */
 export interface ArtifactInsight {
@@ -274,7 +275,7 @@ export interface Connection {
 
 /** Mirror of the API exposed by the preload contextBridge (src/preload/index.ts). */
 export interface WorkspaceApi {
-  speech: {
+  speech: ReplySpeechApi & {
     authorizeMicrophone(token: string): Promise<boolean>
     revokeMicrophone(token: string): Promise<void>
     sttStatus(): Promise<{ modelDir: string; filesPresent: boolean; busy: boolean }>

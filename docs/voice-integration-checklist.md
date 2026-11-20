@@ -1,7 +1,7 @@
 # Voice implementation plan & integration checklist
 
-Last reviewed: **2026-11-20**, post-PR #6 red-team source/regression audit
-from `cef73ff8` (including the PR #5 unfinished-work inventory).
+Last reviewed: **2026-11-20**, completed-run ownership increment from merged
+PR #7 (`8f07bb4`), retaining the earlier unfinished-work inventory.
 
 This checklist combines the TTS foundations from PR #3 with the newer
 experimental dictation, assistant reply and playback work. For the detailed
@@ -12,9 +12,9 @@ atomic conversation plan, pinned Hugging Face reference review and status, see
 continuous real-time conversation is not implemented or production-ready.**
 
 Checked items indicate implemented code, not release acceptance. Latest evidence
-and the PR #5 reconciliation are in the
-[post-PR #6 audit](voice-conversation-plan.md#red-team-audit-after-pr-6-2026-11-20),
-not the historical 208-test PR #6 checkpoint. No real audio, cloud-provider,
+are in the
+[current checkpoint](voice-conversation-plan.md#completed-run-ownership-checkpoint-2026-11-20);
+the post-PR #6 audit and 208-test PR #6 checkpoint are historical. No real audio, cloud-provider,
 Electron E2E or cross-platform validation is claimed. The full suite and
 production dependency audit are **not green**.
 
@@ -40,11 +40,37 @@ production dependency audit are **not green**.
       forced major native-runtime upgrades without model/packaging tests are not
       a fix. This blocks security/release acceptance.
 
-Evidence: **285 focused tests / 34 files pass**; final full run has 2,831 passing,
+Historical merged PR #7 evidence: **285 focused tests / 34 files pass**;
+that full run has 2,831 passing,
 267 failing and 27 skipped tests, with the same 41 environment-blocked files as
 before edits. Typecheck passes the unchanged 70-error baseline; build passes.
 The additional CLI security scanner failed during installation, producing no scan.
 Commands, baseline comparison and limits: [audit validation](voice-conversation-plan.md#validation-for-the-post-pr-6-audit).
+
+## Completed-run ownership increment — implemented, not real-device accepted
+
+- [x] Native Cancel-default opt-in freezes engine/voice/config and discloses
+      OpenAI text transmission or unsandboxed local-command networking. No mic.
+- [x] Narrow typed open/reserve/finish/close IPC, document-owned IDs, 8 sessions /
+      8 global reservations and 20k/configured text limit. Replies queue rather
+      than interrupt unrelated audio. Rejected completion also frees capacity.
+- [x] Existing hook reads only successful owned runs; late consent/reserve/drain
+      callbacks cannot revive disabled epochs or use global Speak.
+- [x] Disable/tab switch/PTY/hidden/pagehide/unmount stop only owned pending and
+      playing replies. Speech-only Stop preserves future consent, not current
+      speech; agent Stop retains its separate deliberate agent-cancellation behavior.
+- [x] Test UI/native-consent mapping, normal context/Safe-mode/conversation,
+      preload endpoints, stale epochs, errors, cancellation and acknowledged drain.
+- [ ] Response/item provenance through launchRun, duration backpressure and
+      incremental response scheduling are still A1/A2 work, not checked by this.
+
+Current evidence: **330 focused tests / 39 files pass**. Full: **2,876 pass /
+267 fail / 27 skipped, 3,170 total in 319 files**; same 41 failed files and failed
+test identities as the fresh 2,831-pass baseline, **45 new passes**. Typecheck
+retains 70 known errors; build passes. Dependency audit remains 19 high / 67
+moderate; scanner retry failed at ONNX bootstrap with no source report. No audio,
+model, provider or Electron E2E acceptance. Source/tests and precise limits:
+[current checkpoint](voice-conversation-plan.md#completed-run-ownership-checkpoint-2026-11-20).
 
 ## Implemented foundations
 
@@ -151,8 +177,10 @@ not a full playback/queue control surface.
 - [x] Add conservative streaming-safe **text** extraction with split-markup,
       limits/failure and sentence-composition tests; use it in completed-reply
       buffers. No incremental TTS or microphone behavior is activated.
-- [ ] Add response-owned bounded scheduling, frozen destination/consent and
-      explicit incremental-mode opt-in. Review-first dictation remains unchanged.
+- [x] Freeze destination/consent and connect tab/run ownership for completed-run
+      reading only; see the current increment above.
+- [ ] Extend to response-owned bounded scheduling/backpressure and separate
+      incremental-mode opt-in. Review-first dictation remains unchanged.
 
 ## Realtime conversation — partial foundations, not implemented
 
@@ -164,8 +192,12 @@ No real microphone/model or Electron validation has been completed.
 
 - [ ] Connect captured speech, turn lifecycle and the existing WOS agent session
       while preserving context, grants, approvals and review.
-- [ ] Implement streaming STT and TTS, trained local VAD, barge-in, playback/run
+- [ ] Implement streaming STT/TTS, trained local VAD, barge-in, live response/PCM
       ownership, interruption and safe session reconnect/cleanup.
+- [ ] Implement a separate reviewed voice-interface command mode: typed local
+      allowlist → owned final proposal → visible preview/confirmation → existing
+      reversible UI callback. No arbitrary transcript/menu/tool executor or spoken
+      approval bypass; U1–U3 remain open.
 - [ ] Verify model provenance/integrity, offline behavior, supported languages,
       platform packaging and privacy/latency characteristics on real devices.
 
@@ -184,7 +216,7 @@ No real microphone/model or Electron validation has been completed.
 Targeted regression command (after installing project dependencies):
 
 ```sh
-npm test -- --maxWorkers=2 src/main/speech src/shared/speech src/renderer/src/components/Voice src/renderer/src/components/AgentTerminal src/main/agent/assistantText.test.ts src/main/agent/providerText.test.ts src/main/agent/providers/codexSession.test.ts
+npm test -- --maxWorkers=2 src/main/speech src/shared/speech src/preload/speech.test.ts src/renderer/src/components/Voice src/renderer/src/components/AgentTerminal src/main/agent/assistantText.test.ts src/main/agent/providerText.test.ts src/main/agent/providers/codexSession.test.ts
 ```
 
 Unit/fixture tests do not satisfy the real-audio or release gates above.
@@ -196,14 +228,18 @@ Follow [atomic gates A1–A9](voice-conversation-plan.md#next-atomic-integration
 and their [independently testable execution slices](voice-conversation-plan.md#atomic-execution-slices),
 without the previous conflict between “Kokoro first” and “scheduler first”:
 
-1. Response/session/epoch contracts, then bounded response-owned scheduling and
-   delayed-IPC/config/consent cancellation tests (A1/A2).
-2. Explicit incremental reply opt-in with failure/drain handling (A3); never loop
-   global interrupting Speak for every sentence or claim token/audio streaming yet.
-3. In parallel, remediate native dependencies and prove model integrity, actual
-   offline Whisper and Spanish local TTS readiness (A4). This blocks release and
-   automatic voice turns, even if fixture-only orchestration tests pass.
-4. Existing-session finalized turns, bounded streaming capture/STT, PCM/AEC and
-   barge-in (A5–A7), while shipping the individual UX backlog safely (A8).
-5. Real-device multilingual/cross-platform, latency and final security evidence
-   before release acceptance (A9). Every unchecked release gate above remains open.
+1. A1a typed response/session/epoch/outcome, then separate Codex/Claude adapters
+   and launchRun/IPC identity preservation. Completed-run ownership is now wired;
+   do not mistake that for completed response provenance or live scheduling.
+2. In parallel, U1 exact reviewed interface-command proposals (no execution),
+   then U2 visual review/active-context UI callbacks. Ordinary dictation remains
+   an agent draft; capture integration U3 also depends on A4/A6.
+3. A2 live response scheduler/backpressure/drain, then A3 separate incremental
+   consent. Never loop global interrupting Speak for every sentence.
+4. Parallel A4 dependency remediation, manifests/licenses/hashes, consented
+   provisioning, actual offline Whisper, Spanish local TTS and Windows cleanup.
+   These block release/automatic voice turns even if fixture orchestration passes.
+5. Existing-session finalized turns, bounded capture/trained VAD/STT, PCM/AEC and
+   barge-in (A5–A7); each CopySpeech UX surface remains an individual A8 change.
+6. Real-device multilingual/cross-platform, latency and final security evidence
+   before release acceptance (A9). Every unchecked release gate remains open.

@@ -4,6 +4,10 @@
  */
 export const IPC = {
   SPEECH_SPEAK: 'speech:speak',
+  SPEECH_REPLY_OPEN: 'speech:reply-open',
+  SPEECH_REPLY_RESERVE: 'speech:reply-reserve',
+  SPEECH_REPLY_FINISH: 'speech:reply-finish',
+  SPEECH_REPLY_CLOSE: 'speech:reply-close',
   SPEECH_MICROPHONE_AUTHORIZE: 'speech:microphone-authorize',
   SPEECH_MICROPHONE_REVOKE: 'speech:microphone-revoke',
   SPEECH_STT_STATUS: 'speech:stt-status',

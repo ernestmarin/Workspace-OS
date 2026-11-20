@@ -11,6 +11,7 @@ import { speechKeyStatus, setSpeechKey } from './secrets'
 import { synthesizeFragment } from './engines'
 import { PlaybackBroker } from './playback'
 import { ReadingController } from './reading'
+import { ReplyReadingSessions, replyDestination } from './replies'
 import { VoiceHotkey } from './hotkey'
 import { speechEnginesDir } from './paths'
 import { kokoroFilesStatus, prepareKokoro } from './engines/kokoro-setup'
@@ -61,6 +62,15 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     },
     onStatus: (status, scope) => send(scope, IPC.SPEECH_EVENT, { type: 'state', status }),
   })
+  const enqueue = (text: string, config: AppConfig, scope: SpeechDocument) => {
+    if (!scope.active || mainWindow() !== scope.window || scope.contents.isDestroyed()) throw new Error('Speech document is unavailable')
+    assertEngineAvailable(config)
+    const reading = controller.read(text, config, scope)
+    void reading.result.then((result) => send(scope, IPC.SPEECH_EVENT, { type: 'result', readingId: reading.id, result }))
+    return reading
+  }
+  const replies = new ReplyReadingSessions<SpeechDocument>({ enqueue, cancel: (id) => controller.cancel(id) })
+  let replyPromptOpen = false
   // Bind all pending work to the document that authorized it, not whichever
   // window happens to be current after synthesis or a native prompt resolves.
   const documentFor = (win: BrowserWindow): SpeechDocument => {
@@ -73,6 +83,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
       contents.removeListener('destroyed', scope.invalidate)
       contents.removeListener('render-process-gone', scope.invalidate)
       contents.removeListener('did-start-navigation', navigation)
+      replies.closeContext(scope)
       controller.stop()
       broker.closeOwner(contents.id)
       stt.cancel()
@@ -90,11 +101,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
   }
   const assertOwner = (event: IpcMainInvokeEvent): SpeechDocument => documentFor(assertWorkspace(event))
   const start = (text: string, scope: SpeechDocument): { readingId: number } => {
-    if (!scope.active) throw new Error('Speech document is unavailable')
-    const config = getConfig()
-    assertEngineAvailable(config)
-    const reading = controller.read(text, config, scope)
-    void reading.result.then((result) => send(scope, IPC.SPEECH_EVENT, { type: 'result', readingId: reading.id, result }))
+    const reading = enqueue(text, getConfig(), scope)
     return { readingId: reading.id }
   }
   const startClipboard = (scope: SpeechDocument): { readingId: number } => start(clipboard.readText(), scope)
@@ -115,6 +122,30 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     // An unavailable shortcut must not prevent the rest of the app from starting.
     console.warn('[speech] could not initialize voice shortcut:', error instanceof Error ? error.message : 'unknown error')
   }
+  ipcHandle(ipc, IPC.SPEECH_REPLY_OPEN, async (event, tabId) => {
+    const scope = assertOwner(event)
+    if (typeof tabId !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(tabId)) throw new Error('Invalid reply reading identity')
+    if (replyPromptOpen) throw new Error('A reply reading permission request is already open')
+    const config = structuredClone(getConfig())
+    const destination = replyDestination(config)
+    replyPromptOpen = true
+    try {
+      const result = await dialog.showMessageBox(scope.window, {
+        type: 'question', buttons: ['Cancel', 'Read replies'], defaultId: 0, cancelId: 0, noLink: true,
+        title: 'Agent reply reading', message: 'Read future completed agent replies aloud in this tab?',
+        detail: `Engine: ${destination.engine}. Voice: ${destination.voice}. ` +
+          (destination.remote ? 'Reply text will be sent to OpenAI. ' : 'This uses the configured local command; its network access is not sandboxed. ') +
+          'This engine, voice and playback configuration stay fixed until you turn reply reading off and on again. ' +
+          'Only successfully completed prompt runs are read. Turning this off or leaving the tab stops its pending and playing replies, not agent actions or unrelated readings. No microphone is enabled.',
+      })
+      if (result.response !== 1 || !scope.active) return null
+      if (assertOwner(event) !== scope) throw new Error('Reply reading document changed during approval')
+      return replies.open(scope, tabId, config)
+    } finally { replyPromptOpen = false }
+  })
+  ipcHandle(ipc, IPC.SPEECH_REPLY_RESERVE, (event, sessionId, runId) => replies.reserve(assertOwner(event), sessionId, runId))
+  ipcHandle(ipc, IPC.SPEECH_REPLY_FINISH, (event, sessionId, replyId, text) => replies.finish(assertOwner(event), sessionId, replyId, text))
+  ipcHandle(ipc, IPC.SPEECH_REPLY_CLOSE, (event, sessionId) => replies.close(assertOwner(event), sessionId))
   ipcHandle(ipc, IPC.SPEECH_MICROPHONE_AUTHORIZE, async (event, token) => {
     const scope = assertOwner(event)
     if (microphonePromptOpen) throw new Error('A microphone permission request is already open')
@@ -169,7 +200,7 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     }
     return { shortcut: hotkey.shortcut }
   })
-  ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); controller.stop() })
+  ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); replies.stopWork(); controller.stop() })
   ipcHandle(ipc, IPC.SPEECH_CANCEL_READING, (event, id) => {
     assertOwner(event)
     if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) throw new Error('Invalid reading identity')
@@ -231,5 +262,5 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     if (typeof id !== 'string' || typeof ok !== 'boolean') throw new Error('Invalid playback result')
     return broker.complete(event.sender.id, id, ok)
   })
-  registerCleanup('speech', async () => { document?.invalidate(); hotkey.dispose(); controller.stop(); stt.cancel(); microphoneGrant.clear(); await installer.shutdown() })
+  registerCleanup('speech', async () => { document?.invalidate(); replies.closeAll(); hotkey.dispose(); controller.stop(); stt.cancel(); microphoneGrant.clear(); await installer.shutdown() })
 }

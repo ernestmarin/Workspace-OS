@@ -162,3 +162,110 @@ describe('speech document lifetime', () => {
     expect(mock.grant.approve).not.toHaveBeenCalled()
   })
 })
+
+describe('owned completed-reply speech IPC', () => {
+  const open = async (tab = 'tab-1'): Promise<{ id: string }> => {
+    mock.showMessageBox.mockResolvedValueOnce({ response: 1 })
+    return invoke(IPC.SPEECH_REPLY_OPEN, owner(), tab)
+  }
+  const reserve = (id: string, run: string) => invoke(IPC.SPEECH_REPLY_RESERVE, owner(), id, run)
+  const read = (id: string, reply: string, text = 'Hello.') => invoke(IPC.SPEECH_REPLY_FINISH, owner(), id, reply, text)
+
+  it('authorizes all four lifecycle endpoints before accepting input', async () => {
+    for (const channel of [IPC.SPEECH_REPLY_OPEN, IPC.SPEECH_REPLY_RESERVE, IPC.SPEECH_REPLY_FINISH, IPC.SPEECH_REPLY_CLOSE]) {
+      await expect(Promise.resolve().then(() => invoke(channel, { ...owner(), sender: { id: 11 } }, 'tab', 'run', 'private'))).rejects.toThrow('workspace')
+    }
+    expect(mock.showMessageBox).not.toHaveBeenCalled()
+    expect(mock.synthesize).not.toHaveBeenCalled()
+  })
+  it('asks native consent for the exact frozen destination, including cloud transmission', async () => {
+    let approve!: (value: { response: number }) => void
+    mock.config.tts.profiles[0].engine = 'openai'
+    mock.config.tts.profiles[0].voice = 'alloy'
+    mock.showMessageBox.mockImplementationOnce(() => new Promise((resolve) => { approve = resolve }))
+    const opening = invoke(IPC.SPEECH_REPLY_OPEN, owner(), 'tab')
+    expect(mock.showMessageBox.mock.calls[0][1]).toEqual(expect.objectContaining({ defaultId: 0, cancelId: 0, detail: expect.stringContaining('sent to OpenAI') }))
+    mock.config.tts.profiles[0].engine = 'kokoro'
+    mock.config.tts.profiles[0].voice = 'changed'
+    approve({ response: 1 })
+    const session = await opening
+    expect(session).toMatchObject({ engine: 'openai', voice: 'alloy', remote: true })
+    const reply = reserve(session.id, 'run')
+    const result = read(session.id, reply.id)
+    await flush()
+    expect(mock.synthesize.mock.calls[0][1].tts.profiles[0]).toMatchObject({ engine: 'openai', voice: 'alloy' })
+    invoke(IPC.SPEECH_REPLY_CLOSE, owner(), session.id)
+    expect(await result).toEqual({ finished: false, error: 'Cancelled' })
+  })
+  it('declined or stale approval cannot create a session; simultaneous prompts are bounded', async () => {
+    mock.showMessageBox.mockResolvedValueOnce({ response: 0 })
+    expect(await invoke(IPC.SPEECH_REPLY_OPEN, owner(), 'tab')).toBeNull()
+    let approve!: (value: { response: number }) => void
+    mock.showMessageBox.mockImplementationOnce(() => new Promise((resolve) => { approve = resolve }))
+    const opening = invoke(IPC.SPEECH_REPLY_OPEN, owner(), 'tab')
+    await expect(invoke(IPC.SPEECH_REPLY_OPEN, owner(), 'other')).rejects.toThrow('already open')
+    mock.win.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    approve({ response: 1 })
+    expect(await opening).toBeNull()
+    expect(mock.synthesize).not.toHaveBeenCalled()
+  })
+  it('rejects malformed tab identities before showing native consent', async () => {
+    for (const id of [null, 1, '', 'x'.repeat(129), '../private']) await expect(invoke(IPC.SPEECH_REPLY_OPEN, owner(), id)).rejects.toThrow('identity')
+    expect(mock.showMessageBox).not.toHaveBeenCalled()
+  })
+  it('queues two reply sessions without interrupting, then cancels only the closed session', async () => {
+    const a = await open('tab-a'), b = await open('tab-b')
+    const ar = reserve(a.id, 'run-a'), br = reserve(b.id, 'run-b')
+    const first = read(a.id, ar.id), second = read(b.id, br.id)
+    const firstSignal = mock.synthesize.mock.calls[0][2]
+    expect(firstSignal.aborted).toBe(false)
+    expect(mock.synthesize).toHaveBeenCalledTimes(1)
+    invoke(IPC.SPEECH_REPLY_CLOSE, owner(), a.id)
+    expect(await first).toEqual({ finished: false, error: 'Cancelled' })
+    await flush()
+    expect(mock.synthesize).toHaveBeenCalledTimes(2)
+    expect(mock.synthesize.mock.calls[1][2].aborted).toBe(false)
+    invoke(IPC.SPEECH_REPLY_CLOSE, owner(), b.id)
+    expect(await second).toEqual({ finished: false, error: 'Cancelled' })
+  })
+  it('closing a queued reply does not interrupt manual reading', async () => {
+    invoke(IPC.SPEECH_SPEAK, owner(), 'Manual reading')
+    const manualSignal = mock.synthesize.mock.calls[0][2]
+    const session = await open(), reply = reserve(session.id, 'run')
+    const result = read(session.id, reply.id)
+    invoke(IPC.SPEECH_REPLY_CLOSE, owner(), session.id)
+    expect(await result).toEqual({ finished: false, error: 'Cancelled' })
+    expect(manualSignal.aborted).toBe(false)
+    expect(mock.synthesize).toHaveBeenCalledTimes(1)
+  })
+  it('global Stop invalidates reserved completions but still allows future prompt reservations', async () => {
+    const session = await open(), reply = reserve(session.id, 'run')
+    invoke(IPC.SPEECH_STOP, owner())
+    await expect(read(session.id, reply.id, 'late')).rejects.toThrow('reservation')
+    expect(reserve(session.id, 'next').id).toBeTruthy()
+    expect(mock.synthesize).not.toHaveBeenCalled()
+  })
+  it('waits for acknowledged playback drain and rejects duplicate text completion', async () => {
+    const session = await open(), reply = reserve(session.id, 'run')
+    mock.synthesize.mockResolvedValueOnce(audio)
+    let finished = false
+    const result = read(session.id, reply.id).then((value: unknown) => { finished = true; return value })
+    await flush()
+    expect(finished).toBe(false)
+    const play = mock.win.webContents.send.mock.calls.find(([channel, message]: any[]) => channel === IPC.SPEECH_PLAYBACK && message.type === 'play')?.[1]
+    expect(play?.id).toBeTruthy()
+    expect(invoke(IPC.SPEECH_PLAYBACK_DONE, owner(), play.id, true)).toBe(true)
+    expect(await result).toEqual({ finished: true })
+    await expect(read(session.id, reply.id, 'replay')).rejects.toThrow('reservation')
+  })
+  it('document teardown closes reservations and playback before a replacement can use their IDs', async () => {
+    const session = await open(), reply = reserve(session.id, 'run')
+    mock.synthesize.mockResolvedValueOnce(audio)
+    const result = read(session.id, reply.id)
+    await flush()
+    mock.win.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    expect(await result).toEqual({ finished: false, error: 'Cancelled' })
+    expect(() => reserve(session.id, 'late')).toThrow('session')
+    await expect(read(session.id, reply.id, 'late')).rejects.toThrow('session')
+  })
+})

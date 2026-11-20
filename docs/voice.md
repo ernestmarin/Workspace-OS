@@ -4,8 +4,9 @@ See the
 [Voice implementation plan & integration checklist](voice-integration-checklist.md)
 for completed code, partial work, remaining scope and release validation gates.
 The [conversation plan and Hugging Face reference review](voice-conversation-plan.md#hugging-face-speech-to-speech-reference-review-2026-11-20)
-cover the target of talking to and controlling the existing WOS agents by voice,
-without replacing their context or approval paths.
+cover voice control of the WOS interface and conversation with the existing
+agents, without replacing their context or approval paths. Interface commands
+will have a separate reviewed allowlist; they are not implemented yet.
 
 The current integration provides batch text-to-speech with OpenAI and an
 experimental local Kokoro path. Each fragment is fully synthesized before
@@ -104,24 +105,46 @@ It has mocked tests, not a real-device latency benchmark.
 Voice settings can stop the currently displayed reading by its identity, leaving
 other queued readings intact, or stop all readings and clear the queue. Neither
 control cancels an agent run or reverses its actions. A stale identity cannot
-stop a later reading. This is a shared playback controller, not yet per-tab
-voice-conversation ownership or automatic barge-in.
+stop a later reading. Stop-all also discards replies already reserved by current
+agent runs, while future runs can still reserve under existing reply consent.
+The tab's separate **Stop reply audio** is narrower; neither is automatic barge-in.
 
 
 ### Agent reply speech and lifecycle limits
-Completed-reply reading is opt-in per prompt-mode agent tab. It now derives a
-conservative spoken representation without changing terminal text: code, images,
-link destinations, tables and quoted/indented blocks are omitted; ambiguous inline
-markup or raw HTML can disable that reply's reading. Buffers remain bounded and
-failed/cancelled runs are not read. This does **not** enable incremental TTS.
+In a prompt-mode agent tab, choose **Read replies** and approve the native
+Cancel-default dialog. It names the engine and voice and discloses whether text
+goes to OpenAI or uses a configured local command whose networking is not
+sandboxed. It does not enable a microphone. PTY/Interactive mode is unsupported.
 
-Reloading, crashing or closing the workspace document now cancels its speech,
-transcription, permission grants and dependency setup, and drops late replies to a
-replacement window. This is not yet per-tab/run audio ownership: disabling a tab's
-reply reader disarms future reading but does not promise to stop already-started
-shared audio. Use Voice Stop for that. POSIX batch-process groups are cleaned up;
-Windows descendant-process cleanup still needs implementation/validation.
+Engine, voice and playback settings stay fixed for that consent session; changing
+Voice settings does not redirect an enabled reader. Turn it off and on to approve
+a new snapshot. Replies queue behind other readings instead of interrupting them.
+Only runs started after approval and completed successfully can be read; enabling
+mid-run does not read that run. Text already sent to a provider cannot be recalled.
 
-See the [red-team findings and remaining release blockers](voice-conversation-plan.md#red-team-audit-after-pr-6-2026-11-20),
-including dependency advisories. No fully offline, secure/release-ready or real-time
-voice-conversation claim is made by these experimental features.
+The reader derives conservative prose without changing terminal text: code,
+images, link destinations, tables and quoted/indented blocks are omitted;
+ambiguous markup or raw HTML can disable reading. Bounds are 8 global sessions,
+8 reservations (including normal playback drain), and 20,000 UTF-16 text units
+or the approved configured limit, whichever is smaller. It discards oversized,
+failed or cancelled replies rather than truncating or changing engines.
+
+- **Stop reply audio** cancels this tab's current reserved/queued/playing replies,
+  not the agent or unrelated readings. The reader stays enabled for future runs.
+- **Replies on** turns reading off and closes its owned pending/playing work.
+  Switching tabs, entering Interactive mode, hiding/leaving the document or
+  unmounting also disables it; returning does not automatically re-enable it.
+- Clear/model/persona changes discard current reply work. The existing **agent
+  Stop** still deliberately cancels agent runs as before; speech-only Stop does not.
+
+Late consent/reservation acknowledgements cannot revive a disabled reader.
+Reload/crash/close also cancel document speech, transcription, grants and setup,
+and reject late playback into a replacement document. POSIX batch-process groups
+are cleaned up; Windows descendant cleanup remains unvalidated/incomplete.
+
+These tab/run ownership paths have simulated hook/control/IPC regressions, not
+real Electron/device acceptance. They do **not** provide response-owned streaming,
+continuous STT/TTS, trained VAD, heard-context tracking or full-duplex barge-in.
+See the [current checkpoint and atomic next gates](voice-conversation-plan.md#completed-run-ownership-checkpoint-2026-11-20)
+and [historical audit/security blockers](voice-conversation-plan.md#red-team-audit-after-pr-6-2026-11-20).
+No fully offline, secure/release-ready or real-time conversation claim is made.
