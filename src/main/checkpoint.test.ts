@@ -116,4 +116,9 @@ describe('CheckpointStore', () => {
     const rootless = new CheckpointStore(() => null)
     await expect(rootless.createCheckpoint('x')).rejects.toThrow('No workspace folder is open')
   })
+
+  it('rejects non-SHA or git-flag strings in diffSince() and rollbackTo() at the store boundary (SEC-08)', async () => {
+    await expect(store.diffSince('--output=/tmp/pwn')).rejects.toThrow(/Invalid checkpoint SHA/i)
+    await expect(store.rollbackTo('HEAD~1')).rejects.toThrow(/Invalid checkpoint SHA/i)
+  })
 })

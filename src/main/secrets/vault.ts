@@ -68,11 +68,19 @@ export class Vault {
 
   private writeMap(map: SecretsMap): void {
     fs.mkdirSync(this.storeDir, { recursive: true })
-    // 0o600: owner-only. The file holds ciphertext, but least-privilege anyway.
-    fs.writeFileSync(this.secretsPath(), JSON.stringify(map, null, 2), { encoding: 'utf-8', mode: 0o600 })
-    // A pre-existing file created with a laxer umask keeps its old mode on
-    // rewrite; force it back to 0o600 explicitly.
-    try { fs.chmodSync(this.secretsPath(), 0o600) } catch { /* best-effort */ }
+    const finalPath = this.secretsPath()
+    const tmpPath = `${finalPath}.${process.pid}.${Date.now()}.tmp`
+    try {
+      // 0o600: owner-only. Write to a sibling temp file then rename atomically so
+      // a crash mid-write never leaves a half-written or empty secrets.json.
+      fs.writeFileSync(tmpPath, JSON.stringify(map, null, 2), { encoding: 'utf-8', mode: 0o600 })
+      try { fs.chmodSync(tmpPath, 0o600) } catch { /* best-effort */ }
+      fs.renameSync(tmpPath, finalPath)
+      try { fs.chmodSync(finalPath, 0o600) } catch { /* best-effort */ }
+    } catch (err) {
+      try { fs.rmSync(tmpPath, { force: true }) } catch { /* best-effort */ }
+      throw err
+    }
   }
 
   /** Whether secrets can be stored securely right now (and the backend name). */

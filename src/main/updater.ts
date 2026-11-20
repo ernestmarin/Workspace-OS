@@ -1,3 +1,5 @@
+import { execFileSync } from 'child_process'
+import path from 'path'
 import electronUpdater from 'electron-updater'
 import { app, BrowserWindow, dialog, IpcMain } from 'electron'
 import { ipcHandle, registerCleanup } from './ipc-registry'
@@ -31,10 +33,33 @@ let mainWin: BrowserWindow | null = null
 let manualCheck = false
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+function liveWin(): BrowserWindow | null {
+  return mainWin && !mainWin.isDestroyed() ? mainWin : null
+}
+
+/** True only when `codesign -dv` output carries a real Apple Developer ID signature (never ad-hoc). */
+export function hasDeveloperIdSignature(codesignStderr: string): boolean {
+  return /Authority=Developer ID Application:/m.test(codesignStderr) && !/Signature=adhoc/m.test(codesignStderr)
+}
+
 function macRequiresSignature(): boolean {
-  // On macOS, updates require a signed app. Unsigned builds would emit an
-  // error on every check — skip the poller entirely there.
-  return process.platform === 'darwin' && !app.isPackaged
+  if (process.platform !== 'darwin') return false
+  if (!app.isPackaged) return true
+  try {
+    // app.getAppPath() points at .../Workspace OS.app/Contents/Resources/app.asar
+    const appPath = app.getAppPath()
+    const idx = appPath.indexOf('.app/')
+    if (idx === -1) return true
+    const bundlePath = path.resolve(appPath.slice(0, idx + 4))
+    // codesign -dv writes signature metadata to stderr; spawnSync/execFileSync captures failure.
+    execFileSync('codesign', ['--verify', '--deep', '--strict', bundlePath], { stdio: 'pipe' })
+    const out = execFileSync('sh', ['-c', 'exec codesign -dv --verbose=2 "$1" 2>&1', '--', bundlePath], {
+      encoding: 'utf8',
+    })
+    return !hasDeveloperIdSignature(out)
+  } catch {
+    return true
+  }
 }
 
 /**
@@ -52,9 +77,10 @@ async function safeCheck(): Promise<void> {
   } catch (err) {
     // Network down, no release yet, unsigned — all non-fatal.
     log('error', '[updater] check failed', err)
-    if (manualCheck && mainWin) {
+    const w = liveWin()
+    if (manualCheck && w) {
       manualCheck = false
-      void dialog.showMessageBox(mainWin, {
+      void dialog.showMessageBox(w, {
         type: 'info',
         message: 'Update check unavailable',
         detail: 'Could not check for updates right now. Please try again later.',
@@ -87,9 +113,10 @@ export function initUpdater(win: BrowserWindow, isDev: boolean): void {
   })
 
   autoUpdater.on('update-not-available', () => {
-    if (manualCheck && mainWin) {
+    const w = liveWin()
+    if (manualCheck && w) {
       manualCheck = false
-      void dialog.showMessageBox(mainWin, {
+      void dialog.showMessageBox(w, {
         type: 'info',
         message: "You're up to date",
         detail: `Workspace OS ${app.getVersion()} is the latest version.`,
@@ -101,14 +128,18 @@ export function initUpdater(win: BrowserWindow, isDev: boolean): void {
     manualCheck = false
     log('info', `[updater] downloaded ${info.version} — will install on quit`)
     // Subtle renderer affordance: "update ready — restart" banner.
-    win.webContents.send('updater:update-ready', { version: info.version })
+    const w = liveWin()
+    if (w && !w.webContents.isDestroyed()) {
+      w.webContents.send('updater:update-ready', { version: info.version })
+    }
   })
 
   autoUpdater.on('error', (err) => {
     log('error', '[updater] error', err)
-    if (manualCheck && mainWin) {
+    const w = liveWin()
+    if (manualCheck && w) {
       manualCheck = false
-      void dialog.showMessageBox(mainWin, {
+      void dialog.showMessageBox(w, {
         type: 'info',
         message: 'Update check unavailable',
         detail: 'Could not check for updates right now. Please try again later.',
@@ -129,8 +160,9 @@ export function initUpdater(win: BrowserWindow, isDev: boolean): void {
 /** Manual "Check for Updates…" (menu + renderer). Always gives feedback. */
 export function checkForUpdatesManual(): void {
   if (!app.isPackaged || macRequiresSignature() || noFeedForPlatform()) {
-    if (mainWin) {
-      void dialog.showMessageBox(mainWin, {
+    const w = liveWin()
+    if (w) {
+      void dialog.showMessageBox(w, {
         type: 'info',
         message: 'Updates are disabled in this build',
         detail: !app.isPackaged

@@ -113,20 +113,40 @@ export function validateOpenPath(filePath: unknown): string {
  * doesn't exist yet, the not-yet-created suffix is appended back to the
  * resolved ancestor so new files can still be validated.
  */
-function realPathSafe(target: string): string {
+export function realPathSafe(target: string): string {
   let current = target
   const suffix: string[] = []
-  // Walk up until we hit an existing path we can realpath.
+  // Walk up ONLY past genuinely non-existent path components. Any component
+  // whose lstat succeeds (including a dangling or looping symlink) MUST resolve
+  // via realpathSync or fail validation immediately.
   for (;;) {
+    let existsAsEntry = false
     try {
-      const real = fs.realpathSync(current)
-      return suffix.length ? path.join(real, ...suffix.reverse()) : real
-    } catch {
-      const parent = path.dirname(current)
-      if (parent === current) return target // reached filesystem root
-      suffix.push(path.basename(current))
-      current = parent
+      fs.lstatSync(current)
+      existsAsEntry = true
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ELOOP') {
+        throw new IpcValidationError(`Symlink loop in path: ${target}`)
+      }
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        throw new IpcValidationError(`Cannot inspect path: ${target}`)
+      }
     }
+
+    if (existsAsEntry) {
+      try {
+        const real = fs.realpathSync(current)
+        return suffix.length ? path.join(real, ...suffix.reverse()) : real
+      } catch {
+        throw new IpcValidationError(`Unresolvable or dangling symlink in path: ${target}`)
+      }
+    }
+
+    const parent = path.dirname(current)
+    if (parent === current) return target // reached filesystem root
+    suffix.push(path.basename(current))
+    current = parent
   }
 }
 

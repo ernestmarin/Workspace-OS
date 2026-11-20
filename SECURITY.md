@@ -2,65 +2,85 @@
 
 This document records how Workspace OS satisfies the
 [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security)
-and the app-specific controls layered on top.
+and the app-specific controls layered on top. Detailed Red Team findings,
+regression tests, and residual risks are tracked in
+[`docs/technical-debt-audit.md`](docs/technical-debt-audit.md).
 
 ## Electron security checklist
 
 | # | Recommendation | Status | Where |
 |---|---|---|---|
-| 1 | Only load secure content | ✅ | App loads `file://` (prod) / localhost dev server; no remote app content |
-| 2 | Disable `nodeIntegration` in renderers | ✅ | `webPreferences.nodeIntegration: false` (`index.ts`) |
+| 1 | Only load secure content | ✅ | Exact dev origin (`ELECTRON_RENDERER_URL` / `http://localhost:5173`) or renderer bundle `file://` path (`security.ts`) |
+| 2 | Disable `nodeIntegration` in renderers | ✅ | `webPreferences.nodeIntegration: false` (`index.ts`, `security.ts`) |
 | 3 | Enable `contextIsolation` | ✅ | `contextIsolation: true` |
-| 4 | Enable process sandboxing | ✅ | `sandbox: true` |
+| 4 | Enable process sandboxing | ✅ | `sandbox: true` on main renderer and attached guest webviews |
 | 5 | Handle session permission requests | ✅ | Deny-by-default `setPermissionRequestHandler` (`security.ts`) |
 | 6 | Do not disable `webSecurity` | ✅ | `webSecurity: true` |
-| 7 | Define a Content-Security-Policy | ✅ | Enforced via response headers (`applySessionSecurity`), not a strippable meta tag |
+| 7 | Define a Content-Security-Policy | ✅ | Enforced via response headers (`applySessionSecurity`), plus strict CSP on `wos-app://` pages |
 | 8 | Do not set `allowRunningInsecureContent` | ✅ | `allowRunningInsecureContent: false` |
-| 9 | Do not enable experimental features | ✅ | `experimentalFeatures: false` |
-| 10 | Do not use `enableBlinkFeatures` | ✅ | Not set |
-| 11 | Do not use `<webview>` with untrusted content | ✅ | `webviewTag: false`; `will-attach-webview` denied |
-| 12 | Verify/limit navigation | ✅ | `will-navigate` blocks off-app navigation; opens http(s) externally |
-| 13 | Disable or limit new window creation | ✅ | `setWindowOpenHandler` denies all; http(s) opened in system browser |
-| 14 | Validate the sender of IPC messages | ✅ | Subframes get no preload bridge; process-spawn channels additionally `assertMainFrame` |
+| 9 | Do not enable experimental features | ✅ | `experimentalFeatures: false`; `enableBlinkFeatures: ''` |
+| 10 | Do not use `enableBlinkFeatures` | ✅ | Forced empty in `will-attach-webview` |
+| 11 | Restrict `<webview>` attachment & guests | ✅ | Permitted only for `persist:browser` (`http`/`https`/`about:blank`) and `wos-app://`, with `preloadURL` stripped, `webviewTag: false`, and guest `will-navigate` scheme allowlist |
+| 12 | Verify/limit navigation | ✅ | `will-navigate` verifies exact origin in dev and bundle path confinement in prod; opens `http(s)` externally |
+| 13 | Disable or limit new window creation | ✅ | `setWindowOpenHandler` denies popups; `http(s)` opened in system browser or forwarded to Browser tabs |
+| 14 | Validate the sender of IPC messages | ✅ | `assertMainFrame` fails closed on subframes and detached (`senderFrame === null`) senders across shell, terminal, and agent channels |
 
 ## App-specific controls
 
-- **Workspace-root boundary.** The main process owns the active root. Every
-  file-system IPC validates the requested path against it (lexical + symlink
-  `realpath` resolution), so a renderer compromise cannot read/write outside the
-  user-selected folder. Tested in `ipc-validator.test.ts`.
-- **IPC input validation.** All 36 handlers take `unknown` params and validate
-  before use; ids are regex-checked, strings length-capped.
-- **Process-spawn safety.** The `claude` CLI and OnlyOffice Docker container are
-  spawned with **array args, never through a shell** — terminal/document input
-  cannot inject shell commands.
-- **OnlyOffice isolation.** The Document Server binds to `127.0.0.1` only (never
-  `0.0.0.0`), reachable only on-device. The file bridge issues single-use opaque
-  per-document tokens, so the server can only fetch/save the exact file bound to
-  each token.
-- **Recovery layers.** Destructive IPC ops snapshot to `.workspace-os/trash`;
-  every agent run is preceded by a shadow-git checkpoint with one-click revert.
-- **Local-only data.** Search index, trash, and checkpoints all live on-device.
-  No telemetry, no cloud calls except to the localhost OnlyOffice server.
+- **Workspace-root & symlink confinement.** The main process owns the active
+  workspace root. File-system IPC, `wos-app://` protocol handlers, app packaging,
+  and browser screenshot writers validate paths lexically and via `lstat`/`realpath`
+  (`realPathSafe`), failing closed on dangling symlinks, symlink loops, and
+  out-of-root targets. Covered by `src/main/ipc-validator.test.ts`,
+  `src/main/apps/apps-store.test.ts`, `src/main/handlers/apps.security.test.ts`,
+  and `src/main/browser/browserControl.test.ts`.
+- **Overwrite-safe filesystem mutations.** `FS_CREATE` uses exclusive creation
+  (`wx`), `FS_RENAME` refuses to clobber existing targets, and `.workspace-os`
+  protection checks exact directory boundary (`root/.workspace-os/...`). Covered
+  by `src/main/handlers/fs.security.test.ts`.
+- **Scoped agent grants across providers.** Both Claude and Codex runs receive
+  per-run bearer grants bound to the active workspace root (`launchRun.ts`), so
+  switching workspaces invalidates access from earlier runs regardless of CLI
+  provider.
+- **Process & sidecar isolation.** Agent CLIs, Git checkpoints, and the
+  LibreOfficeKit (`lokHost.ts`) sidecar spawn with argument arrays (never a
+  shell). `LokHost` scrubs secret-bearing environment variables (`API_KEY`,
+  `TOKEN`, `SECRET`, `PASSWORD`, `PRIVATE_KEY`, `CREDENTIAL`) before spawning
+  LibreOffice and enforces a `MAX_FRAME_BYTES` ceiling on engine pipe frames.
+- **Atomic secret storage.** `VaultStore` (`src/main/secrets/vault.ts`) encrypts
+  values via Electron `safeStorage` and writes `secrets.json` via mode-`0o600`
+  temp file + atomic `renameSync`.
+- **SSRF & IPv6 literal filtering.** Remote mail image proxying (`remote-images.ts`)
+  blocks loopback, RFC1918, CGNAT (`100.64.0.0/10`), link-local/cloud-metadata
+  (`169.254.0.0/16`), trailing-dot localhost aliases, and IPv4-mapped/compatible,
+  NAT64 (`64:ff9b::/96`), and 6to4 (`2002::/16`) IPv6 representations.
+- **Signed macOS updater verification.** `updater.ts` verifies Apple
+  `Developer ID Application:` code-signing authority (rejecting ad-hoc builds)
+  before enabling `electron-updater` on macOS, and guards window/webContents
+  destruction across async update callbacks.
 
 ## Dependency posture
 
-- Production `npm audit`: no high/critical advisories. (SheetJS/`xlsx`, which
-  carried an unpatched prototype-pollution advisory on untrusted parsing, was
-  replaced with `exceljs`.)
-- Remaining moderate advisories are transitive and off the untrusted-input path.
+- `npm ci` resolves cleanly without `--legacy-peer-deps` or `--force`.
+- `npm audit` reports **0 critical** and **0 high** vulnerabilities across both
+  full and production (`--omit=dev`) trees. Remaining moderate transitive
+  advisories (`mjml`/`html-minifier`, `exceljs`/`uuid`, `electron-builder`
+  build-time `plist`) are documented with reachability analysis in
+  [`docs/technical-debt-audit.md`](docs/technical-debt-audit.md).
 
 ## Native modules
 
-`better-sqlite3` and `node-pty` are native. They are built for Node by default
-(so the test suite runs), and rebuilt for Electron's ABI:
-- **Dev:** `npm run rebuild:electron` before `npm run dev` (and
-  `npm run rebuild:node` to return to a test-runnable state).
-- **Packaging:** `electron-builder` rebuilds them automatically (`npmRebuild`),
-  and they are `asarUnpack`-ed so the `.node` binaries load from disk.
+`better-sqlite3` and `node-pty` are native addons:
+- **Node / Vitest:** `npm run rebuild:node` compiles them against the active
+  Node ABI (auto-detecting local Node headers for offline environments).
+- **Electron dev:** `npm run rebuild:electron` compiles them against Electron's ABI.
+- **Packaging:** `electron-builder` rebuilds and unpacks native `.node` binaries
+  automatically (`asarUnpack`).
 
-## Known follow-ups
+## Residual risks & real-platform gates
 
-- Production OnlyOffice delivery (Docker is dev-only) — see PRD §11.
-- End-to-end runtime verification with a live `claude` invocation and a packaged
-  build is still pending.
+- Hostname DNS-rebinding pinning on custom `net.fetch` agents (`remote-images.ts`)
+  remains tracked as defense-in-depth (`SEC-05` note in `docs/technical-debt-audit.md`).
+- Packaged macOS notarization, Windows SmartScreen/JobObject process-tree kill,
+  and real-microphone/device acceptance require validation on native macOS and
+  Windows hardware.

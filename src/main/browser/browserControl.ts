@@ -27,6 +27,7 @@ import {
   type ProfilePage,
 } from './deepRead'
 import { getWorkspaceRoot } from '../workspace-root'
+import { realPathSafe } from '../ipc-validator'
 
 /**
  * BROWSER DRIVE (main side).
@@ -118,13 +119,31 @@ function screenshotRoots(): string[] {
  * the resolved path stays within an allowed root (no traversal outside).
  */
 export function resolveScreenshotPath(destPath: unknown, roots: string[]): string {
+  if (typeof destPath === 'string' && /[\x00-\x1f]/.test(destPath)) {
+    throw new Error('screenshot path contains a control character')
+  }
   const raw = typeof destPath === 'string' && destPath.trim()
     ? destPath.trim()
     : path.join(roots[0], `browser-${Date.now()}.png`)
-  const resolved = path.resolve(raw)
-  const inside = roots.some((root) => resolved === root || resolved.startsWith(root + path.sep))
+  const resolved = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(roots[0], raw)
+  let realTarget: string
+  try {
+    realTarget = realPathSafe(resolved)
+  } catch {
+    throw new Error(`screenshot path escapes workspace root: ${resolved}`)
+  }
+  const inside = roots.some((root) => {
+    const absRoot = path.resolve(root)
+    let realRoot = absRoot
+    try {
+      realRoot = realPathSafe(absRoot)
+    } catch {
+      return false
+    }
+    return realTarget === realRoot || realTarget.startsWith(realRoot + path.sep)
+  })
   if (!inside) {
-    throw new Error('screenshot path must be under the workspace or app data directory')
+    throw new Error('screenshot path must be under the workspace or app data directory (escapes workspace root)')
   }
   if (path.extname(resolved).toLowerCase() !== '.png') {
     throw new Error('screenshot path must end in .png')

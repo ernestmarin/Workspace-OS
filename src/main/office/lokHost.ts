@@ -78,9 +78,22 @@ export class LokHostError extends Error {
 }
 
 // Batched-tile frames carry raw pixel buffers; a corrupt length field could ask
-// us to read gigabytes. Cap dims to something no legitimate tile approaches.
+// us to read gigabytes. Cap dims and total frame size to bounded ceilings.
 const MAX_TILE_PX = 8192
 const MAX_TILES_PER_FRAME = 4096
+const MAX_FRAME_BYTES = 128 * 1024 * 1024
+
+const SECRET_ENV_KEY_RE = /(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL)/i
+
+function sanitizedLokEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {}
+  for (const [k, v] of Object.entries(base)) {
+    if (v === undefined) continue
+    if (SECRET_ENV_KEY_RE.test(k)) continue
+    out[k] = v
+  }
+  return out
+}
 
 /**
  * Incremental frame parser for ONE pipe. Chunks are kept as a list — NOT one
@@ -92,10 +105,15 @@ const MAX_TILES_PER_FRAME = 4096
 class FrameParser {
   private chunks: Buffer[] = []
   private buffered = 0
+  private failed = false
 
-  constructor(private dispatch: (type: string, body: Buffer) => void) {}
+  constructor(
+    private dispatch: (type: string, body: Buffer) => void,
+    private onOversize?: (len: number) => void,
+  ) {}
 
   push(chunk: Buffer): void {
+    if (this.failed) return
     this.chunks.push(chunk)
     this.buffered += chunk.length
     for (;;) {
@@ -103,6 +121,13 @@ class FrameParser {
       // The 4-byte length header must sit in one chunk to read it; tiny concat.
       if (this.chunks[0].length < 4) this.chunks = [Buffer.concat(this.chunks)]
       const len = this.chunks[0].readUInt32LE(0)
+      if (len > MAX_FRAME_BYTES) {
+        this.failed = true
+        this.chunks = []
+        this.buffered = 0
+        this.onOversize?.(len)
+        return
+      }
       if (this.buffered < 4 + len) break
       const frame = Buffer.allocUnsafe(4 + len)
       let filled = 0
@@ -146,10 +171,14 @@ export class LokHost extends EventEmitter {
       // A GUI app starting a console program gets a console window unless hidden (Windows).
       windowsHide: true,
       // The profile the app seeds and the exchange directory the macros use (lokTemp.ts).
-      env: { ...process.env, WOS_LOK_PROFILE: lokProfileDir(), WOS_LOK_XCHG: lokXchgDir() },
+      env: { ...sanitizedLokEnv(process.env), WOS_LOK_PROFILE: lokProfileDir(), WOS_LOK_XCHG: lokXchgDir() },
     })
-    const jsonParser = new FrameParser((type, body) => this.dispatchFrame(type, body, resolveReady))
-    const tileParser = new FrameParser((type, body) => this.dispatchFrame(type, body, resolveReady))
+    const onOversize = (len: number): void => {
+      try { proc.kill('SIGKILL') } catch { /* best-effort */ }
+      this.abortAll('exit', new LokHostError(`corrupt engine frame length (${len} bytes)`, 'exit'))
+    }
+    const jsonParser = new FrameParser((type, body) => this.dispatchFrame(type, body, resolveReady), onOversize)
+    const tileParser = new FrameParser((type, body) => this.dispatchFrame(type, body, resolveReady), onOversize)
     ;(proc.stdio[3] as Readable).on('data', (chunk: Buffer) => jsonParser.push(chunk))
     ;(proc.stdio[4] as Readable).on('data', (chunk: Buffer) => tileParser.push(chunk))
     // A dying sidecar makes stdin emit EPIPE/ECONNRESET; without this handler

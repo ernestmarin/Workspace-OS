@@ -108,3 +108,51 @@ describe('LokHost.send protocol-injection guard', () => {
     h.dispose()
   })
 })
+
+describe('LokHost secret-env scrubbing and frame-length ceiling (SEC-08)', () => {
+  it('scrubs secret API keys from the child environment', async () => {
+    const envDumpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wos-lok-env-')), 'dump.cjs')
+    const outPath = path.join(path.dirname(envDumpFile), 'env.json')
+    fs.writeFileSync(
+      envDumpFile,
+      `require('fs').writeFileSync(${JSON.stringify(outPath)}, JSON.stringify(process.env)); process.stdin.resume();\n`,
+    )
+    const prevKey = process.env.OPENAI_API_KEY
+    const prevTok = process.env.GITHUB_PERSONAL_ACCESS_TOKEN
+    process.env.OPENAI_API_KEY = 'sk-should-not-leak-to-libreoffice'
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'ghp_should_not_leak'
+    const h = new LokHost({ hostBin: process.execPath, installPath: envDumpFile, fundamentalrc: 'unused' })
+    try {
+      for (let i = 0; i < 40 && !fs.existsSync(outPath); i++) {
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      const childEnv = JSON.parse(fs.readFileSync(outPath, 'utf8')) as Record<string, string>
+      expect(childEnv.OPENAI_API_KEY).toBeUndefined()
+      expect(childEnv.GITHUB_PERSONAL_ACCESS_TOKEN).toBeUndefined()
+    } finally {
+      h.dispose()
+      if (prevKey === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = prevKey
+      if (prevTok === undefined) delete process.env.GITHUB_PERSONAL_ACCESS_TOKEN
+      else process.env.GITHUB_PERSONAL_ACCESS_TOKEN = prevTok
+      fs.rmSync(path.dirname(envDumpFile), { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a bogus multi-gigabyte frame header immediately instead of buffering unbounded memory', async () => {
+    const giantFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wos-lok-frame-')), 'giant.cjs')
+    // Emit a 4-byte uint32 LE frame length of 0x7fffffff (~2 GB) on fd 3 (JSON frame pipe) followed by 4 bytes.
+    fs.writeFileSync(
+      giantFile,
+      `const fs = require('fs'); const h = Buffer.alloc(8); h.writeUInt32LE(0x7fffffff, 0); fs.writeSync(3, h); process.stdin.resume();\n`,
+    )
+    const h = new LokHost({ hostBin: process.execPath, installPath: giantFile, fundamentalrc: 'unused' })
+    try {
+      const p = sendViaPing(h)
+      await expect(p).rejects.toBeInstanceOf(LokHostError)
+    } finally {
+      h.dispose()
+      fs.rmSync(path.dirname(giantFile), { recursive: true, force: true })
+    }
+  })
+})

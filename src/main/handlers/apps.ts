@@ -191,9 +191,22 @@ function serve(req: Request): Response {
     }
     if (url.host === 'file') {
       const rel = url.searchParams.get('path') ?? ''
+      if (!rel || /[\x00-\x1f]/.test(rel)) return fail(404, 'Not a page of this workspace')
       const abs = path.resolve(root, rel)
       if (!abs.startsWith(root + path.sep) || !/\.html?$/i.test(abs) || !fs.existsSync(abs)) return fail(404, 'Not a page of this workspace')
-      return new Response(fs.readFileSync(abs, 'utf8'), { headers: PAGE_HEADERS() })
+      let realRoot: string
+      let realAbs: string
+      try {
+        if (fs.lstatSync(abs).isSymbolicLink()) return fail(404, 'Not a page of this workspace')
+        realRoot = fs.realpathSync(root)
+        realAbs = fs.realpathSync(abs)
+      } catch {
+        return fail(404, 'Not a page of this workspace')
+      }
+      if (!realAbs.startsWith(realRoot + path.sep) || !fs.statSync(realAbs).isFile()) {
+        return fail(404, 'Not a page of this workspace')
+      }
+      return new Response(fs.readFileSync(realAbs, 'utf8'), { headers: PAGE_HEADERS() })
     }
   } catch (e) {
     return fail(500, e instanceof Error ? e.message : 'Could not open it')

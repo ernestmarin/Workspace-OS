@@ -1,3 +1,5 @@
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { app, session, shell, WebContents, BrowserWindow } from 'electron'
 import { captureBrowserGuest } from './browser/browserControl'
 import { log } from './crash-reporter'
@@ -325,15 +327,55 @@ export function browserLanguages(): string {
   return acceptLanguageList(app.getPreferredSystemLanguages())
 }
 
-export function hardenWebContents(contents: WebContents): void {
-  const appOrigins = ['http://localhost:5173', 'file://']
+export function isAllowedAppUrl(rawUrl: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return false
+  }
+  const devBase = process.env['ELECTRON_RENDERER_URL'] || 'http://localhost:5173'
+  try {
+    const expected = new URL(devBase)
+    if (!app.isPackaged && parsed.protocol === expected.protocol && parsed.host === expected.host) {
+      return true
+    }
+  } catch {
+    // ignore malformed dev URL env
+  }
+  if (parsed.protocol !== 'file:') return false
+  try {
+    const targetPath = path.resolve(fileURLToPath(parsed))
+    const bundleRoot = path.resolve(app.getAppPath())
+    const rendererOut = path.resolve(bundleRoot, 'out', 'renderer')
+    return (
+      targetPath === rendererOut ||
+      targetPath.startsWith(rendererOut + path.sep) ||
+      targetPath === bundleRoot ||
+      targetPath.startsWith(bundleRoot + path.sep)
+    )
+  } catch {
+    return false
+  }
+}
 
-  // Block the main frame from being navigated away from the app.
+export function isAllowedGuestUrl(rawUrl: string): boolean {
+  if (rawUrl === 'about:blank') return true
+  try {
+    const u = new URL(rawUrl)
+    return u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+export function hardenWebContents(contents: WebContents): void {
+  // Block the main frame from being navigated away from the app's exact dev origin
+  // or packaged renderer bundle directory.
   contents.on('will-navigate', (event, url) => {
-    const allowed = appOrigins.some((o) => url.startsWith(o))
-    if (!allowed) {
+    if (!isAllowedAppUrl(url)) {
       event.preventDefault()
-      if (url.startsWith('http')) shell.openExternal(url)
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url)
     }
   })
 
@@ -365,12 +407,21 @@ export function hardenWebContents(contents: WebContents): void {
   // open-externally handler above.
   contents.on('will-attach-webview', (_event, webPreferences, params) => {
     delete webPreferences.preload
+    delete (webPreferences as Record<string, unknown>).preloadURL
     webPreferences.nodeIntegration = false
+    webPreferences.nodeIntegrationInSubFrames = false
+    webPreferences.nodeIntegrationInWorker = false
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
-    // Only permit http(s) guests; refuse file://, chrome://, etc.
+    webPreferences.webSecurity = true
+    webPreferences.allowRunningInsecureContent = false
+    webPreferences.experimentalFeatures = false
+    webPreferences.enableBlinkFeatures = ''
+    webPreferences.webviewTag = false
+    webPreferences.navigateOnDragDrop = false
+    // Only permit http(s) / about:blank guests; refuse file://, chrome://, javascript:, etc.
     const src = typeof params.src === 'string' ? params.src : ''
-    if (src && !/^https?:\/\//i.test(src)) {
+    if (src && !isAllowedGuestUrl(src)) {
       _event.preventDefault()
     }
   })
@@ -385,6 +436,12 @@ export function hardenWebContents(contents: WebContents): void {
     // the same inconsistency that got sessions refused, reintroduced at the one
     // layer the earlier verification did not cover.
     guest.setUserAgent(browserUserAgent(), browserLanguages())
+
+    guest.on('will-navigate', (event, url) => {
+      if (!isAllowedGuestUrl(url)) {
+        event.preventDefault()
+      }
+    })
 
     // Two very different things arrive here, and treating them identically is
     // what broke every popup-based sign-in (LinkedIn, Microsoft, Google).
@@ -532,6 +589,11 @@ export function hardenWebContents(contents: WebContents): void {
  * "the page goes blank".
  */
 export function hardenPopup(win: BrowserWindow): void {
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedGuestUrl(url)) {
+      event.preventDefault()
+    }
+  })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.on('render-process-gone', (_e, details) => {
     log('error', `[browser:popup] renderer gone: ${details.reason}`)
@@ -553,7 +615,13 @@ export function hardenWindow(win: BrowserWindow): void {
  * reject any call that did not originate from the top frame.
  */
 export function assertMainFrame(event: Electron.IpcMainInvokeEvent): void {
-  if (event.senderFrame && event.senderFrame.parent !== null) {
-    throw new Error('IPC call rejected: not from the main frame')
+  if (!event || typeof event !== 'object') {
+    throw new Error('IPC call rejected: missing sender event')
+  }
+  if ('senderFrame' in event) {
+    const frame = event.senderFrame
+    if (!frame || frame.parent !== null) {
+      throw new Error('IPC call rejected: detached or non-main frame')
+    }
   }
 }

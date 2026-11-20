@@ -187,19 +187,22 @@ export function registerAgentPtyHandlers(ipcMain: IpcMain, win: BrowserWindow): 
     return { pid: proc.pid, provider: pick.provider }
   })
 
-  ipcHandle(ipcMain, IPC.AGENT_PTY_INPUT, (_event, sessionId: unknown, input: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENT_PTY_INPUT, (event, sessionId: unknown, input: unknown) => {
+    assertMainFrame(event)
     const id = assertSessionId(sessionId)
     const text = validateShellInput(input)
     sessions.get(id)?.process.write(text)
   })
 
-  ipcHandle(ipcMain, IPC.AGENT_PTY_RESIZE, (_event, sessionId: unknown, cols: unknown, rows: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENT_PTY_RESIZE, (event, sessionId: unknown, cols: unknown, rows: unknown) => {
+    assertMainFrame(event)
     const id = assertSessionId(sessionId)
     const { cols: c, rows: r } = validateShellResize(cols, rows)
     sessions.get(id)?.process.resize(c, r)
   })
 
-  ipcHandle(ipcMain, IPC.AGENT_PTY_KILL, (_event, sessionId: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENT_PTY_KILL, (event, sessionId: unknown) => {
+    assertMainFrame(event)
     const id = assertSessionId(sessionId)
     const session = sessions.get(id)
     if (session) {

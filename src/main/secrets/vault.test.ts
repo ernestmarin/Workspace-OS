@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -108,5 +108,18 @@ describe('secret name validation', () => {
   it('set() rejects an invalid name before touching the store', () => {
     const v = new Vault(dir, mockStore())
     expect(() => v.set('bad name', 'x')).toThrow(/invalid secret name/i)
+  })
+
+  it('writes secrets.json atomically via temp file + rename and leaves no temp residue (SEC-08)', () => {
+    const v = new Vault(dir, mockStore())
+    const renameSpy = vi.spyOn(fs, 'renameSync')
+    try {
+      v.set('OPENAI_API_KEY', 'sk-test-atomic')
+      expect(renameSpy).toHaveBeenCalled()
+      const entries = fs.readdirSync(dir)
+      expect(entries).toEqual(['secrets.json'])
+    } finally {
+      renameSpy.mockRestore()
+    }
   })
 })
