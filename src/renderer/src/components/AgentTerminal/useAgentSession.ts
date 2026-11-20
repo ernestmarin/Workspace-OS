@@ -1,12 +1,12 @@
 import { useSettings } from '../../hooks/useSettings'
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { findCommand, COMMANDS } from './slashCommands'
 import { sessionStore, newConversationId } from './sessionStore'
 import { reviewStore } from '../Review/reviewStore'
 import { activityStore } from '../Review/activityStore'
 import { emptyLedger, recordRun, type SessionLedger } from './budgetLedger'
 import { claimRun, settleRun, steerTarget } from './codexSteer'
-import { SpokenReplies } from './spokenReplies'
+import { OwnedReplies, type ReplyReaderState } from './ownedReplies'
 import type { AgentTermHandle } from './AgentXterm'
 import type { RunArtifact } from '../../types/workspace-api'
 import { basename as pathBase } from '../../lib/paths'
@@ -72,6 +72,8 @@ export interface AgentSession {
   artifacts: RunArtifactGroup[]
   submit: (raw: string) => void
   speakReplies: boolean
+  replySpeechState: ReplyReaderState
+  stopReplySpeech: () => void
   setSpeakReplies: (enabled: boolean) => void
   cancelAll: () => void
   rerun: () => void
@@ -107,14 +109,8 @@ export function useAgentSession(
   } | null>(null)
   const [ledger, setLedger] = useState<SessionLedger>(emptyLedger)
   const [artifacts, setArtifacts] = useState<RunArtifactGroup[]>([])
-  const [speakReplies, setSpeakRepliesState] = useState(false)
-  const speakRepliesRef = useRef(false)
-  const spokenReplies = useRef(new SpokenReplies())
-  const setSpeakReplies = useCallback((enabled: boolean) => {
-    speakRepliesRef.current = enabled
-    setSpeakRepliesState(enabled)
-    if (!enabled) spokenReplies.current.clear()
-  }, [])
+  const [replySpeechState, setReplySpeechState] = useState<ReplyReaderState>({ enabled: false, pending: false, activeCount: 0, destination: null })
+  const speakReplies = replySpeechState.enabled
 
   // Keep latest context in refs so the IPC listeners (set up once) read fresh values.
   const ctxRef = useRef({ activeFile, contextFiles, mode, agentName, model })
@@ -141,6 +137,27 @@ export function useAgentSession(
     },
     [sessionId]
   )
+
+  const replyReader = useMemo(() => new OwnedReplies(window.workspace.speech, {
+    onState: setReplySpeechState,
+    onError: (message) => write(fmtError(message)),
+  }), [write])
+  const setSpeakReplies = useCallback((enabled: boolean) => {
+    if (enabled) void replyReader.enable(sessionId)
+    else replyReader.disable()
+  }, [replyReader, sessionId])
+  const stopReplySpeech = useCallback(() => replyReader.stop(), [replyReader])
+  useEffect(() => {
+    const hide = (): void => replyReader.disable()
+    const visibility = (): void => { if (document.hidden) hide() }
+    window.addEventListener('pagehide', hide)
+    document.addEventListener('visibilitychange', visibility)
+    return () => {
+      window.removeEventListener('pagehide', hide)
+      document.removeEventListener('visibilitychange', visibility)
+      replyReader.disable()
+    }
+  }, [replyReader])
 
   const attachTerminal = useCallback((h: AgentTermHandle): void => {
     termRef.current = h
@@ -178,12 +195,11 @@ export function useAgentSession(
       if (ownedRuns.current.has(runId)) write(chunk)
     })
     const offAssistantText = window.workspace.agent.onAssistantText((runId, text) => {
-      if (speakRepliesRef.current && ownedRuns.current.has(runId)) spokenReplies.current.append(runId, text)
+      if (ownedRuns.current.has(runId)) replyReader.append(runId, text)
     })
     const offDone = window.workspace.agent.onDone((runId, code, checkpointId) => {
       if (!ownedRuns.current.has(runId)) return
-      const reply = spokenReplies.current.finish(runId, code === 0 && speakRepliesRef.current)
-      if (reply) void window.workspace.speech.speak(reply).catch(() => write(fmtError('Unable to read the agent reply; check Voice settings.')))
+      replyReader.finish(runId, code === 0)
       ownedRuns.current.delete(runId)
       if (code !== 0) write(fmtError(`[agent exited with code ${code}]`))
       finishRun(runId, code, checkpointId)
@@ -223,14 +239,13 @@ export function useAgentSession(
     return () => {
       offOutput()
       offAssistantText()
-      spokenReplies.current.clear()
       offDone()
       offArtifact()
       offArtifacts()
       offMeta()
       offActivity()
     }
-  }, [write, finishRun])
+  }, [write, finishRun, replyReader])
 
   const [personaModel, setPersonaModel] = useState<string>('')
   useEffect(() => {
@@ -266,7 +281,7 @@ export function useAgentSession(
       }
       const runId = newRunId()
       ownedRuns.current.add(runId)
-      if (speakRepliesRef.current) spokenReplies.current.begin(runId)
+      replyReader.begin(runId)
       claimRun(ownedCodexRuns.current, runId, ctxRef.current.model || personaModel || settings.agentModel)
       setRunningRunIds((prev) => [...prev, runId])
       setLastPrompt(rawInput)
@@ -292,12 +307,12 @@ export function useAgentSession(
         .catch((err: Error) => {
           ownedCodexRuns.current.delete(runId)
           ownedRuns.current.delete(runId)
-          spokenReplies.current.finish(runId, false)
+          replyReader.cancel(runId)
           write(fmtError(`[error] ${err.message}`))
           finishRun(runId, null, null)
         })
     },
-    [sessionId, write, finishRun, runningRunIds, personaModel, settings.agentModel]
+    [sessionId, write, finishRun, runningRunIds, personaModel, settings.agentModel, replyReader]
   )
 
   const submit = useCallback(
@@ -340,6 +355,7 @@ export function useAgentSession(
         if (command.runLocal) {
           const result = command.runLocal(args, ctxRef.current)
           if (result.kind === 'clear') {
+            replyReader.stop()
             termRef.current?.clear()
             convoRef.current = newConversationId() // /clear starts a fresh conversation
             sessionStore.update(sessionId, { transcript: '', conversationId: convoRef.current })
@@ -365,17 +381,17 @@ export function useAgentSession(
       // Bare text → ask the agent directly.
       startAgentRun(input, input)
     },
-    [recordHistory, write, startAgentRun, runningRunIds.length, sessionId]
+    [recordHistory, write, startAgentRun, runningRunIds.length, sessionId, replyReader]
   )
 
   const cancelAll = useCallback(() => {
+    replyReader.stop()
     for (const runId of runningRunIds) {
-      spokenReplies.current.finish(runId, false)
       window.workspace.agent.cancel(runId)
     }
     if (runningRunIds.length) write(fmtSystem('[stopped]'))
     setRunningRunIds([])
-  }, [runningRunIds, write])
+  }, [runningRunIds, write, replyReader])
 
   const rerun = useCallback(() => {
     if (lastPrompt) submit(lastPrompt)
@@ -391,10 +407,11 @@ export function useAgentSession(
 
   const setModel = useCallback(
     (m: string) => {
+      replyReader.stop()
       setModelState(m)
       sessionStore.update(sessionId, { model: m })
     },
-    [sessionId]
+    [sessionId, replyReader]
   )
   const setMode = useCallback(
     (m: AgentMode) => {
@@ -406,10 +423,11 @@ export function useAgentSession(
 
   const setAgentName = useCallback(
     (n: string | null) => {
+      replyReader.stop()
       setAgentNameState(n)
       sessionStore.update(sessionId, { agentName: n })
     },
-    [sessionId]
+    [sessionId, replyReader]
   )
 
   const status: SessionStatus =
@@ -445,6 +463,8 @@ export function useAgentSession(
     artifacts,
     submit,
     speakReplies,
+    replySpeechState,
+    stopReplySpeech,
     setSpeakReplies,
     cancelAll,
     rerun,

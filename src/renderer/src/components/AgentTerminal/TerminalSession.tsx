@@ -62,14 +62,13 @@ export function TerminalSession({
   const {
     attachTerminal, history, status, runningCount, lastExitCode, lastPrompt,
     canRevert, lastCheckpointId, reverted, mode, setMode, agentName, setAgentName,
-    ledger, artifacts, submit, speakReplies, setSpeakReplies, cancelAll, rerun, revertLast,
+    ledger, artifacts, submit, speakReplies, replySpeechState, stopReplySpeech, setSpeakReplies, cancelAll, rerun, revertLast,
   } = session
-  // Switching away disarms future readings; it does not cancel an agent run or
-  // stop unrelated audio that may already be playing.
+  // Switching away revokes only this tab's pending/playing reply readings.
+  // Agent actions and unrelated manual/other-tab audio remain untouched.
   useEffect(() => { if (!active || runMode !== 'prompt') setSpeakReplies(false) }, [active, runMode, setSpeakReplies])
   const toggleSpokenReplies = useCallback(() => {
-    if (speakReplies) { setSpeakReplies(false); return }
-    if (window.confirm('Read future agent replies aloud in this tab? The configured Voice engine will process the reply; a cloud engine sends its text to that provider. This does not enable the microphone.')) setSpeakReplies(true)
+    setSpeakReplies(!speakReplies)
   }, [speakReplies, setSpeakReplies])
   const budget = formatLedger(ledger)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -191,10 +190,25 @@ export function TerminalSession({
           type="button"
           aria-pressed={speakReplies}
           onClick={toggleSpokenReplies}
-          title="Opt in to reading completed agent replies using the configured Voice engine; no microphone"
+          aria-busy={replySpeechState.pending}
+          disabled={replySpeechState.pending || !active}
+          title={replySpeechState.destination
+            ? `Reply voice: ${replySpeechState.destination.engine} · ${replySpeechState.destination.voice}. Fixed until off/on. Click to stop this tab's replies; agent actions continue.`
+            : 'Ask permission to read completed agent replies with a fixed Voice engine; no microphone'}
         >
-          {speakReplies ? '🔊 Replies on' : '🔇 Read replies'}
+          {replySpeechState.pending ? 'Reply permission…' : speakReplies ? '🔊 Replies on' : '🔇 Read replies'}
         </button>
+        {speakReplies && (
+          <button
+            className={styles.modeToggle}
+            type="button"
+            onClick={stopReplySpeech}
+            disabled={replySpeechState.activeCount === 0}
+            title="Stop only this tab's pending and playing reply audio. Agent actions continue; future prompt runs may still be read."
+          >
+            ■ Stop reply audio
+          </button>
+        )}
 
         <VoiceDictation active={active} onTranscript={acceptDictation} />
 

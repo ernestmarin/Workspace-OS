@@ -2,6 +2,14 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../main/ipc-channels'
 import type { AgentRunFailure } from '../shared/agentRun'
 import type { PlaybackMessage, SpeechUiEvent } from '../shared/speech/playback'
+import type { ReplySpeechApi } from '../shared/speech/replies'
+
+const replySpeech: ReplySpeechApi = {
+  openReplySession: (tabId) => ipcRenderer.invoke(IPC.SPEECH_REPLY_OPEN, tabId),
+  reserveReply: (sessionId, runId) => ipcRenderer.invoke(IPC.SPEECH_REPLY_RESERVE, sessionId, runId),
+  finishReply: (sessionId, replyId, text) => ipcRenderer.invoke(IPC.SPEECH_REPLY_FINISH, sessionId, replyId, text),
+  closeReplySession: (sessionId) => ipcRenderer.invoke(IPC.SPEECH_REPLY_CLOSE, sessionId),
+}
 
 /**
  * Exposes a strictly-typed, minimal API to the renderer.
@@ -9,6 +17,7 @@ import type { PlaybackMessage, SpeechUiEvent } from '../shared/speech/playback'
  */
 contextBridge.exposeInMainWorld('workspace', {
   speech: {
+    ...replySpeech,
     speak: (text: string) => ipcRenderer.invoke(IPC.SPEECH_SPEAK, text),
     authorizeMicrophone: (token: string) => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_AUTHORIZE, token),
     revokeMicrophone: (token: string) => ipcRenderer.invoke(IPC.SPEECH_MICROPHONE_REVOKE, token),
