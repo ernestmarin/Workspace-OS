@@ -83,7 +83,7 @@ export function BugReporter({ onClose, surface, openFile }: {
       setError((e as Error).message)
       setPhase('review')
     }
-  }, [text, surface, openFile])
+  }, [text, surface, openFile, kind])
 
   const file = useCallback(async (withAnalysis: boolean) => {
     if (!context) return
@@ -95,7 +95,7 @@ export function BugReporter({ onClose, surface, openFile }: {
     } catch (e) {
       setError((e as Error).message)
     }
-  }, [text, analysis, context])
+  }, [text, analysis, context, kind])
 
   const edit = <K extends keyof BugAnalysis>(k: K, v: BugAnalysis[K]): void =>
     setAnalysis((a) => (a ? { ...a, [k]: v } : a))

@@ -2,6 +2,19 @@ import { useEffect, useState } from 'react'
 import type { SpeechStatus } from '../../../../shared/speech/types'
 import styles from '../Settings/SettingsPanel.module.css'
 
+/**
+ * How each readiness state is shown. Only `verified_offline` may read as ready —
+ * the mapping lives next to the UI that renders it so the wording and the
+ * classification cannot drift.
+ */
+const READINESS_LABEL: Record<string, string> = {
+  verified_offline: 'verified offline (checksums match)',
+  unverified_files_present: 'files present, NOT verified — local speech stays off',
+  corrupt: 'corrupt — a file does not match its recorded checksum',
+  missing: 'missing',
+  invalid_location: 'refused — outside the model folder, or a symbolic link',
+}
+
 export function VoiceSettings(): JSX.Element {
   const [engine, setEngine] = useState<'kokoro' | 'openai'>('kokoro')
   const [voice, setVoice] = useState('af_heart')
@@ -15,6 +28,12 @@ export function VoiceSettings(): JSX.Element {
   const [lookahead, setLookahead] = useState<boolean | null>(null)
   const [savingLookahead, setSavingLookahead] = useState(false)
   const [kokoroFiles, setKokoroFiles] = useState<Awaited<ReturnType<typeof window.workspace.speech.kokoroStatus>> | null>(null)
+  // VOX-A4c: artifact-level integrity, so "present" is never shown as "ready".
+  const [models, setModels] = useState<Awaited<ReturnType<typeof window.workspace.speech.modelDiagnostics>> | null>(null)
+  const [checkingModels, setCheckingModels] = useState(false)
+  // A failed check must not look like "nothing to report": an unreadable model
+  // folder is exactly when the panel matters.
+  const [modelError, setModelError] = useState<string | null>(null)
   useEffect(() => {
     let mounted = true
     void window.workspace.speech.config().then((config) => {
@@ -28,6 +47,9 @@ export function VoiceSettings(): JSX.Element {
     refreshInstall()
     const timer = window.setInterval(refreshInstall, 2000)
     void window.workspace.speech.kokoroStatus().then((s) => { if (mounted) setKokoroFiles(s) }).catch(() => {})
+    void window.workspace.speech.modelDiagnostics()
+      .then((s) => { if (mounted) setModels(s) })
+      .catch((error: Error) => { if (mounted) setModelError(error.message) })
     void window.workspace.speech.keyStatus().then((s) => { if (mounted) setKeySet(!!s.SPEECH_OPENAI_API_KEY) }).catch(() => {})
     void window.workspace.speech.status().then((s) => { if (mounted) setStatus(s) }).catch(() => {})
     const unsubscribe = window.workspace.speech.onEvent((event) => {
@@ -74,6 +96,41 @@ export function VoiceSettings(): JSX.Element {
         <span>Put kokoro-v1.0-duration.onnx and voices-v1.0.bin in its models folder. File presence is not a synthesis test; see docs/voice.md for details.</span>
         <button type="button" className={styles.btn} onClick={() => void window.workspace.speech.kokoroStatus().then(setKokoroFiles).catch((error: Error) => setNotice(error.message))}>Refresh file status</button>
       </>}
+      <div data-testid="model-integrity">
+        <span><strong>Local model integrity</strong> — files present is not the same as verified.</span>
+        {models ? (
+          <>
+            <span className={styles.hint}>Checked {new Date(models.checkedAt).toLocaleString()} · manifest v{models.manifestVersion}</span>
+            {models.models.map((m) => (
+              <span key={m.id} data-model={m.id} data-readiness={m.readiness}>
+                {m.label}: {READINESS_LABEL[m.readiness]}
+                {m.counts.artifacts > 0 && ` (${m.counts.verified}/${m.counts.artifacts} verified`}
+                {m.counts.unverified > 0 && `, ${m.counts.unverified} unverified`}
+                {m.counts.corrupt > 0 && `, ${m.counts.corrupt} mismatched`}
+                {m.counts.missing > 0 && `, ${m.counts.missing} missing`}
+                {m.counts.artifacts > 0 && ')'}
+                {m.recovery.map((hint) => (
+                  <span key={hint.code} className={styles.hint}> · {hint.message}</span>
+                ))}
+              </span>
+            ))}
+          </>
+        ) : <span className={styles.hint}>{modelError ? `Verification failed: ${modelError}` : 'Model integrity has not been checked yet.'}</span>}
+        <button
+          type="button"
+          className={styles.btn}
+          disabled={checkingModels}
+          onClick={() => {
+            setCheckingModels(true)
+            setModelError(null)
+            void window.workspace.speech.modelDiagnostics()
+              .then((next) => { setModels(next); setModelError(null) })
+              .catch((error: Error) => { setModelError(error.message); setNotice(error.message) })
+              .finally(() => setCheckingModels(false))
+          }}
+        >{checkingModels ? 'Verifying…' : 'Verify model files'}</button>
+        <span className={styles.hint}>Verification reads the files and compares pinned checksums offline. Nothing is downloaded, and no file is modified or removed.</span>
+      </div>
     </div>}
     <label className={styles.field}>Voice
       <select className={styles.select} value={voice} onChange={(e) => {

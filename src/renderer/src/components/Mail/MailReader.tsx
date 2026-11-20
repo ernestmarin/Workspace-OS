@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react'
 import { Paperclip, ShieldAlert, Reply, ReplyAll, Forward, Download, ImageIcon, Printer, Code2 } from 'lucide-react'
 import type { FullMessage, MailCategory } from '../../types/workspace-api'
 import styles from './MailPanel.module.css'
+import { CONTENT_CSP, promoteRemoteContent } from '../../lib/previewCsp'
 
 interface MailReaderProps {
   message: FullMessage
@@ -129,8 +130,7 @@ export function MailReader({ message, onReply, onQuickReply, accountId, folder }
      * this policy already permits. That keeps the app-wide policy untouched and
      * tells the sender less than a direct load would: no cookies, no referrer.
      */
-    const csp =
-      "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; media-src data:;"
+    const csp = CONTENT_CSP
 
     let rendered = message.html
     if (showRemote && rendered) {
@@ -138,14 +138,7 @@ export function MailReader({ message, onReply, onQuickReply, accountId, folder }
       // the bytes main fetched. A URL with no entry (blocked host, wrong
       // content type, too large, dead server) stays inert rather than becoming
       // a live request the iframe cannot make anyway.
-      rendered = rendered.replace(
-        /\sdata-blocked-(src|srcset|background|poster)\s*=\s*("|')([^"']*)\2/gi,
-        (whole, attr: string, quote: string, url: string) => {
-          const data = remoteImages[url]
-          if (!data) return whole
-          return ` ${attr.toLowerCase()}=${quote}${data}${quote}`
-        },
-      )
+      rendered = promoteRemoteContent(rendered, remoteImages)
     }
 
     const body = rendered

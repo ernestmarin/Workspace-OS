@@ -1121,7 +1121,7 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    *
    * Reads the local index, so it costs no network and appears instantly.
    */
-  ipcHandle(ipcMain, 'mail:newsletters:propose', async (_e, accountId: unknown, folder: unknown, days: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_NEWSLETTERS_PROPOSE, async (_e, accountId: unknown, folder: unknown, days: unknown) => {
     const id = asString(accountId, 64)
     const f = asString(folder, 512)
     const n = Number(days)
@@ -1162,7 +1162,7 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * failures instead of abandoning the batch. A second implementation would
    * have to earn all of that again, and would be the one that got it wrong.
    */
-  ipcHandle(ipcMain, 'mail:newsletters:file', async (_e, accountId: unknown, sweep: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_NEWSLETTERS_FILE, async (_e, accountId: unknown, sweep: unknown) => {
     const s = sweep as { folder?: string; messages?: { folder: string; uid: number; subject: string }[] }
     if (!s?.messages?.length) return { ok: true as const, value: { moved: 0, failed: 0, created: 0 } }
     const plan = {
@@ -1181,16 +1181,16 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
 
   /* ── how mail is sorted, and the rules that override it ─────────────────── */
 
-  ipcHandle(ipcMain, 'mail:rules:list', () => ruleStore().list())
-  ipcHandle(ipcMain, 'mail:rules:add', (_e, rule: unknown) => ruleStore().add(rule))
-  ipcHandle(ipcMain, 'mail:rules:update', (_e, id: unknown, patch: unknown) =>
+  ipcHandle(ipcMain, IPC.MAIL_RULES_LIST, () => ruleStore().list())
+  ipcHandle(ipcMain, IPC.MAIL_RULES_ADD, (_e, rule: unknown) => ruleStore().add(rule))
+  ipcHandle(ipcMain, IPC.MAIL_RULES_UPDATE, (_e, id: unknown, patch: unknown) =>
     ruleStore().update(asString(id, 80), patch),
   )
-  ipcHandle(ipcMain, 'mail:rules:remove', async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_RULES_REMOVE, async (_e, id: unknown) => {
     await ruleStore().remove(asString(id, 80))
     return { ok: true }
   })
-  ipcHandle(ipcMain, 'mail:rules:reorder', (_e, id: unknown, delta: unknown) =>
+  ipcHandle(ipcMain, IPC.MAIL_RULES_REORDER, (_e, id: unknown, delta: unknown) =>
     ruleStore().reorder(asString(id, 80), Number(delta) < 0 ? -1 : 1),
   )
 
@@ -1201,7 +1201,7 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * it. A classifier the person cannot see is one they cannot correct, and the
    * correction is the whole point of the rules.
    */
-  ipcHandle(ipcMain, 'mail:classify', async (_e, accountId: unknown, folder: unknown, uid: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_CLASSIFY, async (_e, accountId: unknown, folder: unknown, uid: unknown) => {
     const res = await ensureService().fetchMessage(asString(accountId, 64), asString(folder, 512), Number(uid))
     if (!res.ok) return res
     const m = res.value

@@ -550,14 +550,12 @@ export function useLokInput({
     const w = x1 - x0, h = y1 - y0
     if (w <= 0 || h <= 0) return null // nothing on-screen changed
     return { x: x0, y: y0, w, h }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleDocRect])
 
   const settleShapeRegion = useCallback((oldB: Rect, newB: Rect) => {
     const r = settleRect(oldB, newB)
     if (!r) { scheduleRepaint(); return }
     window.setTimeout(() => scheduleRegionRepaint(r.x, r.y, r.w, r.h), 30)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settleRect, scheduleRegionRepaint, scheduleRepaint])
 
   // Commit a finished shape drag through the MODEL API and settle the pixels.
@@ -689,7 +687,7 @@ export function useLokInput({
     void window.workspace.lok.mouse({ type: 0, x: t.x, y: t.y, count: 1, buttons: RIGHT, modifier: 0 })
     void window.workspace.lok.mouse({ type: 1, x: t.x, y: t.y, count: 1, buttons: RIGHT, modifier: 0 })
     return true
-  }, [evToTwips])
+  }, [evToTwips, docWrapRef, lastPointerTwRef])
 
   return { onKeyDown, onMouseDown, onMouseMove, onMouseUp, onContextMenuEvent }
 }

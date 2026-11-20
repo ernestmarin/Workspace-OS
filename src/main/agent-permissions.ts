@@ -138,7 +138,6 @@ export function isValidClaudeSessionId(sid: unknown): sid is string {
 
 export const MAX_CONTEXT_FILES = 32
 const MAX_PATH_CHARS = 1024
-// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/
 
 /**

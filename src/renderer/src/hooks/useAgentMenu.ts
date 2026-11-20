@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface AgentMenuArgs {
   /** Only the visible/active agent session drives the native Agent menu. */
@@ -36,10 +36,23 @@ export function useAgentMenu(a: AgentMenuArgs): void {
     return () => { cancelled = true }
   }, [a.model, a.active, a.mode, a.agentName, a.agents])
 
-  // Route menu clicks while active.
+  /*
+   * Route menu clicks while active.
+   *
+   * The handler reads the whole menu surface, most of which is rebuilt on every
+   * render (`a.agents` is a fresh array). Listing all of it re-subscribed to the
+   * menu channel on every parent render; a ref keeps the subscription stable
+   * while still calling the CURRENT callbacks, which is what the route table
+   * actually needs.
+   */
+  const menuRef = useRef(a)
+  useEffect(() => {
+    menuRef.current = a
+  }, [a])
   useEffect(() => {
     if (!a.active) return
     return window.workspace.menu.onRunAction((id) => {
+      const a = menuRef.current
       if (id === 'agent.focus') window.dispatchEvent(new CustomEvent('wos:focus-agent'))
       else if (id === 'agent.new') a.onNewAgent()
       else if (id === 'shell.new') window.dispatchEvent(new CustomEvent('wos:new-shell'))
@@ -49,5 +62,5 @@ export function useAgentMenu(a: AgentMenuArgs): void {
       else if (id.startsWith('skill.run:')) a.onRunSkill(id.slice('skill.run:'.length))
       // other ids (file actions) are handled elsewhere
     })
-  }, [a.model, a.active, a.setMode, a.selectAgent, a.onRunSkill, a.onNewAgent])
+  }, [a.active])
 }

@@ -5,6 +5,7 @@ import path from 'path'
 import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
+import { IPC } from '../ipc-channels'
 
 /**
  * Chat's two needs from the main process:
@@ -58,7 +59,7 @@ export function writeUpload(root: string, name: string, bytes: Uint8Array, now =
 }
 
 export function registerChatHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, 'chat:upload', (_e, name: unknown, data: unknown) => {
+  ipcHandle(ipcMain, IPC.CHAT_UPLOAD, (_e, name: unknown, data: unknown) => {
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('Open a workspace folder first')
     if (typeof name !== 'string' || !name.trim()) throw new IpcValidationError('Which file?')
@@ -70,7 +71,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
   // Saved only into a workspace the app opened in this run (the one just left
   // still gets its last words), and always into the one named, never the open one by default.
   const opened = new Set<string>()
-  ipcHandle(ipcMain, 'sessions:load', () => {
+  ipcHandle(ipcMain, IPC.SESSIONS_LOAD, () => {
     const root = getWorkspaceRoot()
     if (!root) return null
     opened.add(root)
@@ -80,7 +81,7 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       return { root, json: null }
     }
   })
-  ipcHandle(ipcMain, 'sessions:save', (_e, forRoot: unknown, json: unknown) => {
+  ipcHandle(ipcMain, IPC.SESSIONS_SAVE, (_e, forRoot: unknown, json: unknown) => {
     if (typeof forRoot !== 'string' || !opened.has(forRoot)) return { ok: false }
     const root = forRoot
     if (typeof json !== 'string' || json.length > MAX_SESSIONS_BYTES) throw new IpcValidationError('Sessions too large to save')

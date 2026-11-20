@@ -52,12 +52,17 @@ export function useMicrophoneDevices(enabled: boolean): {
   }, [])
 
   useEffect(() => {
-    if (!enabled) { generation.current++; setRefreshing(false) }
+    // A per-effect handled counter keeps this effect's teardown from invalidating
+    // a refresh that a NEWER effect started: the bump is scoped to its own run.
+    const handled = generation
+    if (!enabled) { handled.current++; setRefreshing(false) }
     const changed = (): void => { if (requested.current) refresh() }
     const media = navigator.mediaDevices
     if (enabled) media?.addEventListener?.('devicechange', changed)
     return () => {
-      generation.current++
+      // Reading through the alias is the same live counter (a ref's identity is
+      // stable); naming it makes the intent explicit rather than implicit.
+      handled.current++
       media?.removeEventListener?.('devicechange', changed)
     }
   }, [enabled, refresh])

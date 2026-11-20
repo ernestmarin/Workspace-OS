@@ -4,6 +4,27 @@ import type { SpeechStatus, TtsEngine } from '../../../shared/speech/types'
 import type { PlaybackMessage, SpeechUiEvent } from '../../../shared/speech/playback'
 import type { ReplySpeechApi } from '../../../shared/speech/replies'
 
+/* ── Local speech model integrity. Mirrors src/main/speech/modelDiagnostics.ts. ── */
+export type ModelReadiness = 'missing' | 'unverified_files_present' | 'corrupt' | 'verified_offline' | 'invalid_location'
+export interface SpeechModelDiagnostic {
+  id: string
+  label: string
+  role: string
+  license: string
+  notes: string
+  modelDir: string
+  readiness: ModelReadiness
+  counts: { artifacts: number; present: number; verified: number; unverified: number; corrupt: number; missing: number; invalid: number }
+  artifacts: { relativePath: string; status: string; bytes: number; actualSha256?: string }[]
+  recovery: { code: string; message: string; files?: string[] }[]
+  ready: boolean
+}
+export interface SpeechModelDiagnosticsReport {
+  manifestVersion: number
+  checkedAt: string
+  models: SpeechModelDiagnostic[]
+}
+
 /** A case's numbers, computed from one CSV artifact (see main/case-insights). */
 export interface ArtifactInsight {
   file: string
@@ -292,6 +313,12 @@ export interface WorkspaceApi {
     cancelKokoroInstall(): Promise<void>
     installKokoroDependencies(): ReturnType<WorkspaceApi['speech']['kokoroStatus']>
     kokoroStatus(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
+    /**
+     * VOX-A4c — artifact-level model integrity. Mirrors
+     * src/main/speech/modelDiagnostics.ts (the renderer cannot import main).
+     * `ready` is true only for `verified_offline`.
+     */
+    modelDiagnostics(): Promise<SpeechModelDiagnosticsReport>
     prepareKokoro(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
     config(): Promise<{ playback: { prefetch_next_fragment: boolean }; trigger: { max_text_length: number }; tts: { active_profile_id: string; profiles: { id: string; engine: TtsEngine; voice: string }[] }; hotkey: { enabled: boolean; shortcut: string } }>
     selectEngine(engine: 'kokoro' | 'openai' | 'piper', voice: string): Promise<void>

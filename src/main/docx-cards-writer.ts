@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import JSZip from 'jszip'
+import { readEntryBounded } from './docx-zip'
 import { recordCell, type CollectionRecord } from './collections'
 
 /**
@@ -214,7 +215,10 @@ export async function setDocCards(
     zip = await JSZip.loadAsync(buf)
     const entry = zip.file('word/document.xml')
     if (!entry) return skip('no-document-xml')
-    docXml = await entry.async('string')
+    // Bounded: a 199 KB package can declare (and expand to) hundreds of MB.
+    const read = await readEntryBounded(entry)
+    if (!read.ok) return skip(read.reason === 'too-large' ? 'document-too-large' : 'not-valid-docx')
+    docXml = read.text
   } catch {
     return skip('not-valid-docx')
   }
@@ -232,6 +236,9 @@ export async function setDocCards(
     const verifyZip = await JSZip.loadAsync(fs.readFileSync(tmp))
     const vEntry = verifyZip.file('word/document.xml')
     if (!vEntry) throw new Error('verify: no document.xml')
+    // A bounded read here too: if our own output somehow grew past the ceiling,
+    // the temp file must not be renamed into place. Verified by the anchor
+    // checks below, which need the full text.
     const vXml = await vEntry.async('string')
     // Both anchors must survive so the region stays re-syncable.
     if (!vXml.includes(`w:name="${cardsStartName(tag)}"`)) throw new Error('verify: start lost')

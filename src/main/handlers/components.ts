@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
+import { IPC } from '../ipc-channels'
 
 /** A reusable design component (Framer-style asset) with exposed variables. */
 export interface Component {
@@ -83,9 +84,9 @@ function sanitize(input: unknown): Component {
 }
 
 export function registerComponentsHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, 'components:list', () => readAll())
+  ipcHandle(ipcMain, IPC.COMPONENTS_LIST, () => readAll())
 
-  ipcHandle(ipcMain, 'components:save', (_e, input: unknown) => {
+  ipcHandle(ipcMain, IPC.COMPONENTS_SAVE, (_e, input: unknown) => {
     const c = sanitize(input)
     const list = readAll()
     const i = list.findIndex((x) => x.id === c.id)
@@ -95,7 +96,7 @@ export function registerComponentsHandlers(ipcMain: IpcMain): void {
     return c
   })
 
-  ipcHandle(ipcMain, 'components:delete', (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.COMPONENTS_DELETE, (_e, id: unknown) => {
     if (typeof id !== 'string') throw new IpcValidationError('Invalid component id')
     writeAll(readAll().filter((c) => c.id !== id))
   })

@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('workspace', {
     setLookahead: (enabled: boolean) => ipcRenderer.invoke(IPC.SPEECH_SET_LOOKAHEAD, enabled),
     status: () => ipcRenderer.invoke(IPC.SPEECH_STATUS),
     kokoroStatus: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_STATUS),
+    modelDiagnostics: () => ipcRenderer.invoke(IPC.SPEECH_MODEL_DIAGNOSTICS),
     installKokoroDependencies: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_INSTALL),
     kokoroInstallStatus: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_INSTALL_STATUS),
     cancelKokoroInstall: () => ipcRenderer.invoke(IPC.SPEECH_KOKORO_INSTALL_CANCEL),
@@ -52,20 +53,20 @@ contextBridge.exposeInMainWorld('workspace', {
     },
   },
   print: {
-    document: (title: string, html: string) => ipcRenderer.invoke('print:document', title, html),
+    document: (title: string, html: string) => ipcRenderer.invoke(IPC.PRINT_DOCUMENT, title, html),
   },
   pdf: {
-    print: (filePath: string, annotations: unknown) => ipcRenderer.invoke('pdf:print', filePath, annotations),
-    readAnnotations: (filePath: string) => ipcRenderer.invoke('pdf:annotations:read', filePath),
-    writeAnnotations: (filePath: string, doc: unknown) => ipcRenderer.invoke('pdf:annotations:write', filePath, doc),
+    print: (filePath: string, annotations: unknown) => ipcRenderer.invoke(IPC.PDF_PRINT, filePath, annotations),
+    readAnnotations: (filePath: string) => ipcRenderer.invoke(IPC.PDF_ANNOTATIONS_READ, filePath),
+    writeAnnotations: (filePath: string, doc: unknown) => ipcRenderer.invoke(IPC.PDF_ANNOTATIONS_WRITE, filePath, doc),
     exportAnnotated: (filePath: string, annotations: unknown, inPlace?: boolean) =>
-      ipcRenderer.invoke('pdf:export', filePath, annotations, inPlace === true),
-    reorderPages: (filePath: string, order: number[]) => ipcRenderer.invoke('pdf:pages:reorder', filePath, order),
-    rotatePage: (filePath: string, page: number, delta: number) => ipcRenderer.invoke('pdf:pages:rotate', filePath, page, delta),
-    readForm: (filePath: string) => ipcRenderer.invoke('pdf:form:read', filePath),
-    fillForm: (filePath: string, values: Record<string, string>) => ipcRenderer.invoke('pdf:form:fill', filePath, values),
+      ipcRenderer.invoke(IPC.PDF_EXPORT, filePath, annotations, inPlace === true),
+    reorderPages: (filePath: string, order: number[]) => ipcRenderer.invoke(IPC.PDF_PAGES_REORDER, filePath, order),
+    rotatePage: (filePath: string, page: number, delta: number) => ipcRenderer.invoke(IPC.PDF_PAGES_ROTATE, filePath, page, delta),
+    readForm: (filePath: string) => ipcRenderer.invoke(IPC.PDF_FORM_READ, filePath),
+    fillForm: (filePath: string, values: Record<string, string>) => ipcRenderer.invoke(IPC.PDF_FORM_FILL, filePath, values),
     sign: (filePath: string, pngBase64: string, page: number, rect: { x: number; y: number; w: number; h: number }) =>
-      ipcRenderer.invoke('pdf:sign', filePath, pngBase64, page, rect),
+      ipcRenderer.invoke(IPC.PDF_SIGN, filePath, pngBase64, page, rect),
   },
   /**
    * Google Drive, over the API. The in-app browser cannot sign into Google —
@@ -73,25 +74,25 @@ contextBridge.exposeInMainWorld('workspace', {
    * asks desktop apps to do.
    */
   drive: {
-    connection: () => ipcRenderer.invoke('drive:connection'),
-    connect: (access: 'readOnly' | 'full' | 'appFiles') => ipcRenderer.invoke('drive:connect', access),
-    disconnect: () => ipcRenderer.invoke('drive:disconnect'),
-    list: (folderId?: string, pageToken?: string) => ipcRenderer.invoke('drive:list', folderId, pageToken),
-    search: (query: string) => ipcRenderer.invoke('drive:search', query),
+    connection: () => ipcRenderer.invoke(IPC.DRIVE_CONNECTION),
+    connect: (access: 'readOnly' | 'full' | 'appFiles') => ipcRenderer.invoke(IPC.DRIVE_CONNECT, access),
+    disconnect: () => ipcRenderer.invoke(IPC.DRIVE_DISCONNECT),
+    list: (folderId?: string, pageToken?: string) => ipcRenderer.invoke(IPC.DRIVE_LIST, folderId, pageToken),
+    search: (query: string) => ipcRenderer.invoke(IPC.DRIVE_SEARCH, query),
     /** Fetches into <workspace>/Drive and returns the local path. */
-    open: (fileId: string) => ipcRenderer.invoke('drive:open', fileId),
-    save: (fileId: string, localPath: string) => ipcRenderer.invoke('drive:save', fileId, localPath),
+    open: (fileId: string) => ipcRenderer.invoke(IPC.DRIVE_OPEN, fileId),
+    save: (fileId: string, localPath: string) => ipcRenderer.invoke(IPC.DRIVE_SAVE, fileId, localPath),
   },
   calendar: {
-    sources: () => ipcRenderer.invoke('calendar:sources'),
-    test: (input: unknown) => ipcRenderer.invoke('calendar:test', input),
-    add: (input: unknown) => ipcRenderer.invoke('calendar:add', input),
-    update: (id: string, patch: unknown) => ipcRenderer.invoke('calendar:update', id, patch),
-    remove: (id: string) => ipcRenderer.invoke('calendar:remove', id),
-    events: (from: number, to: number) => ipcRenderer.invoke('calendar:events', from, to),
+    sources: () => ipcRenderer.invoke(IPC.CALENDAR_SOURCES),
+    test: (input: unknown) => ipcRenderer.invoke(IPC.CALENDAR_TEST, input),
+    add: (input: unknown) => ipcRenderer.invoke(IPC.CALENDAR_ADD, input),
+    update: (id: string, patch: unknown) => ipcRenderer.invoke(IPC.CALENDAR_UPDATE, id, patch),
+    remove: (id: string) => ipcRenderer.invoke(IPC.CALENDAR_REMOVE, id),
+    events: (from: number, to: number) => ipcRenderer.invoke(IPC.CALENDAR_EVENTS, from, to),
     /** Create an event. Lands in the app's own local calendar, never a feed. */
-    writeTargets: () => ipcRenderer.invoke('calendar:write-targets'),
-    setDefaultTarget: (id: string | null) => ipcRenderer.invoke('calendar:set-default-target', id),
+    writeTargets: () => ipcRenderer.invoke(IPC.CALENDAR_WRITE_TARGETS),
+    setDefaultTarget: (id: string | null) => ipcRenderer.invoke(IPC.CALENDAR_SET_DEFAULT_TARGET, id),
     createEvent: (input: {
       summary: string
       start: number
@@ -104,7 +105,7 @@ contextBridge.exposeInMainWorld('workspace', {
       /** People the SERVER should invite. */
       attendees?: { email: string; name?: string }[]
     }) =>
-      ipcRenderer.invoke('calendar:create-event', input),
+      ipcRenderer.invoke(IPC.CALENDAR_CREATE_EVENT, input),
     /** Edit an event where it lives — local file by uid, server event by its href.
      * For a recurring event, `scope` says which slice: one occurrence or the series. */
     updateEvent: (
@@ -113,12 +114,12 @@ contextBridge.exposeInMainWorld('workspace', {
         summary: string; start: number; end: number; allDay?: boolean; location?: string; description?: string
         attendees?: { email: string; name?: string }[]
       },
-    ) => ipcRenderer.invoke('calendar:update-event', ref, changes),
+    ) => ipcRenderer.invoke(IPC.CALENDAR_UPDATE_EVENT, ref, changes),
     removeEvent: (
       ref: string | { uid: string; sourceId?: string; href?: string; scope?: 'occurrence'; occurrence?: number },
-    ) => ipcRenderer.invoke('calendar:remove-event', ref),
+    ) => ipcRenderer.invoke(IPC.CALENDAR_REMOVE_EVENT, ref),
     connectOAuth: (provider: 'google' | 'microsoft', displayName: string) =>
-      ipcRenderer.invoke('calendar:connect-oauth', provider, displayName),
+      ipcRenderer.invoke(IPC.CALENDAR_CONNECT_OAUTH, provider, displayName),
   },
   fs: {
     readDir: (dirPath: string) => ipcRenderer.invoke(IPC.FS_READ_DIR, dirPath),
@@ -128,22 +129,22 @@ contextBridge.exposeInMainWorld('workspace', {
     rename: (oldPath: string, newName: string) => ipcRenderer.invoke(IPC.FS_RENAME, oldPath, newName),
     create: (dirPath: string, name: string, isDirectory: boolean) =>
       ipcRenderer.invoke(IPC.FS_CREATE, dirPath, name, isDirectory),
-    readFileBytes: (filePath: string) => ipcRenderer.invoke('fs:read-file-bytes', filePath),
-    openFolderDialog: () => ipcRenderer.invoke('fs:open-folder-dialog'),
-    saveCopyDialog: (srcPath: string) => ipcRenderer.invoke('fs:save-copy-dialog', srcPath),
-    getWorkspaceRoot: () => ipcRenderer.invoke('workspace:get-root'),
-    writeAgentNote: (name: string, body: string) => ipcRenderer.invoke('workspace:write-agent-note', name, body),
-    getContentRoot: () => ipcRenderer.invoke('workspace:content-root'),
-    closeWorkspace: () => ipcRenderer.invoke('workspace:close'),
-    listFiles: () => ipcRenderer.invoke('fs:list-files'),
-    recentWorkspaces: () => ipcRenderer.invoke('workspace:recents'),
-    openWorkspace: (dir: string) => ipcRenderer.invoke('workspace:open-recent', dir),
+    readFileBytes: (filePath: string) => ipcRenderer.invoke(IPC.FS_READ_FILE_BYTES, filePath),
+    openFolderDialog: () => ipcRenderer.invoke(IPC.FS_OPEN_FOLDER_DIALOG),
+    saveCopyDialog: (srcPath: string) => ipcRenderer.invoke(IPC.FS_SAVE_COPY_DIALOG, srcPath),
+    getWorkspaceRoot: () => ipcRenderer.invoke(IPC.WORKSPACE_GET_ROOT),
+    writeAgentNote: (name: string, body: string) => ipcRenderer.invoke(IPC.WORKSPACE_WRITE_AGENT_NOTE, name, body),
+    getContentRoot: () => ipcRenderer.invoke(IPC.WORKSPACE_CONTENT_ROOT),
+    closeWorkspace: () => ipcRenderer.invoke(IPC.WORKSPACE_CLOSE),
+    listFiles: () => ipcRenderer.invoke(IPC.FS_LIST_FILES),
+    recentWorkspaces: () => ipcRenderer.invoke(IPC.WORKSPACE_RECENTS),
+    openWorkspace: (dir: string) => ipcRenderer.invoke(IPC.WORKSPACE_OPEN_RECENT, dir),
     onRootChanged: (callback: (root: string | null) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, root: string | null) => callback(root)
-      ipcRenderer.on('workspace:root-changed', handler)
-      return () => ipcRenderer.removeListener('workspace:root-changed', handler)
+      ipcRenderer.on(IPC.WORKSPACE_ROOT_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.WORKSPACE_ROOT_CHANGED, handler)
     },
-    reveal: (filePath: string) => ipcRenderer.invoke('fs:reveal', filePath),
+    reveal: (filePath: string) => ipcRenderer.invoke(IPC.FS_REVEAL, filePath),
     watchStart: () => ipcRenderer.invoke(IPC.FS_WATCH_START),
     watchStop: () => ipcRenderer.invoke(IPC.FS_WATCH_STOP),
     onWatchEvent: (callback: (event: { event: string; path: string }) => void) => {
@@ -223,8 +224,8 @@ contextBridge.exposeInMainWorld('workspace', {
     query: (q: string) => ipcRenderer.invoke(IPC.SEARCH_QUERY, q),
     symbols: (q: string) => ipcRenderer.invoke(IPC.SEARCH_SYMBOLS, q),
     indexStatus: () => ipcRenderer.invoke(IPC.SEARCH_INDEX_STATUS),
-    start: () => ipcRenderer.invoke('search:start'),
-    prioritize: (filePath: string) => ipcRenderer.invoke('search:prioritize', filePath),
+    start: () => ipcRenderer.invoke(IPC.SEARCH_START),
+    prioritize: (filePath: string) => ipcRenderer.invoke(IPC.SEARCH_PRIORITIZE, filePath),
   },
 
   // Knowledge base — [[wikilink]] backlinks graph over the workspace notes.
@@ -240,19 +241,19 @@ contextBridge.exposeInMainWorld('workspace', {
   // Workspace memory — read-only prior insights from the local Pulse DB,
   // scoped in the main process to the active workspace project.
   memory: {
-    remember: (input: unknown) => ipcRenderer.invoke('memory:remember', input),
-    search: (query: string, limit?: number) => ipcRenderer.invoke('memory:search', query, limit),
-    listMemories: (opts?: unknown) => ipcRenderer.invoke('memory:list', opts),
-    forget: (id: string) => ipcRenderer.invoke('memory:forget', id),
-    memStats: () => ipcRenderer.invoke('memory:stats'),
-    meaning: () => ipcRenderer.invoke('memory:meaning'),
-    propose: (digest: unknown, model?: string) => ipcRenderer.invoke('memory:propose', digest, model),
-    tidy: () => ipcRenderer.invoke('memory:tidy'),
-    lastTidy: () => ipcRenderer.invoke('memory:lastTidy'),
-    correct: (id: string, text: string, author: 'you' | 'agent', source?: string) => ipcRenderer.invoke('memory:correct', id, text, author, source),
-    confirm: (id: string) => ipcRenderer.invoke('memory:confirm', id),
-    history: (id: string) => ipcRenderer.invoke('memory:history', id),
-    similar: (text: string, scope?: 'workspace' | 'global') => ipcRenderer.invoke('memory:similar', text, scope),
+    remember: (input: unknown) => ipcRenderer.invoke(IPC.MEMORY_REMEMBER, input),
+    search: (query: string, limit?: number) => ipcRenderer.invoke(IPC.MEMORY_SEARCH, query, limit),
+    listMemories: (opts?: unknown) => ipcRenderer.invoke(IPC.MEMORY_LIST, opts),
+    forget: (id: string) => ipcRenderer.invoke(IPC.MEMORY_FORGET, id),
+    memStats: () => ipcRenderer.invoke(IPC.MEMORY_STATS),
+    meaning: () => ipcRenderer.invoke(IPC.MEMORY_MEANING),
+    propose: (digest: unknown, model?: string) => ipcRenderer.invoke(IPC.MEMORY_PROPOSE, digest, model),
+    tidy: () => ipcRenderer.invoke(IPC.MEMORY_TIDY),
+    lastTidy: () => ipcRenderer.invoke(IPC.MEMORY_LASTTIDY),
+    correct: (id: string, text: string, author: 'you' | 'agent', source?: string) => ipcRenderer.invoke(IPC.MEMORY_CORRECT, id, text, author, source),
+    confirm: (id: string) => ipcRenderer.invoke(IPC.MEMORY_CONFIRM, id),
+    history: (id: string) => ipcRenderer.invoke(IPC.MEMORY_HISTORY, id),
+    similar: (text: string, scope?: 'workspace' | 'global') => ipcRenderer.invoke(IPC.MEMORY_SIMILAR, text, scope),
 
     query: (opts?: { types?: string[]; search?: string; limit?: number }) =>
       ipcRenderer.invoke(IPC.MEMORY_QUERY, opts ?? {}),
@@ -261,21 +262,21 @@ contextBridge.exposeInMainWorld('workspace', {
   },
 
   codex: {
-    openRequest: (runId: string, requestId: string) => ipcRenderer.invoke('codex:open-request', runId, requestId),
-    setEffort: (effort: string) => ipcRenderer.invoke('codex:set-effort', effort),
-    respond: (runId: string, requestId: string, response: unknown) => ipcRenderer.invoke('codex:respond', runId, requestId, response),
-    steer: (runId: string, text: string) => ipcRenderer.invoke('codex:steer', runId, text),
+    openRequest: (runId: string, requestId: string) => ipcRenderer.invoke(IPC.CODEX_OPEN_REQUEST, runId, requestId),
+    setEffort: (effort: string) => ipcRenderer.invoke(IPC.CODEX_SET_EFFORT, effort),
+    respond: (runId: string, requestId: string, response: unknown) => ipcRenderer.invoke(IPC.CODEX_RESPOND, runId, requestId, response),
+    steer: (runId: string, text: string) => ipcRenderer.invoke(IPC.CODEX_STEER, runId, text),
     onQuestion: (callback: (question: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, question: unknown) => callback(question)
-      ipcRenderer.on('codex:question', handler)
-      return () => ipcRenderer.removeListener('codex:question', handler)
+      ipcRenderer.on(IPC.CODEX_QUESTION, handler)
+      return () => ipcRenderer.removeListener(IPC.CODEX_QUESTION, handler)
     },
   },
   agent: {
     run: (runId: string, prompt: string, contextFiles: string[], activeFile?: string | null, mode?: 'full' | 'safe', agentName?: string | null, conversationId?: string, model?: string | null, resumeOnly?: boolean, profile?: 'work' | 'chat' | 'app', app?: string) =>
       ipcRenderer.invoke(IPC.AGENT_RUN, { runId, prompt, contextFiles, activeFile, mode, agentName, conversationId, model, resumeOnly, profile, app }),
-    setDefaultModel: (model: string) => ipcRenderer.invoke('agent:set-default-model', model),
-    listModels: () => ipcRenderer.invoke('agent:list-models'),
+    setDefaultModel: (model: string) => ipcRenderer.invoke(IPC.AGENT_SET_DEFAULT_MODEL, model),
+    listModels: () => ipcRenderer.invoke(IPC.AGENT_LIST_MODELS),
     cancel: (runId: string) => ipcRenderer.invoke(IPC.AGENT_CANCEL, runId),
     // Forget a closed tab's conversation → claude-session-id mapping in main.
     forgetConversation: (conversationId: string) =>
@@ -409,33 +410,33 @@ contextBridge.exposeInMainWorld('workspace', {
   },
 
   components: {
-    list: () => ipcRenderer.invoke('components:list'),
-    save: (c: unknown) => ipcRenderer.invoke('components:save', c),
-    delete: (id: string) => ipcRenderer.invoke('components:delete', id),
+    list: () => ipcRenderer.invoke(IPC.COMPONENTS_LIST),
+    save: (c: unknown) => ipcRenderer.invoke(IPC.COMPONENTS_SAVE, c),
+    delete: (id: string) => ipcRenderer.invoke(IPC.COMPONENTS_DELETE, id),
   },
 
   // Live-transclusion: source-of-truth metrics + their links into real cells.
   metrics: {
-    list: () => ipcRenderer.invoke('metric:list'),
-    create: (name: string, value: number) => ipcRenderer.invoke('metric:create', name, value),
+    list: () => ipcRenderer.invoke(IPC.METRIC_LIST),
+    create: (name: string, value: number) => ipcRenderer.invoke(IPC.METRIC_CREATE, name, value),
     update: (id: string, patch: { name?: string; value?: number; source?: unknown }) =>
-      ipcRenderer.invoke('metric:update', id, patch),
-    delete: (id: string) => ipcRenderer.invoke('metric:delete', id),
+      ipcRenderer.invoke(IPC.METRIC_UPDATE, id, patch),
+    delete: (id: string) => ipcRenderer.invoke(IPC.METRIC_DELETE, id),
     // Source-linked metrics: read a value LIVE from a real spreadsheet cell.
     createFromSource: (
       name: string,
       source: { kind: 'xlsx-cell'; filePath: string; sheet: string; cell: string },
-    ) => ipcRenderer.invoke('metric:createFromSource', name, source),
-    refreshFromSource: (id: string) => ipcRenderer.invoke('metric:refreshFromSource', id),
-    refreshAllFromSource: () => ipcRenderer.invoke('metric:refreshAllFromSource'),
-    refreshForFile: (filePath: string) => ipcRenderer.invoke('metric:refreshForFile', filePath),
+    ) => ipcRenderer.invoke(IPC.METRIC_CREATEFROMSOURCE, name, source),
+    refreshFromSource: (id: string) => ipcRenderer.invoke(IPC.METRIC_REFRESHFROMSOURCE, id),
+    refreshAllFromSource: () => ipcRenderer.invoke(IPC.METRIC_REFRESHALLFROMSOURCE),
+    refreshForFile: (filePath: string) => ipcRenderer.invoke(IPC.METRIC_REFRESHFORFILE, filePath),
   },
   transclusions: {
-    forFile: (filePath: string) => ipcRenderer.invoke('transclusion:forFile', filePath),
+    forFile: (filePath: string) => ipcRenderer.invoke(IPC.TRANSCLUSION_FORFILE, filePath),
     // Read-only "where is this linked": every link for a metric across ALL files.
-    forMetric: (metricId: string) => ipcRenderer.invoke('transclusion:forMetric', metricId),
+    forMetric: (metricId: string) => ipcRenderer.invoke(IPC.TRANSCLUSION_FORMETRIC, metricId),
     // Read-only: every link (for per-metric link-count badges).
-    allLinks: () => ipcRenderer.invoke('transclusion:allLinks'),
+    allLinks: () => ipcRenderer.invoke(IPC.TRANSCLUSION_ALLLINKS),
     // Anchor is either a flat {sheet, cell} (xlsx), a {tag} (docx), or a
     // discriminated `target` (xlsx-cell / docx-cc / pptx-shape) — all resolved
     // by the main-process validator.
@@ -450,33 +451,33 @@ contextBridge.exposeInMainWorld('workspace', {
         | { kind: 'xlsx-cell'; sheet: string; cell: string }
         | { kind: 'docx-cc'; tag: string }
         | { kind: 'pptx-shape'; tag: string; slide?: number }
-    }) => ipcRenderer.invoke('transclusion:add', input),
-    remove: (id: string) => ipcRenderer.invoke('transclusion:remove', id),
+    }) => ipcRenderer.invoke(IPC.TRANSCLUSION_ADD, input),
+    remove: (id: string) => ipcRenderer.invoke(IPC.TRANSCLUSION_REMOVE, id),
     previewSyncAll: (metricId: string, openFilePath: string | null) =>
-      ipcRenderer.invoke('transclusion:previewSyncAll', metricId, openFilePath),
+      ipcRenderer.invoke(IPC.TRANSCLUSION_PREVIEWSYNCALL, metricId, openFilePath),
     syncAll: (metricId: string, openFilePath: string | null) =>
-      ipcRenderer.invoke('transclusion:syncAll', metricId, openFilePath),
+      ipcRenderer.invoke(IPC.TRANSCLUSION_SYNCALL, metricId, openFilePath),
   },
   // Live ranges: source-of-truth GRIDS (the range-sized sibling of metrics) +
   // their block links into real files. A range's values only ever come from its
   // source (create/refresh) — the renderer never sets grids directly.
   ranges: {
-    list: () => ipcRenderer.invoke('range:list'),
+    list: () => ipcRenderer.invoke(IPC.RANGE_LIST),
     createFromSource: (
       name: string,
       source: { kind: 'xlsx-range'; filePath: string; sheet: string; ref: string },
-    ) => ipcRenderer.invoke('range:createFromSource', name, source),
+    ) => ipcRenderer.invoke(IPC.RANGE_CREATEFROMSOURCE, name, source),
     update: (id: string, patch: { name?: string; source?: unknown }) =>
-      ipcRenderer.invoke('range:update', id, patch),
-    refreshFromSource: (id: string) => ipcRenderer.invoke('range:refreshFromSource', id),
-    refreshAllFromSource: () => ipcRenderer.invoke('range:refreshAllFromSource'),
-    refreshForFile: (filePath: string) => ipcRenderer.invoke('range:refreshForFile', filePath),
-    delete: (id: string) => ipcRenderer.invoke('range:delete', id),
+      ipcRenderer.invoke(IPC.RANGE_UPDATE, id, patch),
+    refreshFromSource: (id: string) => ipcRenderer.invoke(IPC.RANGE_REFRESHFROMSOURCE, id),
+    refreshAllFromSource: () => ipcRenderer.invoke(IPC.RANGE_REFRESHALLFROMSOURCE),
+    refreshForFile: (filePath: string) => ipcRenderer.invoke(IPC.RANGE_REFRESHFORFILE, filePath),
+    delete: (id: string) => ipcRenderer.invoke(IPC.RANGE_DELETE, id),
   },
   rangeLinks: {
-    forFile: (filePath: string) => ipcRenderer.invoke('rangeLink:forFile', filePath),
-    forRange: (rangeId: string) => ipcRenderer.invoke('rangeLink:forRange', rangeId),
-    allLinks: () => ipcRenderer.invoke('rangeLink:allLinks'),
+    forFile: (filePath: string) => ipcRenderer.invoke(IPC.RANGELINK_FORFILE, filePath),
+    forRange: (rangeId: string) => ipcRenderer.invoke(IPC.RANGELINK_FORRANGE, rangeId),
+    allLinks: () => ipcRenderer.invoke(IPC.RANGELINK_ALLLINKS),
     add: (input: {
       rangeId: string
       filePath: string
@@ -485,35 +486,35 @@ contextBridge.exposeInMainWorld('workspace', {
         | { kind: 'docx-table'; tag: string }
         | { kind: 'pptx-table'; tag: string; slide?: number }
       lastValues: (number | string | null)[][]
-    }) => ipcRenderer.invoke('rangeLink:add', input),
-    remove: (id: string) => ipcRenderer.invoke('rangeLink:remove', id),
+    }) => ipcRenderer.invoke(IPC.RANGELINK_ADD, input),
+    remove: (id: string) => ipcRenderer.invoke(IPC.RANGELINK_REMOVE, id),
     previewSyncAll: (rangeId: string, openFilePath: string | null) =>
-      ipcRenderer.invoke('rangeLink:previewSyncAll', rangeId, openFilePath),
+      ipcRenderer.invoke(IPC.RANGELINK_PREVIEWSYNCALL, rangeId, openFilePath),
     syncAll: (rangeId: string, openFilePath: string | null) =>
-      ipcRenderer.invoke('rangeLink:syncAll', rangeId, openFilePath),
+      ipcRenderer.invoke(IPC.RANGELINK_SYNCALL, rangeId, openFilePath),
   },
   // Collections: source-of-truth typed RECORD SETS (records→layout, the leap
   // above ranges) + their field-mapped layout links into real files. A
   // collection's records only ever come from its source (create/refresh); the
   // renderer never sets records directly.
   collections: {
-    list: () => ipcRenderer.invoke('collection:list'),
+    list: () => ipcRenderer.invoke(IPC.COLLECTION_LIST),
     createFromSource: (
       name: string,
       source: { kind: 'xlsx-range'; filePath: string; sheet: string; ref: string },
-    ) => ipcRenderer.invoke('collection:createFromSource', name, source),
+    ) => ipcRenderer.invoke(IPC.COLLECTION_CREATEFROMSOURCE, name, source),
     update: (id: string, patch: { name?: string; source?: unknown }) =>
-      ipcRenderer.invoke('collection:update', id, patch),
-    refresh: (id: string) => ipcRenderer.invoke('collection:refresh', id),
-    refreshAll: () => ipcRenderer.invoke('collection:refreshAll'),
-    refreshForFile: (filePath: string) => ipcRenderer.invoke('collection:refreshForFile', filePath),
-    delete: (id: string) => ipcRenderer.invoke('collection:delete', id),
+      ipcRenderer.invoke(IPC.COLLECTION_UPDATE, id, patch),
+    refresh: (id: string) => ipcRenderer.invoke(IPC.COLLECTION_REFRESH, id),
+    refreshAll: () => ipcRenderer.invoke(IPC.COLLECTION_REFRESHALL),
+    refreshForFile: (filePath: string) => ipcRenderer.invoke(IPC.COLLECTION_REFRESHFORFILE, filePath),
+    delete: (id: string) => ipcRenderer.invoke(IPC.COLLECTION_DELETE, id),
   },
   collectionLinks: {
-    forFile: (filePath: string) => ipcRenderer.invoke('collectionLink:forFile', filePath),
+    forFile: (filePath: string) => ipcRenderer.invoke(IPC.COLLECTIONLINK_FORFILE, filePath),
     forCollection: (collectionId: string) =>
-      ipcRenderer.invoke('collectionLink:forCollection', collectionId),
-    allLinks: () => ipcRenderer.invoke('collectionLink:allLinks'),
+      ipcRenderer.invoke(IPC.COLLECTIONLINK_FORCOLLECTION, collectionId),
+    allLinks: () => ipcRenderer.invoke(IPC.COLLECTIONLINK_ALLLINKS),
     add: (input: {
       collectionId: string
       filePath: string
@@ -523,12 +524,12 @@ contextBridge.exposeInMainWorld('workspace', {
         | { kind: 'pptx-table'; tag: string; slide?: number }
       columns: { field: string; header: string }[]
       lastGrid: (number | string | null)[][]
-    }) => ipcRenderer.invoke('collectionLink:add', input),
-    remove: (id: string) => ipcRenderer.invoke('collectionLink:remove', id),
+    }) => ipcRenderer.invoke(IPC.COLLECTIONLINK_ADD, input),
+    remove: (id: string) => ipcRenderer.invoke(IPC.COLLECTIONLINK_REMOVE, id),
     previewSyncAll: (collectionId: string, openFilePath: string | null) =>
-      ipcRenderer.invoke('collectionLink:previewSyncAll', collectionId, openFilePath),
+      ipcRenderer.invoke(IPC.COLLECTIONLINK_PREVIEWSYNCALL, collectionId, openFilePath),
     syncAll: (collectionId: string, openFilePath: string | null) =>
-      ipcRenderer.invoke('collectionLink:syncAll', collectionId, openFilePath),
+      ipcRenderer.invoke(IPC.COLLECTIONLINK_SYNCALL, collectionId, openFilePath),
   },
 
   system: {
@@ -696,19 +697,19 @@ contextBridge.exposeInMainWorld('workspace', {
     // Phase 3 — triage a folder → ranked "needs a reply" list; draft one reply
     // (agent-suggested body; never sends). Send stays the MAIL_SEND path above.
     rules: {
-      list: () => ipcRenderer.invoke('mail:rules:list'),
-      add: (rule: unknown) => ipcRenderer.invoke('mail:rules:add', rule),
-      update: (id: string, patch: unknown) => ipcRenderer.invoke('mail:rules:update', id, patch),
-      remove: (id: string) => ipcRenderer.invoke('mail:rules:remove', id),
-      reorder: (id: string, delta: number) => ipcRenderer.invoke('mail:rules:reorder', id, delta),
+      list: () => ipcRenderer.invoke(IPC.MAIL_RULES_LIST),
+      add: (rule: unknown) => ipcRenderer.invoke(IPC.MAIL_RULES_ADD, rule),
+      update: (id: string, patch: unknown) => ipcRenderer.invoke(IPC.MAIL_RULES_UPDATE, id, patch),
+      remove: (id: string) => ipcRenderer.invoke(IPC.MAIL_RULES_REMOVE, id),
+      reorder: (id: string, delta: number) => ipcRenderer.invoke(IPC.MAIL_RULES_REORDER, id, delta),
     },
     newsletters: {
       propose: (accountId: string, folder: string, days?: number) =>
-        ipcRenderer.invoke('mail:newsletters:propose', accountId, folder, days),
-      file: (accountId: string, sweep: unknown) => ipcRenderer.invoke('mail:newsletters:file', accountId, sweep),
+        ipcRenderer.invoke(IPC.MAIL_NEWSLETTERS_PROPOSE, accountId, folder, days),
+      file: (accountId: string, sweep: unknown) => ipcRenderer.invoke(IPC.MAIL_NEWSLETTERS_FILE, accountId, sweep),
     },
     classify: (accountId: string, folder: string, uid: number) =>
-      ipcRenderer.invoke('mail:classify', accountId, folder, uid),
+      ipcRenderer.invoke(IPC.MAIL_CLASSIFY, accountId, folder, uid),
     triage: (accountId: string, folder: string, opts?: { limit?: number; maxCandidates?: number }) =>
       ipcRenderer.invoke(IPC.MAIL_TRIAGE, accountId, folder, opts ?? {}),
     // The Morning Sift: one batched light-model pass over what's new →
@@ -833,55 +834,55 @@ contextBridge.exposeInMainWorld('workspace', {
   },
 
   knowledge: {
-    search: (query: string, limit?: number) => ipcRenderer.invoke('knowledge:search', query, limit),
-    read: (filePath: string, offset?: number) => ipcRenderer.invoke('knowledge:read', filePath, offset),
+    search: (query: string, limit?: number) => ipcRenderer.invoke(IPC.KNOWLEDGE_SEARCH, query, limit),
+    read: (filePath: string, offset?: number) => ipcRenderer.invoke(IPC.KNOWLEDGE_READ, filePath, offset),
   },
 
   chat: {
     /** A dropped or pasted file, as bytes: written into the workspace's uploads. */
-    upload: (name: string, data: Uint8Array) => ipcRenderer.invoke('chat:upload', name, data),
+    upload: (name: string, data: Uint8Array) => ipcRenderer.invoke(IPC.CHAT_UPLOAD, name, data),
   },
   apps: {
-    list: () => ipcRenderer.invoke('apps:list'),
-    templates: () => ipcRenderer.invoke('apps:templates'),
-    install: (id: string) => ipcRenderer.invoke('apps:install', id),
-    create: (name: string, description?: string) => ipcRenderer.invoke('apps:create', name, description),
-    duplicate: (slug: string) => ipcRenderer.invoke('apps:duplicate', slug),
-    reveal: (slug: string) => ipcRenderer.invoke('apps:reveal', slug),
-    load: (slug: string, theme: 'light' | 'dark') => ipcRenderer.invoke('apps:load', slug, theme),
-    manifest: (slug: string) => ipcRenderer.invoke('apps:manifest', slug),
-    lint: (slug: string) => ipcRenderer.invoke('apps:lint', slug),
-    brief: (slug: string, idea: string) => ipcRenderer.invoke('apps:brief', slug, idea),
-    review: (slug: string, rect: { x: number; y: number; width: number; height: number } | null, tests?: string) => ipcRenderer.invoke('apps:review', slug, rect, tests),
-    testsWrite: (slug: string, request: string) => ipcRenderer.invoke('apps:testsWrite', slug, request),
-    windowFull: () => ipcRenderer.invoke('apps:windowFull'),
-    test: (slug: string) => ipcRenderer.invoke('apps:test', slug),
+    list: () => ipcRenderer.invoke(IPC.APPS_LIST),
+    templates: () => ipcRenderer.invoke(IPC.APPS_TEMPLATES),
+    install: (id: string) => ipcRenderer.invoke(IPC.APPS_INSTALL, id),
+    create: (name: string, description?: string) => ipcRenderer.invoke(IPC.APPS_CREATE, name, description),
+    duplicate: (slug: string) => ipcRenderer.invoke(IPC.APPS_DUPLICATE, slug),
+    reveal: (slug: string) => ipcRenderer.invoke(IPC.APPS_REVEAL, slug),
+    load: (slug: string, theme: 'light' | 'dark') => ipcRenderer.invoke(IPC.APPS_LOAD, slug, theme),
+    manifest: (slug: string) => ipcRenderer.invoke(IPC.APPS_MANIFEST, slug),
+    lint: (slug: string) => ipcRenderer.invoke(IPC.APPS_LINT, slug),
+    brief: (slug: string, idea: string) => ipcRenderer.invoke(IPC.APPS_BRIEF, slug, idea),
+    review: (slug: string, rect: { x: number; y: number; width: number; height: number } | null, tests?: string) => ipcRenderer.invoke(IPC.APPS_REVIEW, slug, rect, tests),
+    testsWrite: (slug: string, request: string) => ipcRenderer.invoke(IPC.APPS_TESTSWRITE, slug, request),
+    windowFull: () => ipcRenderer.invoke(IPC.APPS_WINDOWFULL),
+    test: (slug: string) => ipcRenderer.invoke(IPC.APPS_TEST, slug),
     onTestProgress: (cb: (p: { slug: string; i: number; total: number; name: string }) => void) => {
       const handler = (_e: unknown, p: { slug: string; i: number; total: number; name: string }): void => cb(p)
-      ipcRenderer.on('apps:test-progress', handler)
-      return () => ipcRenderer.removeListener('apps:test-progress', handler)
+      ipcRenderer.on(IPC.APPS_TEST_PROGRESS, handler)
+      return () => ipcRenderer.removeListener(IPC.APPS_TEST_PROGRESS, handler)
     },
-    export: (slug: string) => ipcRenderer.invoke('apps:export', slug),
-    importPick: () => ipcRenderer.invoke('apps:importPick'),
-    importConfirm: (token: string) => ipcRenderer.invoke('apps:importConfirm', token),
-    call: (slug: string, method: string, args: unknown) => ipcRenderer.invoke('apps:call', slug, method, args),
+    export: (slug: string) => ipcRenderer.invoke(IPC.APPS_EXPORT, slug),
+    importPick: () => ipcRenderer.invoke(IPC.APPS_IMPORTPICK),
+    importConfirm: (token: string) => ipcRenderer.invoke(IPC.APPS_IMPORTCONFIRM, token),
+    call: (slug: string, method: string, args: unknown) => ipcRenderer.invoke(IPC.APPS_CALL, slug, method, args),
   },
   sessions: {
-    load: () => ipcRenderer.invoke('sessions:load'),
-    save: (root: string, json: string) => ipcRenderer.invoke('sessions:save', root, json),
+    load: () => ipcRenderer.invoke(IPC.SESSIONS_LOAD),
+    save: (root: string, json: string) => ipcRenderer.invoke(IPC.SESSIONS_SAVE, root, json),
   },
 
   wiki: {
-    add: (paths: string[], opts?: { wait?: boolean; again?: boolean }) => ipcRenderer.invoke('wiki:add', paths, opts),
-    status: () => ipcRenderer.invoke('wiki:status'),
-    changes: (limit?: number) => ipcRenderer.invoke('wiki:changes', limit),
-    sources: () => ipcRenderer.invoke('wiki:sources'),
-    undo: (id: string) => ipcRenderer.invoke('wiki:undo', id),
-    check: () => ipcRenderer.invoke('wiki:check'),
+    add: (paths: string[], opts?: { wait?: boolean; again?: boolean }) => ipcRenderer.invoke(IPC.WIKI_ADD, paths, opts),
+    status: () => ipcRenderer.invoke(IPC.WIKI_STATUS),
+    changes: (limit?: number) => ipcRenderer.invoke(IPC.WIKI_CHANGES, limit),
+    sources: () => ipcRenderer.invoke(IPC.WIKI_SOURCES),
+    undo: (id: string) => ipcRenderer.invoke(IPC.WIKI_UNDO, id),
+    check: () => ipcRenderer.invoke(IPC.WIKI_CHECK),
     onChanged: (cb: () => void) => {
       const handler = (): void => cb()
-      ipcRenderer.on('wiki:changed', handler)
-      return () => ipcRenderer.removeListener('wiki:changed', handler)
+      ipcRenderer.on(IPC.WIKI_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.WIKI_CHANGED, handler)
     },
   },
 
@@ -897,53 +898,53 @@ contextBridge.exposeInMainWorld('workspace', {
   },
 
   checkpoint: {
-    list: () => ipcRenderer.invoke('checkpoint:list'),
-    rollback: (id: string) => ipcRenderer.invoke('checkpoint:rollback', id),
-    diff: (id: string) => ipcRenderer.invoke('checkpoint:diff', id),
+    list: () => ipcRenderer.invoke(IPC.CHECKPOINT_LIST),
+    rollback: (id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_ROLLBACK, id),
+    diff: (id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_DIFF, id),
   },
 
   snapshots: {
-    list: () => ipcRenderer.invoke('snapshot:list'),
-    save: (name: string, state: unknown) => ipcRenderer.invoke('snapshot:save', name, state),
-    delete: (id: string) => ipcRenderer.invoke('snapshot:delete', id),
+    list: () => ipcRenderer.invoke(IPC.SNAPSHOT_LIST),
+    save: (name: string, state: unknown) => ipcRenderer.invoke(IPC.SNAPSHOT_SAVE, name, state),
+    delete: (id: string) => ipcRenderer.invoke(IPC.SNAPSHOT_DELETE, id),
   },
 
   trash: {
-    list: () => ipcRenderer.invoke('trash:list'),
-    restore: (id: string) => ipcRenderer.invoke('trash:restore', id),
-    delete: (id: string) => ipcRenderer.invoke('trash:delete', id),
-    empty: () => ipcRenderer.invoke('trash:empty'),
+    list: () => ipcRenderer.invoke(IPC.TRASH_LIST),
+    restore: (id: string) => ipcRenderer.invoke(IPC.TRASH_RESTORE, id),
+    delete: (id: string) => ipcRenderer.invoke(IPC.TRASH_DELETE, id),
+    empty: () => ipcRenderer.invoke(IPC.TRASH_EMPTY),
   },
 
   office: {
-    print: (filePath: string) => ipcRenderer.invoke('office:print', filePath),
-    available: () => ipcRenderer.invoke('office:available'),
-    toPdf: (filePath: string) => ipcRenderer.invoke('office:to-pdf', filePath),
-    exportPdf: (filePath: string) => ipcRenderer.invoke('office:export-pdf', filePath),
+    print: (filePath: string) => ipcRenderer.invoke(IPC.OFFICE_PRINT, filePath),
+    available: () => ipcRenderer.invoke(IPC.OFFICE_AVAILABLE),
+    toPdf: (filePath: string) => ipcRenderer.invoke(IPC.OFFICE_TO_PDF, filePath),
+    exportPdf: (filePath: string) => ipcRenderer.invoke(IPC.OFFICE_EXPORT_PDF, filePath),
   },
 
   // Native LibreOfficeKit rendering + editing (Phase 3a).
   lok: {
-    available: () => ipcRenderer.invoke('lok:available'),
-    open: (filePath: string) => ipcRenderer.invoke('lok:open', filePath),
-    newDoc: (ext: string, fileName: string) => ipcRenderer.invoke('lok:new', ext, fileName),
+    available: () => ipcRenderer.invoke(IPC.LOK_AVAILABLE),
+    open: (filePath: string) => ipcRenderer.invoke(IPC.LOK_OPEN, filePath),
+    newDoc: (ext: string, fileName: string) => ipcRenderer.invoke(IPC.LOK_NEW, ext, fileName),
     tile: (args: { cw: number; ch: number; tx: number; ty: number; tw: number; th: number }) =>
-      ipcRenderer.invoke('lok:tile', args),
+      ipcRenderer.invoke(IPC.LOK_TILE, args),
     tiles: (args: { cw: number; ch: number; tx: number; ty: number; tw: number; th: number }[]) =>
-      ipcRenderer.invoke('lok:tiles', args),
+      ipcRenderer.invoke(IPC.LOK_TILES, args),
     partTile: (args: { part: number; cw: number; ch: number; tx: number; ty: number; tw: number; th: number }) =>
-      ipcRenderer.invoke('lok:parttile', args),
-    key: (type: number, charCode: number, keyCode: number) => ipcRenderer.invoke('lok:key', type, charCode, keyCode),
+      ipcRenderer.invoke(IPC.LOK_PARTTILE, args),
+    key: (type: number, charCode: number, keyCode: number) => ipcRenderer.invoke(IPC.LOK_KEY, type, charCode, keyCode),
     mouse: (args: { type: number; x: number; y: number; count: number; buttons: number; modifier: number }) =>
-      ipcRenderer.invoke('lok:mouse', args),
-    uno: (command: string) => ipcRenderer.invoke('lok:uno', command),
-    insertImage: () => ipcRenderer.invoke('lok:insertImage'),
-    imageShape: () => ipcRenderer.invoke('lok:imageShape'),
-    pickImage: () => ipcRenderer.invoke('lok:pickImage'),
-    setBorder: (preset: string, color: number, width: number) => ipcRenderer.invoke('lok:setborder', preset, color, width),
-    sheetGeometry: () => ipcRenderer.invoke('lok:sheetgeometry'),
-    setSize: (kind: 'col' | 'row', index: number, size: number) => ipcRenderer.invoke('lok:setsize', kind, index, size),
-    macro: (name: string, args: string) => ipcRenderer.invoke('lok:macro', name, args),
+      ipcRenderer.invoke(IPC.LOK_MOUSE, args),
+    uno: (command: string) => ipcRenderer.invoke(IPC.LOK_UNO, command),
+    insertImage: () => ipcRenderer.invoke(IPC.LOK_INSERTIMAGE),
+    imageShape: () => ipcRenderer.invoke(IPC.LOK_IMAGESHAPE),
+    pickImage: () => ipcRenderer.invoke(IPC.LOK_PICKIMAGE),
+    setBorder: (preset: string, color: number, width: number) => ipcRenderer.invoke(IPC.LOK_SETBORDER, preset, color, width),
+    sheetGeometry: () => ipcRenderer.invoke(IPC.LOK_SHEETGEOMETRY),
+    setSize: (kind: 'col' | 'row', index: number, size: number) => ipcRenderer.invoke(IPC.LOK_SETSIZE, kind, index, size),
+    macro: (name: string, args: string) => ipcRenderer.invoke(IPC.LOK_MACRO, name, args),
     findReplace: (args: {
       mode: 'findnext' | 'findprev' | 'replaceall'
       find: string
@@ -951,43 +952,43 @@ contextBridge.exposeInMainWorld('workspace', {
       caseSensitive?: boolean
       wholeWord?: boolean
       regex?: boolean
-    }) => ipcRenderer.invoke('lok:findReplace', args),
+    }) => ipcRenderer.invoke(IPC.LOK_FINDREPLACE, args),
     setRangeBlock: (args: { sheet: string; cell: string; values: (number | string | null)[][] }) =>
-      ipcRenderer.invoke('lok:setRangeBlock', args),
+      ipcRenderer.invoke(IPC.LOK_SETRANGEBLOCK, args),
     setTable: (args: {
       macro: 'WosInsertDocTable' | 'WosSetDocTable' | 'WosInsertSlideTable' | 'WosSetSlideTable'
       tag: string
       values: (number | string | null)[][]
-    }) => ipcRenderer.invoke('lok:setTable', args),
-    selInfo: () => ipcRenderer.invoke('lok:selinfo'),
-    partInfo: () => ipcRenderer.invoke('lok:partinfo'),
-    commandValues: (command: string) => ipcRenderer.invoke('lok:cmdvalues', command),
-    docStatus: () => ipcRenderer.invoke('lok:docstatus'),
-    lastShape: () => ipcRenderer.invoke('lok:lastshape'),
-    transition: (args: string) => ipcRenderer.invoke('lok:transition', args),
-    animate: (args: string) => ipcRenderer.invoke('lok:animate', args),
-    officeMacro: (name: string, args: string) => ipcRenderer.invoke('lok:officeMacro', name, args),
-    getNotes: (index?: number) => ipcRenderer.invoke('lok:getNotes', { index }),
-    setNotes: (index: number, text: string) => ipcRenderer.invoke('lok:setNotes', { index, text }),
-    capture: () => ipcRenderer.invoke('lok:capture'),
-    buildCaptured: (elements: string[]) => ipcRenderer.invoke('lok:buildCaptured', elements),
-    setPart: (n: number) => ipcRenderer.invoke('lok:setpart', n),
-    parts: () => ipcRenderer.invoke('lok:parts'),
-    save: () => ipcRenderer.invoke('lok:save'),
-    exportAs: (format: string) => ipcRenderer.invoke('lok:export', format),
-    slidesSvg: () => ipcRenderer.invoke('lok:slidessvg'),
-    print: (filePath: string) => ipcRenderer.invoke('lok:print', filePath),
-    fileInfo: () => ipcRenderer.invoke('lok:fileinfo'),
-    windowPaint: (args: { id: number; w: number; h: number }) => ipcRenderer.invoke('lok:wpaint', args),
-    windowMouse: (args: { id: number; type: number; x: number; y: number; count: number; buttons: number; modifier: number }) => ipcRenderer.invoke('lok:wmouse', args),
-    windowKey: (args: { id: number; type: number; charCode: number; keyCode: number }) => ipcRenderer.invoke('lok:wkey', args),
-    dialogEvent: (args: { id: number; control: string; cmd: string; type: string; data?: string }) => ipcRenderer.invoke('lok:dlgevent', args),
-    windowClose: (id: number) => ipcRenderer.invoke('lok:wclose', id),
-    close: () => ipcRenderer.invoke('lok:close'),
+    }) => ipcRenderer.invoke(IPC.LOK_SETTABLE, args),
+    selInfo: () => ipcRenderer.invoke(IPC.LOK_SELINFO),
+    partInfo: () => ipcRenderer.invoke(IPC.LOK_PARTINFO),
+    commandValues: (command: string) => ipcRenderer.invoke(IPC.LOK_CMDVALUES, command),
+    docStatus: () => ipcRenderer.invoke(IPC.LOK_DOCSTATUS),
+    lastShape: () => ipcRenderer.invoke(IPC.LOK_LASTSHAPE),
+    transition: (args: string) => ipcRenderer.invoke(IPC.LOK_TRANSITION, args),
+    animate: (args: string) => ipcRenderer.invoke(IPC.LOK_ANIMATE, args),
+    officeMacro: (name: string, args: string) => ipcRenderer.invoke(IPC.LOK_OFFICEMACRO, name, args),
+    getNotes: (index?: number) => ipcRenderer.invoke(IPC.LOK_GETNOTES, { index }),
+    setNotes: (index: number, text: string) => ipcRenderer.invoke(IPC.LOK_SETNOTES, { index, text }),
+    capture: () => ipcRenderer.invoke(IPC.LOK_CAPTURE),
+    buildCaptured: (elements: string[]) => ipcRenderer.invoke(IPC.LOK_BUILDCAPTURED, elements),
+    setPart: (n: number) => ipcRenderer.invoke(IPC.LOK_SETPART, n),
+    parts: () => ipcRenderer.invoke(IPC.LOK_PARTS),
+    save: () => ipcRenderer.invoke(IPC.LOK_SAVE),
+    exportAs: (format: string) => ipcRenderer.invoke(IPC.LOK_EXPORT, format),
+    slidesSvg: () => ipcRenderer.invoke(IPC.LOK_SLIDESSVG),
+    print: (filePath: string) => ipcRenderer.invoke(IPC.LOK_PRINT, filePath),
+    fileInfo: () => ipcRenderer.invoke(IPC.LOK_FILEINFO),
+    windowPaint: (args: { id: number; w: number; h: number }) => ipcRenderer.invoke(IPC.LOK_WPAINT, args),
+    windowMouse: (args: { id: number; type: number; x: number; y: number; count: number; buttons: number; modifier: number }) => ipcRenderer.invoke(IPC.LOK_WMOUSE, args),
+    windowKey: (args: { id: number; type: number; charCode: number; keyCode: number }) => ipcRenderer.invoke(IPC.LOK_WKEY, args),
+    dialogEvent: (args: { id: number; control: string; cmd: string; type: string; data?: string }) => ipcRenderer.invoke(IPC.LOK_DLGEVENT, args),
+    windowClose: (id: number) => ipcRenderer.invoke(IPC.LOK_WCLOSE, id),
+    close: () => ipcRenderer.invoke(IPC.LOK_CLOSE),
     onCallback: (callback: (cb: { type: number; payload: string }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, cb: { type: number; payload: string }) => callback(cb)
-      ipcRenderer.on('lok:callback', handler)
-      return () => ipcRenderer.removeListener('lok:callback', handler)
+      ipcRenderer.on(IPC.LOK_CALLBACK, handler)
+      return () => ipcRenderer.removeListener(IPC.LOK_CALLBACK, handler)
     },
   },
 
@@ -995,21 +996,21 @@ contextBridge.exposeInMainWorld('workspace', {
     // Frame→slide bridge v1: ordered PNG buffers → a real .pptx written beside
     // the .wcanvas (image-based, one-way).
     exportPptx: (arg: { targetPath: string; images: { png: Uint8Array; title?: string }[] }) =>
-      ipcRenderer.invoke('canvas:export-pptx', arg),
+      ipcRenderer.invoke(IPC.CANVAS_EXPORT_PPTX, arg),
     // Frame→live-slide bridge v1: append a NATIVE, editable slide to the OPEN
     // Impress deck from a serialized SlideSpec payload (+ image fallbacks). One-way.
     frameToSlide: (arg: { payload: string; fallbackImages: { png: Uint8Array }[] }) =>
-      ipcRenderer.invoke('canvas:frame-to-slide', arg),
+      ipcRenderer.invoke(IPC.CANVAS_FRAME_TO_SLIDE, arg),
   },
 
   menu: {
-    setActions: (items: { id: string; label: string }[]) => ipcRenderer.invoke('menu:set-actions', items),
+    setActions: (items: { id: string; label: string }[]) => ipcRenderer.invoke(IPC.MENU_SET_ACTIONS, items),
     setAgentMenu: (data: { agents: { id: string; label: string }[]; skills: { id: string; label: string }[]; mode: 'full' | 'safe'; activeAgent: string | null }) =>
-      ipcRenderer.invoke('menu:set-agent-menu', data),
-    setOfficeContext: (data: { type: number | null; parts?: string[] }) => ipcRenderer.invoke('menu:set-office-context', data),
-    setOfficeState: (data: { checked: Record<string, boolean>; disabled: string[] }) => ipcRenderer.invoke('menu:set-office-state', data),
-    officeCommands: () => ipcRenderer.invoke('menu:office-commands'),
-    runAction: (id: string) => ipcRenderer.invoke('menu:run-action', id),
+      ipcRenderer.invoke(IPC.MENU_SET_AGENT_MENU, data),
+    setOfficeContext: (data: { type: number | null; parts?: string[] }) => ipcRenderer.invoke(IPC.MENU_SET_OFFICE_CONTEXT, data),
+    setOfficeState: (data: { checked: Record<string, boolean>; disabled: string[] }) => ipcRenderer.invoke(IPC.MENU_SET_OFFICE_STATE, data),
+    officeCommands: () => ipcRenderer.invoke(IPC.MENU_OFFICE_COMMANDS),
+    runAction: (id: string) => ipcRenderer.invoke(IPC.MENU_RUN_ACTION, id),
     // The browser pushes the actions its own panel is showing, so the native
     // menu is the same data rather than a second list. null = left the surface.
     setBrowserContext: (
@@ -1018,11 +1019,11 @@ contextBridge.exposeInMainWorld('workspace', {
         canGoBack: boolean
         canGoForward: boolean
       } | null,
-    ) => ipcRenderer.invoke('menu:set-browser-context', data),
+    ) => ipcRenderer.invoke(IPC.MENU_SET_BROWSER_CONTEXT, data),
     onRunAction: (callback: (actionId: string) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, actionId: string) => callback(actionId)
-      ipcRenderer.on('menu:run-action', handler)
-      return () => ipcRenderer.removeListener('menu:run-action', handler)
+      ipcRenderer.on(IPC.MENU_RUN_ACTION, handler)
+      return () => ipcRenderer.removeListener(IPC.MENU_RUN_ACTION, handler)
     },
   },
 
@@ -1063,41 +1064,41 @@ contextBridge.exposeInMainWorld('workspace', {
    * documents produced for it, the status, and the notes.
    */
   /** Where the app opens when a test asks for it (WOS_START_ON); null = the person's own setting. */
-  startOn: (): Promise<'stage' | null> => ipcRenderer.invoke('app:start-on'),
+  startOn: (): Promise<'stage' | null> => ipcRenderer.invoke(IPC.APP_START_ON),
   /** Sub-projects: marked subfolders of the workspace (docs/landscape/PLAN.md §5a). */
   projects: {
-    list: (home?: string) => ipcRenderer.invoke('projects:list', home),
-    create: (home: string | undefined, name: string, color?: string) => ipcRenderer.invoke('projects:create', home, name, color),
+    list: (home?: string) => ipcRenderer.invoke(IPC.PROJECTS_LIST, home),
+    create: (home: string | undefined, name: string, color?: string) => ipcRenderer.invoke(IPC.PROJECTS_CREATE, home, name, color),
   },
   cases: {
-    list: () => ipcRenderer.invoke('cases:list'),
-    get: (id: string) => ipcRenderer.invoke('cases:get', id),
-    workFolder: (id: string) => ipcRenderer.invoke('cases:work-folder', id),
-    delete: (id: string) => ipcRenderer.invoke('cases:delete', id),
-    promote: (id: string, filePath: string) => ipcRenderer.invoke('cases:promote', id, filePath),
-    statuses: (type?: string) => ipcRenderer.invoke('cases:statuses', type),
+    list: () => ipcRenderer.invoke(IPC.CASES_LIST),
+    get: (id: string) => ipcRenderer.invoke(IPC.CASES_GET, id),
+    workFolder: (id: string) => ipcRenderer.invoke(IPC.CASES_WORK_FOLDER, id),
+    delete: (id: string) => ipcRenderer.invoke(IPC.CASES_DELETE, id),
+    promote: (id: string, filePath: string) => ipcRenderer.invoke(IPC.CASES_PROMOTE, id, filePath),
+    statuses: (type?: string) => ipcRenderer.invoke(IPC.CASES_STATUSES, type),
     create: (payload: { title: string; type?: string; description?: string; subject?: string; artifacts?: string[] }) =>
-      ipcRenderer.invoke('cases:create', payload),
-    setStatus: (id: string, status: string) => ipcRenderer.invoke('cases:set-status', id, status),
+      ipcRenderer.invoke(IPC.CASES_CREATE, payload),
+    setStatus: (id: string, status: string) => ipcRenderer.invoke(IPC.CASES_SET_STATUS, id, status),
     addNote: (id: string, text: string, author?: 'you' | 'agent') =>
-      ipcRenderer.invoke('cases:add-note', id, text, author),
-    addArtifact: (id: string, filePath: string) => ipcRenderer.invoke('cases:add-artifact', id, filePath),
-    setDescription: (id: string, description: string) => ipcRenderer.invoke('cases:set-description', id, description),
-    markActed: (id: string, signal: unknown) => ipcRenderer.invoke('cases:mark-acted', id, signal),
+      ipcRenderer.invoke(IPC.CASES_ADD_NOTE, id, text, author),
+    addArtifact: (id: string, filePath: string) => ipcRenderer.invoke(IPC.CASES_ADD_ARTIFACT, id, filePath),
+    setDescription: (id: string, description: string) => ipcRenderer.invoke(IPC.CASES_SET_DESCRIPTION, id, description),
+    markActed: (id: string, signal: unknown) => ipcRenderer.invoke(IPC.CASES_MARK_ACTED, id, signal),
     /** Move a case between "this workspace" and "everywhere" (a file move). */
-    setScope: (id: string, scope: 'workspace' | 'global') => ipcRenderer.invoke('cases:set-scope', id, scope),
-    terminalStatuses: () => ipcRenderer.invoke('cases:terminal'),
+    setScope: (id: string, scope: 'workspace' | 'global') => ipcRenderer.invoke(IPC.CASES_SET_SCOPE, id, scope),
+    terminalStatuses: () => ipcRenderer.invoke(IPC.CASES_TERMINAL),
     /** The whole case as markdown — what an agent is given as context. */
-    asContext: (id: string) => ipcRenderer.invoke('cases:as-context', id),
-    nextStatus: (type: string, current: string) => ipcRenderer.invoke('cases:next-status', type, current),
+    asContext: (id: string) => ipcRenderer.invoke(IPC.CASES_AS_CONTEXT, id),
+    nextStatus: (type: string, current: string) => ipcRenderer.invoke(IPC.CASES_NEXT_STATUS, type, current),
     /** KPIs / chart / table computed from the case's CSV artifacts. */
-    insights: (id: string) => ipcRenderer.invoke('cases:insights', id),
+    insights: (id: string) => ipcRenderer.invoke(IPC.CASES_INSIGHTS, id),
     /** The case's declared curated view (Layer 2), or null. */
-    view: (id: string) => ipcRenderer.invoke('cases:view', id),
+    view: (id: string) => ipcRenderer.invoke(IPC.CASES_VIEW, id),
     /** A file:// URL for an artifact (for image thumbnails). */
-    artifactUrl: (rel: string) => ipcRenderer.invoke('cases:artifact-url', rel),
+    artifactUrl: (rel: string) => ipcRenderer.invoke(IPC.CASES_ARTIFACT_URL, rel),
     /** Authorize+resolve a case artifact to an absolute path (opens across workspaces). */
-    authorizeArtifact: (id: string, rel: string) => ipcRenderer.invoke('cases:authorize-artifact', id, rel),
+    authorizeArtifact: (id: string, rel: string) => ipcRenderer.invoke(IPC.CASES_AUTHORIZE_ARTIFACT, id, rel),
   },
 
   browserTabs: {
@@ -1107,30 +1108,30 @@ contextBridge.exposeInMainWorld('workspace', {
       // and a new sender can never disagree about the argument.
       const handler = (_e: Electron.IpcRendererEvent, payload: unknown) =>
         callback(typeof payload === 'string' ? { url: payload } : (payload as { url: string; referrer?: string })) 
-      ipcRenderer.on('browser:open-tab', handler)
-      return () => ipcRenderer.removeListener('browser:open-tab', handler)
+      ipcRenderer.on(IPC.BROWSER_OPEN_TAB, handler)
+      return () => ipcRenderer.removeListener(IPC.BROWSER_OPEN_TAB, handler)
     },
   },
 
   bugs: {
-    status: () => ipcRenderer.invoke('bug:status'),
-    setRepo: (dir: string) => ipcRenderer.invoke('bug:setRepo', dir),
+    status: () => ipcRenderer.invoke(IPC.BUG_STATUS),
+    setRepo: (dir: string) => ipcRenderer.invoke(IPC.BUG_SETREPO, dir),
     context: (surface: string | null, openFile: string | null) =>
-      ipcRenderer.invoke('bug:context', surface, openFile),
+      ipcRenderer.invoke(IPC.BUG_CONTEXT, surface, openFile),
     analyze: (text: string, surface: string | null, openFile: string | null, kind?: 'bug' | 'idea') =>
-      ipcRenderer.invoke('bug:analyze', text, surface, openFile, kind),
+      ipcRenderer.invoke(IPC.BUG_ANALYZE, text, surface, openFile, kind),
     file: (text: string, analysis: unknown, context: unknown, kind?: 'bug' | 'idea') =>
-      ipcRenderer.invoke('bug:file', text, analysis, context, kind),
-    list: () => ipcRenderer.invoke('bug:list'),
+      ipcRenderer.invoke(IPC.BUG_FILE, text, analysis, context, kind),
+    list: () => ipcRenderer.invoke(IPC.BUG_LIST),
   },
 
   updater: {
-    check: () => ipcRenderer.invoke('updater:check'),
-    install: () => ipcRenderer.invoke('updater:install'),
+    check: () => ipcRenderer.invoke(IPC.UPDATER_CHECK),
+    install: () => ipcRenderer.invoke(IPC.UPDATER_INSTALL),
     onUpdateReady: (callback: (info: { version: string }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, info: { version: string }) => callback(info)
-      ipcRenderer.on('updater:update-ready', handler)
-      return () => ipcRenderer.removeListener('updater:update-ready', handler)
+      ipcRenderer.on(IPC.UPDATER_UPDATE_READY, handler)
+      return () => ipcRenderer.removeListener(IPC.UPDATER_UPDATE_READY, handler)
     },
   },
 })

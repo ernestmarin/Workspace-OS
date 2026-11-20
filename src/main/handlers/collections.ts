@@ -29,6 +29,7 @@ import { setDocCards, coerceCardTemplate } from '../docx-cards-writer'
 import { setSlideTableCells } from '../pptx-table-writer'
 import { isValidA1 } from '../transclusions'
 import type { RangeGrid } from '../ranges'
+import { IPC } from '../ipc-channels'
 
 /** Outcome of refreshing one collection from its source (fed to the renderer). */
 interface CollectionRefreshResult {
@@ -109,13 +110,13 @@ async function writeClosedCollectionLink(
  */
 export function registerCollectionHandlers(ipcMain: IpcMain): void {
   // ---- collections ----
-  ipcHandle(ipcMain, 'collection:list', () => collections.list())
+  ipcHandle(ipcMain, IPC.COLLECTION_LIST, () => collections.list())
 
   // Create-from-range: a collection whose records are READ LIVE from a real
   // spreadsheet block (row 0 = field names, rows 1..n = records). The block is
   // read once now to seed the cache; a source we can't read (or one without a
   // usable header row) is rejected.
-  ipcHandle(ipcMain, 'collection:createFromSource', async (_event, name: unknown, source: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTION_CREATEFROMSOURCE, async (_event, name: unknown, source: unknown) => {
     if (typeof name !== 'string' || !name.trim()) {
       throw new IpcValidationError('Collection name must be a non-empty string')
     }
@@ -135,7 +136,7 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
   // Rename / detach (passing `source` — even a literal one — detaches to a
   // literal set, keeping the current cached records). Records are only ever set
   // by the refresh path, never directly by the renderer.
-  ipcHandle(ipcMain, 'collection:update', (_event, id: unknown, patch: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTION_UPDATE, (_event, id: unknown, patch: unknown) => {
     readCollectionId(id)
     const p = (patch ?? {}) as { name?: unknown; source?: unknown }
     if (p.name !== undefined && typeof p.name !== 'string') {
@@ -150,14 +151,14 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
 
   // Refresh ONE sourced collection from disk; propagates downstream if the
   // records changed. Returns a stale flag on read failure.
-  ipcHandle(ipcMain, 'collection:refresh', async (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTION_REFRESH, async (_event, id: unknown) => {
     const res = await refreshCollection(readCollectionId(id))
     if (!res) throw new IpcValidationError('Unknown collection')
     return res
   })
 
   // Refresh EVERY sourced collection ("refresh all"). Literal ones are skipped.
-  ipcHandle(ipcMain, 'collection:refreshAll', async () => {
+  ipcHandle(ipcMain, IPC.COLLECTION_REFRESHALL, async () => {
     const out: CollectionRefreshResult[] = []
     for (const c of collections.list()) {
       if (!isSourcedCollection(c)) continue
@@ -170,7 +171,7 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
   // Refresh only collections sourced FROM a given file (the auto-refresh-on-save
   // hook — cheap: touches nothing sourced from elsewhere). The incoming filePath
   // is untrusted: validate it stays WITHIN the workspace root before using it.
-  ipcHandle(ipcMain, 'collection:refreshForFile', async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTION_REFRESHFORFILE, async (_event, filePath: unknown) => {
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
@@ -185,23 +186,23 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
     return out
   })
 
-  ipcHandle(ipcMain, 'collection:delete', (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTION_DELETE, (_event, id: unknown) => {
     collections.remove(readCollectionId(id))
   })
 
   // ---- collection links ----
-  ipcHandle(ipcMain, 'collectionLink:forFile', (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_FORFILE, (_event, filePath: unknown) => {
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     return collectionLinks.forFile(filePath)
   })
 
-  ipcHandle(ipcMain, 'collectionLink:forCollection', (_event, collectionId: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_FORCOLLECTION, (_event, collectionId: unknown) => {
     return collectionLinks.forCollection(readCollectionId(collectionId))
   })
 
-  ipcHandle(ipcMain, 'collectionLink:allLinks', () => collectionLinks.allLinks())
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_ALLLINKS, () => collectionLinks.allLinks())
 
-  ipcHandle(ipcMain, 'collectionLink:add', (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_ADD, (_event, input: unknown) => {
     const i = (input ?? {}) as {
       collectionId?: unknown
       filePath?: unknown
@@ -254,7 +255,7 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  ipcHandle(ipcMain, 'collectionLink:remove', (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_REMOVE, (_event, id: unknown) => {
     if (typeof id !== 'string' || !/^clink-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid collection link id')
     }
@@ -266,7 +267,7 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
   // PREVIEW (no writes): report the impact so the UI can confirm first. The open
   // file is excluded (the engine owns it); in-sync links are counted; everything
   // else is a closed-file block that WOULD change.
-  ipcHandle(ipcMain, 'collectionLink:previewSyncAll', (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_PREVIEWSYNCALL, (_event, id: unknown, openFilePath: unknown) => {
     const collectionId = readCollectionId(id)
     const open = typeof openFilePath === 'string' && openFilePath ? openFilePath : null
     const collection = collections.get(collectionId)
@@ -284,7 +285,7 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
   // writer (atomic + verified). On success we advance the link's lastGrid. The
   // OPEN file is never written here. STRICT fail-safe: any file we can't safely
   // write is skipped and reported, never corrupted.
-  ipcHandle(ipcMain, 'collectionLink:syncAll', async (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_SYNCALL, async (_event, id: unknown, openFilePath: unknown) => {
     const collectionId = readCollectionId(id)
     const open = typeof openFilePath === 'string' && openFilePath ? openFilePath : null
     const collection = collections.get(collectionId)

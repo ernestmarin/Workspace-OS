@@ -25,6 +25,7 @@ import {
   type WorkCase,
   type CaseAuthor,
   type CaseScope, WAITING_ON_YOU } from '../cases'
+import { IPC } from '../ipc-channels'
 
 /**
  * Cases on disk, in the workspace.
@@ -219,20 +220,20 @@ export async function runCaseAction(
 
 export function registerCaseHandlers(ipcMain: IpcMain): void {
   /* Each case carries what it is still asking for — see openSignals. */
-  ipcHandle(ipcMain, 'cases:list', () =>
+  ipcHandle(ipcMain, IPC.CASES_LIST, () =>
     readAll().map((c) => ({ ...c, signals: openSignals(c) })),
   )
 
-  ipcHandle(ipcMain, 'cases:get', (_e, id: unknown) => load(str(id, 120)))
+  ipcHandle(ipcMain, IPC.CASES_GET, (_e, id: unknown) => load(str(id, 120)))
 
-  ipcHandle(ipcMain, 'cases:statuses', (_e, type: unknown) => statusesFor(str(type, 40) || 'application'))
+  ipcHandle(ipcMain, IPC.CASES_STATUSES, (_e, type: unknown) => statusesFor(str(type, 40) || 'application'))
 
   /**
    * Opens a case. Idempotent on the slug, so starting one twice from the same
    * posting reopens the existing thread instead of forking it — losing the
    * history is exactly the failure a case exists to prevent.
    */
-  ipcHandle(ipcMain, 'cases:create', (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_CREATE, (_e, payload: unknown) => {
     const o = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
     const title = str(o.title, 200).trim()
     if (!title) throw new Error('A case needs a title.')
@@ -260,7 +261,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
     })
   })
 
-  ipcHandle(ipcMain, 'cases:set-status', (_e, id: unknown, status: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_SET_STATUS, (_e, id: unknown, status: unknown) => {
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
     const next = str(status, 40)
@@ -277,7 +278,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
     return saved
   })
 
-  ipcHandle(ipcMain, 'cases:add-note', (_e, id: unknown, text: unknown, author: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_ADD_NOTE, (_e, id: unknown, text: unknown, author: unknown) => {
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
     const body = str(text, 4000).trim()
@@ -298,7 +299,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
    * calendar. An offer that outlives its own completion is how a helpful
    * surface turns into a nagging one.
    */
-  ipcHandle(ipcMain, 'cases:mark-acted', (_e, id: unknown, signal: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_MARK_ACTED, (_e, id: unknown, signal: unknown) => {
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
     const key = signalKey(signal as NoteSignal)
@@ -308,9 +309,9 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
   })
 
   /* The endings, so a second surface never keeps its own copy of the list. */
-  ipcHandle(ipcMain, 'cases:terminal', () => [...TERMINAL])
+  ipcHandle(ipcMain, IPC.CASES_TERMINAL, () => [...TERMINAL])
 
-  ipcHandle(ipcMain, 'cases:set-description', (_e, id: unknown, description: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_SET_DESCRIPTION, (_e, id: unknown, description: unknown) => {
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
     return write({ ...c, description: str(description, 1000) })
@@ -322,7 +323,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
    * (recoverable from Files → Trash), or are removed when no workspace is open
    * (a global case). Unknown ids are a no-op.
    */
-  ipcHandle(ipcMain, 'cases:delete', async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_DELETE, async (_e, id: unknown) => {
     const hit = resolve(str(id, 120))
     if (!hit) return { ok: false }
     const root = getWorkspaceRoot()
@@ -336,7 +337,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
     return { ok: true }
   })
 
-  ipcHandle(ipcMain, 'cases:work-folder', (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_WORK_FOLDER, (_e, id: unknown) => {
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
     const root = getWorkspaceRoot()
@@ -347,7 +348,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
   })
 
   /** Accept a draft: move it to outputs/ and point the case at its new place. */
-  ipcHandle(ipcMain, 'cases:promote', (_e, id: unknown, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_PROMOTE, (_e, id: unknown, filePath: unknown) => {
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
     const root = getWorkspaceRoot()
@@ -368,7 +369,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
     return write({ ...c, artifacts, notes })
   })
 
-  ipcHandle(ipcMain, 'cases:add-artifact', (_e, id: unknown, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_ADD_ARTIFACT, (_e, id: unknown, filePath: unknown) => {
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
     const p = str(filePath, 1000).trim()
@@ -383,7 +384,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
    * picture" is a file read, not a context-assembly problem. What the agent sees
    * is exactly what the person sees.
    */
-  ipcHandle(ipcMain, 'cases:as-context', (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_AS_CONTEXT, (_e, id: unknown) => {
     const hit = resolve(str(id, 120))
     if (!hit) return ''
     return fs.readFileSync(hit.file, 'utf8')
@@ -394,7 +395,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
    * its CSV artifacts. The "sixth layer": a case that renders itself. Reads are
    * bounded and fail-safe — one unreadable artifact never sinks the panel.
    */
-  ipcHandle(ipcMain, 'cases:insights', (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_INSIGHTS, (_e, id: unknown) => {
     const c = load(str(id, 120))
     if (!c) return [] as ArtifactInsight[]
     const root = getWorkspaceRoot()
@@ -435,7 +436,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
    * from a ```json block in the case body. null when the case declares none —
    * the renderer then falls back to the auto-derived cards.
    */
-  ipcHandle(ipcMain, 'cases:view', (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_VIEW, (_e, id: unknown) => {
     const hit = resolve(str(id, 120))
     if (!hit) return null
     const spec = extractViewSpec(fs.readFileSync(hit.file, 'utf8'))
@@ -451,7 +452,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
    * the path must be listed in the case (membership), and a relative one must
    * not escape the case root. The vetted path is then read-allowlisted.
    */
-  ipcHandle(ipcMain, 'cases:authorize-artifact', (_e, id: unknown, rel: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_AUTHORIZE_ARTIFACT, (_e, id: unknown, rel: unknown) => {
     const hit = resolve(str(id, 120))
     const c = load(str(id, 120))
     if (!hit || !c) return null
@@ -475,7 +476,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
   })
 
   /** A `file://` URL for an artifact, so the renderer can show image thumbnails. */
-  ipcHandle(ipcMain, 'cases:artifact-url', (_e, rel: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_ARTIFACT_URL, (_e, rel: unknown) => {
     const root = getWorkspaceRoot()
     const r = str(rel, 1000)
     const abs = path.isAbsolute(r) ? r : root ? path.join(root, r) : null
@@ -496,7 +497,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
    * name already taken at the destination refuses rather than merges: two
    * threads with one name is exactly the confusion a case exists to end.
    */
-  ipcHandle(ipcMain, 'cases:set-scope', (_e, id: unknown, scope: unknown) => {
+  ipcHandle(ipcMain, IPC.CASES_SET_SCOPE, (_e, id: unknown, scope: unknown) => {
     const next: CaseScope = scope === 'global' ? 'global' : 'workspace'
     const c = load(str(id, 120))
     if (!c) throw new Error('No such case.')
@@ -520,7 +521,7 @@ export function registerCaseHandlers(ipcMain: IpcMain): void {
     return saved
   })
 
-  ipcHandle(ipcMain, 'cases:next-status', (_e, type: unknown, current: unknown) =>
+  ipcHandle(ipcMain, IPC.CASES_NEXT_STATUS, (_e, type: unknown, current: unknown) =>
     nextStatus(str(type, 40) || 'application', str(current, 40)),
   )
 }

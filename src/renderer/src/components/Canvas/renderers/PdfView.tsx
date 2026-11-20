@@ -26,6 +26,16 @@ export function PdfView({ load, reloadKey, toolbarLeft, loadingLabel }: PdfViewP
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  /*
+   * `load` is a caller-supplied async reader; `reloadKey` is the explicit
+   * "re-read the bytes now" signal (and `scale` re-renders). Listing `load`
+   * would re-fetch the whole PDF on every parent render, since an inline arrow
+   * is a new identity each time. The key is the contract.
+   */
+  const loadRef = useRef(load)
+  useEffect(() => {
+    loadRef.current = load
+  }, [load])
   useEffect(() => {
     let cancelled = false
     setError(null)
@@ -34,7 +44,7 @@ export function PdfView({ load, reloadKey, toolbarLeft, loadingLabel }: PdfViewP
 
     async function render() {
       try {
-        const bytes = await load()
+        const bytes = await loadRef.current()
         if (cancelled) return
         // Copy into a fresh ArrayBuffer — pdf.js transfers/detaches the buffer.
         const data = new Uint8Array(bytes.byteLength)

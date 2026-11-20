@@ -483,6 +483,41 @@ npm run typecheck
 npm run build
 ```
 
+## Checkpoint 2026-11-20 (b) — A2a and A4c
+
+**A2a — response-owned backpressure (implemented, 12 tests).** The scheduler now
+carries an explicit `BackpressurePolicy`:
+
+| Field | Behaviour |
+| --- | --- |
+| `backpressure: 'hold' \| 'quarantine'` | `'quarantine'` (default, unchanged for existing callers) discards overflow; `'hold'` parks it under a bound of `maxQueuedSentences * 2` so a slow consumer cannot grow the queue without limit. |
+| `onBackpressure` / `onQuarantine` | The caller learns which happened, instead of inferring it. |
+| `spokenSentences` / `discardedSentences` | Honest accounting in `state()`. `stop()` discards **queued** sentences only; the in-flight fragment is cancelled and is never counted as spoken. |
+
+**A4c — model integrity states (implemented end to end, 23 + 4 + 4 tests).**
+`classifyModelReadiness` / `recoveryHints` / `buildModelDiagnostic` /
+`verifyReviewedSpeechModels` reuse the previously uncalled
+`verifyModelArtifacts`. States: `verified_offline | unverified_files_present |
+corrupt | missing | invalid_location`. `ready` is true only for
+`verified_offline`, so no caller can infer readiness from file existence. Wired
+through `speech:model-diagnostics` (main-frame and owner checked; directories
+resolved in main, never in the renderer), preload, renderer type mirror, and a
+Voice settings panel with explicit Verify, per-state recovery hints and a
+`checkedAt` stamp. Recovery never downloads, deletes or modifies.
+
+**The limitation this exposes, kept visible.** Every `REVIEWED_SPEECH_MODELS`
+entry has `expectedSha256: null`, so **no local engine can reach
+`verified_offline` today**; the truthful state is `unverified_files_present` and
+the UI says "files present, NOT verified — local speech stays off". Writing the
+UI test found a real defect on the way: the mount-time fetch swallowed its error,
+so an unreadable model folder looked like "nothing to report". Fixed in the
+component.
+
+**Still blocked, unchanged:** A1c (Claude adapter) → A1d (main-minted owner
+epoch, document-bound transport) → **A2b/A2c** (live transport and wiring). An
+in-process scheduler with a backpressure policy is not a live transport, and the
+completed-run reader remains the default.
+
 [hf-root]: https://github.com/huggingface/speech-to-speech/tree/7dbbdaff5774ca657deed1900814763e1f6d87d5
 [hf-license]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/LICENSE
 [hf-pipeline]: https://github.com/huggingface/speech-to-speech/blob/7dbbdaff5774ca657deed1900814763e1f6d87d5/src/speech_to_speech/api/openai_realtime/pipeline_unit.py

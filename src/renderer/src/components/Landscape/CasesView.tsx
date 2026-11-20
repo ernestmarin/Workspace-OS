@@ -110,17 +110,21 @@ export function CasesView({ initialCase = null }: { initialCase?: string | null 
   const c = shown.find((x) => x.id === pick) ?? shown[0] ?? null
   useGlass(main, c ? { radius: 26, bezel: 24, thickness: 46, frost: 0.82 } : null)
 
+  // `c` is rebuilt by `.find()` on every render, so the effect listed its
+  // primitive identity instead; a case that changes shape/status still re-runs.
+  const caseId = c?.id
+  const caseType = c?.type
   useEffect(() => {
-    if (!c) return
+    if (!caseId || !caseType) return
     let alive = true
     void window.workspace.cases
-      .statuses(c.type)
+      .statuses(caseType)
       .then((s) => alive && setStatuses(s))
       .catch(() => alive && setStatuses([]))
     return () => {
       alive = false
     }
-  }, [c?.type, c?.id])
+  }, [caseId, caseType])
 
   const act = async (fn: () => Promise<unknown>): Promise<void> => {
     if (busy) return

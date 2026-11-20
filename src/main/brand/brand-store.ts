@@ -250,11 +250,28 @@ export class BrandStore {
     return this.set({ logoPath: dest })
   }
 
-  /** Resolve an untrusted path to one INSIDE our logo dir, else undefined. */
+  /**
+   * Resolve an untrusted path to one INSIDE our logo dir, else undefined.
+   *
+   * Lexical containment is not enough: the renderer renders this path with
+   * `<img src={fileUrl(logoPath)}>`, so a symlink pointing out of the directory
+   * turns the brand preview into a reader for any file main can open. The link
+   * would have to be planted by something else with filesystem access (the
+   * agent's shell, an imported project), which is exactly the case a security
+   * check exists for. `realpathSync` must succeed: a dangling link is refused,
+   * not treated as a missing-but-fine path.
+   */
   private safeLogoPath(raw: string): string | undefined {
     const resolved = path.resolve(raw)
     const base = path.resolve(this.logoDir)
-    return resolved === base || resolved.startsWith(base + path.sep) ? resolved : undefined
+    if (resolved !== base && !resolved.startsWith(base + path.sep)) return undefined
+    try {
+      const real = fs.realpathSync(resolved)
+      const realBase = fs.realpathSync(base)
+      return real === realBase || real.startsWith(realBase + path.sep) ? real : undefined
+    } catch {
+      return undefined
+    }
   }
 
   private write(brand: Brand): void {

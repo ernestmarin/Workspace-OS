@@ -415,3 +415,102 @@ describe('threading headers', () => {
     expect(m.headers.references).toContain('<msg-2@example.com>')
   })
 })
+
+/**
+ * Attribute-context registration tests (batch RT-01).
+ *
+ * The property that matters is not "the payload text disappeared" — inert text
+ * in the DOM is harmless — but "no attacker-chosen attribute boundary exists".
+ * Every assertion below therefore fails unless the payload is confined to an
+ * escaped, double-quoted value.
+ */
+function liveEventHandlerSurvives(html: string): boolean {
+  return /["']\s*on[a-z]+\s*=/i.test(html) || /\son[a-z]+\s*=\s*["']/i.test(html)
+}
+
+describe('sanitizeHtml — attribute-context hardening (RED→FIX batch RT-01)', () => {
+  it('does not let a single-quoted payload hide inside a double-quoted attribute', () => {
+    // A single quote inside a DOUBLE-quoted value is legal HTML, so the old
+    // space-anchored `on*` pass never saw this handler.
+    const { html } = sanitizeHtml(
+      '<img src="https://tracker.example/p.png" alt="a\'onerror=\'window.__canary=1\'x=\'">',
+    )
+    expect(liveEventHandlerSurvives(html)).toBe(false)
+    expect(html).toContain('data-blocked-src="https://tracker.example/p.png"')
+    expect(html).toContain('&#39;')
+  })
+
+  it('re-escapes a URL that carries the attribute delimiter instead of storing it verbatim', () => {
+    const { html } = sanitizeHtml('<img src=\'https://x.example/a.png"onerror="window.__canary=1\'>')
+    expect(liveEventHandlerSurvives(html)).toBe(false)
+    expect(html).not.toContain('a.png"onerror')
+    expect(html).toContain('&quot;')
+  })
+
+  it('keeps the same guarantee for a comment-free hostile attribute in a nested element', () => {
+    const { html } = sanitizeHtml('<img src="https://x.example/a.png" title="q\'onmouseover=\'x\'>')
+    expect(liveEventHandlerSurvives(html)).toBe(false)
+  })
+
+  it('drops a file: image source and never leaves it armed', () => {
+    const { html } = sanitizeHtml('<img src="file:///etc/passwd">')
+    expect(html).not.toMatch(/\ssrc\s*=\s*["']?file:/i)
+    expect(html).toContain('src="#"')
+  })
+
+  it('neutralises a scheme hidden behind entities, tabs or embedded newlines', () => {
+    for (const raw of [
+      '<a href="jav&#x61;script:alert(1)">x</a>',
+      '<a href="java&#9;script:alert(1)">x</a>',
+      '<a href="java\nscript:alert(1)">x</a>',
+      '<a href="JaVaScRiPt:alert(1)">x</a>',
+    ]) {
+      const { html } = sanitizeHtml(raw)
+      expect(html.toLowerCase()).not.toContain('script:')
+      expect(html).toContain('href="#"')
+    }
+  })
+
+  it('strips a handler introduced without a preceding space', () => {
+    const { html } = sanitizeHtml('<img src="x.png"alt="y"onerror="alert(1)">')
+    expect(liveEventHandlerSurvives(html)).toBe(false)
+    expect(html).not.toContain('alert(1)')
+  })
+
+  it('strips a handler separated by a slash', () => {
+    const { html } = sanitizeHtml('<img/src="x.png"/onerror="alert(1)">')
+    expect(liveEventHandlerSurvives(html)).toBe(false)
+  })
+
+  it('blocks a remote <source src> as well as <img src>', () => {
+    const { html, hadRemote } = sanitizeHtml('<video><source src="https://x.example/a.mp4"></video>')
+    expect(hadRemote).toBe(true)
+    expect(html).not.toMatch(/\ssrc\s*=\s*["']https:/i)
+  })
+
+  it('removes inline SVG wholesale: an SVG document can carry script', () => {
+    const { html } = sanitizeHtml('<svg><image href="https://x.example/a.png"/></svg><p>keep</p>')
+    expect(html.toLowerCase()).not.toContain('<svg')
+    expect(html.toLowerCase()).not.toContain('x.example')
+    expect(html).toContain('<p>keep</p>')
+  })
+
+  it('removes a form so a message body cannot post anywhere', () => {
+    const { html } = sanitizeHtml('<form action="https://x.example/collect"><input name="a"></form><p>keep</p>')
+    expect(html.toLowerCase()).not.toContain('<form')
+    expect(html.toLowerCase()).not.toContain('x.example')
+    expect(html).toContain('<p>keep</p>')
+  })
+
+  it('keeps a benign quoted title intact and unescaped twice', () => {
+    const { html } = sanitizeHtml('<p title="plain text">keep</p>')
+    expect(html).toContain('title="plain text"')
+    expect(html).toBe('<p title="plain text">keep</p>')
+  })
+
+  it('leaves a legitimate query string untouched (no double &amp;)', () => {
+    const { html } = sanitizeHtml('<a href="https://ok.example/?a=1&amp;b=2">x</a>')
+    expect(html).toContain('a=1&amp;b=2')
+    expect(html).not.toContain('&amp;amp;')
+  })
+})

@@ -134,7 +134,7 @@ export function useMetricTransclusion({
       if (synced > 0) { setDirty(true); scheduleFullPaint(60) }
       return synced
     },
-    [filePath, scheduleFullPaint],
+    [filePath, scheduleFullPaint, setDirty],
   )
 
   // Load metrics when the panel opens (Calc only surface).
@@ -175,7 +175,7 @@ export function useMetricTransclusion({
         }
       }
     } catch { void reloadMetrics() }
-  }, [reloadMetrics, propagateToOpenDoc])
+  }, [reloadMetrics, propagateToOpenDoc, setToast])
 
   // Apply the outcome(s) of a source refresh: update the local cache, track which
   // metrics are stale (read failed → kept last value), and propagate any that
@@ -196,7 +196,7 @@ export function useMetricTransclusion({
         setTimeout(() => setToast(null), 2600)
       }
     },
-    [propagateToOpenDoc],
+    [propagateToOpenDoc, setToast],
   )
 
   // Refresh ONE sourced metric from its source cell on disk (panel Refresh btn).
@@ -268,7 +268,7 @@ export function useMetricTransclusion({
     setToast(parts.join(' · '))
     setTimeout(() => setToast(null), 3200)
     return res
-  }, [filePath])
+  }, [filePath, setToast])
 
   // Transclude a metric into the open document: write the LITERAL value into the
   // real file (fidelity floor) AND record a live link keyed to its anchor.
@@ -329,7 +329,7 @@ export function useMetricTransclusion({
     } catch { setToast('Insert failed'); setTimeout(() => setToast(null), 1800) }
     docWrapRef.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cellAddr, parts.type, parts.names, parts.cur, filePath])
+  }, [cellAddr, parts.type, parts.names, parts.cur, filePath, setToast, setDirty])
 
   // Re-sync on open (fail-safe): for each link in this file, if its metric still
   // exists and changed, push the new value into the cell; a missing metric is

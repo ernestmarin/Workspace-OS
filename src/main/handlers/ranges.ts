@@ -17,6 +17,7 @@ import { setDocTableCells } from '../docx-table-writer'
 import { setSlideTableCells } from '../pptx-table-writer'
 import { isValidA1 } from '../transclusions'
 import type { RangeGrid } from '../ranges'
+import { IPC } from '../ipc-channels'
 
 /** Outcome of refreshing one range from its source (fed to the renderer). */
 interface RangeRefreshResult {
@@ -87,12 +88,12 @@ async function writeClosedRangeLink(
  */
 export function registerRangeHandlers(ipcMain: IpcMain): void {
   // ---- ranges ----
-  ipcHandle(ipcMain, 'range:list', () => ranges.list())
+  ipcHandle(ipcMain, IPC.RANGE_LIST, () => ranges.list())
 
   // Create-from-range: a range whose grid is READ LIVE from a real spreadsheet
   // block. The block is read once now to seed the cache; a source we can't read
   // is rejected (you're pointing at real cells — no point creating a dead link).
-  ipcHandle(ipcMain, 'range:createFromSource', async (_event, name: unknown, source: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGE_CREATEFROMSOURCE, async (_event, name: unknown, source: unknown) => {
     if (typeof name !== 'string' || !name.trim()) {
       throw new IpcValidationError('Range name must be a non-empty string')
     }
@@ -110,7 +111,7 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
   // Rename / detach (passing `source` — even a literal one — detaches to a
   // literal grid, keeping the current cached values). Grid values are only ever
   // set by the refresh path, never directly by the renderer.
-  ipcHandle(ipcMain, 'range:update', (_event, id: unknown, patch: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGE_UPDATE, (_event, id: unknown, patch: unknown) => {
     readRangeId(id)
     const p = (patch ?? {}) as { name?: unknown; source?: unknown }
     if (p.name !== undefined && typeof p.name !== 'string') {
@@ -125,14 +126,14 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
 
   // Refresh ONE sourced range from disk; propagates downstream if the grid
   // changed (via the ordinary update path). Returns a stale flag on read failure.
-  ipcHandle(ipcMain, 'range:refreshFromSource', async (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGE_REFRESHFROMSOURCE, async (_event, id: unknown) => {
     const res = await refreshRange(readRangeId(id))
     if (!res) throw new IpcValidationError('Unknown range')
     return res
   })
 
   // Refresh EVERY sourced range ("refresh all"). Literal ranges are skipped.
-  ipcHandle(ipcMain, 'range:refreshAllFromSource', async () => {
+  ipcHandle(ipcMain, IPC.RANGE_REFRESHALLFROMSOURCE, async () => {
     const out: RangeRefreshResult[] = []
     for (const r of ranges.list()) {
       if (!isSourcedRange(r)) continue
@@ -144,7 +145,7 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
 
   // Refresh only ranges sourced FROM a given file (the auto-refresh-on-save
   // hook — cheap: touches nothing sourced from elsewhere). Fail-safe per range.
-  ipcHandle(ipcMain, 'range:refreshForFile', async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGE_REFRESHFORFILE, async (_event, filePath: unknown) => {
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     const out: RangeRefreshResult[] = []
     for (const r of ranges.list()) {
@@ -156,12 +157,12 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
     return out
   })
 
-  ipcHandle(ipcMain, 'range:delete', (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGE_DELETE, (_event, id: unknown) => {
     ranges.remove(readRangeId(id))
   })
 
   // ---- range links ----
-  ipcHandle(ipcMain, 'rangeLink:forFile', (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_FORFILE, (_event, filePath: unknown) => {
     if (typeof filePath !== 'string' || !filePath) {
       throw new IpcValidationError('Invalid file path')
     }
@@ -169,14 +170,14 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
   })
 
   // Read-only: every link bound to one range, across ALL files.
-  ipcHandle(ipcMain, 'rangeLink:forRange', (_event, rangeId: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_FORRANGE, (_event, rangeId: unknown) => {
     return rangeLinks.forRange(readRangeId(rangeId))
   })
 
   // Read-only: every link in the store (drives the per-range link-count badges).
-  ipcHandle(ipcMain, 'rangeLink:allLinks', () => rangeLinks.allLinks())
+  ipcHandle(ipcMain, IPC.RANGELINK_ALLLINKS, () => rangeLinks.allLinks())
 
-  ipcHandle(ipcMain, 'rangeLink:add', (_event, input: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_ADD, (_event, input: unknown) => {
     const i = (input ?? {}) as { rangeId?: unknown; filePath?: unknown; target?: unknown; lastValues?: unknown }
     readRangeId(i.rangeId)
     // Confine to the workspace before storing — syncAll later writes this path.
@@ -203,7 +204,7 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  ipcHandle(ipcMain, 'rangeLink:remove', (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_REMOVE, (_event, id: unknown) => {
     if (typeof id !== 'string' || !/^rlink-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid range link id')
     }
@@ -215,7 +216,7 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
   // PREVIEW (no writes): report the impact so the UI can confirm first. The open
   // file is excluded (the engine's live path owns it); unchanged links are shown
   // as such; everything else is a closed-file block that WOULD change.
-  ipcHandle(ipcMain, 'rangeLink:previewSyncAll', (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_PREVIEWSYNCALL, (_event, id: unknown, openFilePath: unknown) => {
     const rangeId = readRangeId(id)
     const open = typeof openFilePath === 'string' && openFilePath ? openFilePath : null
     const range = ranges.get(rangeId)
@@ -236,7 +237,7 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
   // OPEN file is never written here — it is handled live by the renderer. STRICT
   // fail-safe: any file we can't safely write is skipped and reported, never
   // corrupted.
-  ipcHandle(ipcMain, 'rangeLink:syncAll', async (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_SYNCALL, async (_event, id: unknown, openFilePath: unknown) => {
     const rangeId = readRangeId(id)
     const open = typeof openFilePath === 'string' && openFilePath ? openFilePath : null
     const range = ranges.get(rangeId)

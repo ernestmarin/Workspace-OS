@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Plus, Search, Undo2 } from 'lucide-react'
 import type { WikiChange, WikiCheck, WikiStatus } from '../../../types/workspace-api'
 import { relPath } from './libraryModel'
@@ -53,12 +53,21 @@ export function WikiSection({ root, wiki = 'Wiki/', pages }: { root: string; wik
     return () => window.clearInterval(t)
   }, [status?.busy, status?.queued, load])
 
+  /*
+   * `wiki` is rebuilt by the parent on every render, so it is read through a ref
+   * here; listing it would re-query the file list on every render of the panel.
+   * The only real trigger is opening the picker or changing workspace root.
+   */
+  const wikiRef = useRef(wiki)
+  useEffect(() => {
+    wikiRef.current = wiki
+  }, [wiki])
   useEffect(() => {
     if (!picking) return
     let live = true
     void window.workspace.fs
       .listFiles()
-      .then((l) => live && setFiles(l.filter((p) => READABLE.test(p) && !own(relPath(p, root), wiki))))
+      .then((l) => live && setFiles(l.filter((p) => READABLE.test(p) && !own(relPath(p, root), wikiRef.current))))
       .catch(() => live && setFiles([]))
     return () => {
       live = false

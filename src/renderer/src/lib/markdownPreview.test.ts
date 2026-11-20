@@ -100,3 +100,33 @@ describe('metricLookupFrom', () => {
     expect(lk.get('z')).toBeUndefined()
   })
 })
+
+/**
+ * The preview/chat surfaces share ONE sanitizer with the mail reader
+ * (`src/shared/htmlSanitize.ts`). These tests pin the invariant that made the
+ * old duplicated copies diverge: an attacker-chosen attribute boundary and an
+ * encoded `javascript:` URL must not survive into the preview document.
+ */
+describe('buildPreviewHtml — attribute-context invariants (batch RT-01)', () => {
+  const liveHandler = (html: string): boolean =>
+    /["']\s*on[a-z]+\s*=/i.test(html) || /\son[a-z]+\s*=\s*["']/i.test(html)
+
+  it('never leaves a live event handler in the preview', async () => {
+    const md = 'Hi\n\n<img src="https://tracker.example/p.png" alt="a\'onerror=\'window.__canary=1\'x=\'">'
+    const { html } = await buildPreviewHtml(md, lookup({}))
+    expect(liveHandler(html)).toBe(false)
+    expect(html).toContain('data-blocked-src="https://tracker.example/p.png"')
+  })
+
+  it('neutralises a javascript: URL hidden behind entities', async () => {
+    const { html } = await buildPreviewHtml('[x](jav&#x61;script:alert(1))', lookup({}))
+    expect(html.toLowerCase()).not.toContain('script:')
+    expect(html).toContain('href="#"')
+  })
+
+  it('still renders ordinary markdown links and images', async () => {
+    const { html } = await buildPreviewHtml('[ok](https://ok.example/a?b=1&amp;c=2)', lookup({}))
+    expect(html).toContain('https://ok.example/a?b=1&amp;c=2')
+    expect(html).not.toContain('&amp;amp;')
+  })
+})

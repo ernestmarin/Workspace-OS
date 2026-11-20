@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildPreviewHtml, metricLookupFrom } from '../../lib/markdownPreview'
+import { CONTENT_CSP } from '../../lib/previewCsp'
 import { useTheme } from '../../hooks/useTheme'
 import styles from './MarkdownPreview.module.css'
 
@@ -72,7 +73,7 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps): JSX.Element {
     const border = dark ? '#3a3a3a' : 'rgba(27,39,48,.09)'
     const muted = dark ? '#aaa' : '#7a8893'
     // default-src 'none' + no scripts / no network: nothing loads or runs.
-    const csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:;"
+    const csp = CONTENT_CSP
     const css = `html,body{margin:0;padding:28px 36px;color:${fg};background:${bg};font:14px/1.65 Inter,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}`
       + `body{max-width:760px}`
       + `h1,h2,h3,h4{font-family:Newsreader,Georgia,serif;font-weight:400;color:${ink};letter-spacing:-.01em;line-height:1.25}`

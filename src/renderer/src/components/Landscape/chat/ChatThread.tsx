@@ -1,16 +1,32 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Paperclip } from 'lucide-react'
 import type { Session } from '../../../lib/sessions/sessionModel'
 import { sessionStore, type SessionLive } from '../../../lib/sessions/sessionStore'
-import { chatMarkdown } from '../../../lib/chatMarkdown'
+import { chatMarkdown, chatMarkdownSync } from '../../../lib/chatMarkdown'
 import { RunTrace } from '../../AgentTerminal/RunTrace'
 import { FileThumb } from '../../FilePanel/FileThumb'
 import { baseName } from './chatModel'
 import styles from './ChatView.module.css'
 
-/** One reply, rendered once per change of its text. */
+/**
+ * One reply, rendered once per change of its text.
+ *
+ * The markdown parser is lazy-loaded (it is ~40 kB and most launches never open
+ * a chat), so the first reply renders plain for one frame and the HTML follows.
+ * Keeping the previous HTML while the next one is computed avoids a flash of
+ * unrendered text on every streamed token.
+ */
 const Reply = memo(function Reply({ text }: { text: string }): JSX.Element {
-  const html = useMemo(() => chatMarkdown(text), [text])
+  const [html, setHtml] = useState<string>(() => chatMarkdownSync(text) ?? '')
+  useEffect(() => {
+    let cancelled = false
+    void chatMarkdown(text).then((next) => {
+      if (!cancelled) setHtml(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [text])
   return <div className={styles.markdown} dangerouslySetInnerHTML={{ __html: html }} />
 })
 

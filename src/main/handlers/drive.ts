@@ -2,7 +2,7 @@ import { IpcMain, app } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
 import { ipcHandle } from '../ipc-registry'
-import { IpcValidationError } from '../ipc-validator'
+import { IpcValidationError, validateFilePath } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import { safeSecretStore } from '../mail/safe-secret-store'
 import { resolveGoogleClientId } from '../mail/oauth/client-config'
@@ -20,6 +20,7 @@ import {
   DriveError,
   type DriveAccess,
 } from '../drive/drive-client'
+import { IPC } from '../ipc-channels'
 
 /**
  * Google Drive, connected the way Google asks for it.
@@ -127,7 +128,7 @@ async function guard<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | 
 
 export function registerDriveHandlers(ipcMain: IpcMain): void {
   /** The connection, or null. Drives whether the UI offers connect or browse. */
-  ipcHandle(ipcMain, 'drive:connection', async () => {
+  ipcHandle(ipcMain, IPC.DRIVE_CONNECTION, async () => {
     const c = await accounts().get()
     return { connection: c, canWrite: canWrite(c), clientIdConfigured: Boolean(resolveGoogleClientId(app.getPath('userData'))) }
   })
@@ -139,7 +140,7 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
    * what the UI may offer later. Read-only that shows a Save button is a
    * promise broken at the end of somebody's work rather than the start.
    */
-  ipcHandle(ipcMain, 'drive:connect', async (_e, access: unknown) => {
+  ipcHandle(ipcMain, IPC.DRIVE_CONNECT, async (_e, access: unknown) => {
     const level: DriveAccess =
       access === 'full' || access === 'appFiles' || access === 'readOnly' ? access : 'readOnly'
     const clientId = resolveGoogleClientId(app.getPath('userData'))
@@ -178,12 +179,12 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
     return { ok: true as const, value: { connection, canWrite: canWrite(connection) } }
   })
 
-  ipcHandle(ipcMain, 'drive:disconnect', async () => {
+  ipcHandle(ipcMain, IPC.DRIVE_DISCONNECT, async () => {
     await accounts().disconnect()
     return { ok: true as const }
   })
 
-  ipcHandle(ipcMain, 'drive:list', (_e, folderId: unknown, pageToken: unknown) =>
+  ipcHandle(ipcMain, IPC.DRIVE_LIST, (_e, folderId: unknown, pageToken: unknown) =>
     guard(async () =>
       listFolder(
         await accessToken(),
@@ -194,7 +195,7 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
     ),
   )
 
-  ipcHandle(ipcMain, 'drive:search', (_e, query: unknown) =>
+  ipcHandle(ipcMain, IPC.DRIVE_SEARCH, (_e, query: unknown) =>
     guard(async () => searchFiles(await accessToken(), asString(query, 200), {}, nodeFetch)),
   )
 
@@ -205,7 +206,7 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
    * canvas, the office engine, the agent — sees an ordinary file on disk and
    * needs to know nothing about Drive.
    */
-  ipcHandle(ipcMain, 'drive:open', (_e, fileId: unknown) =>
+  ipcHandle(ipcMain, IPC.DRIVE_OPEN, (_e, fileId: unknown) =>
     guard(async () => {
       const root = getWorkspaceRoot()
       if (!root) throw new IpcValidationError('No workspace folder is open.')
@@ -232,7 +233,7 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
    * revision history. And refused outright on a read-only connection, rather
    * than discovered at the end by a 403.
    */
-  ipcHandle(ipcMain, 'drive:save', (_e, fileId: unknown, localPath: unknown) =>
+  ipcHandle(ipcMain, IPC.DRIVE_SAVE, (_e, fileId: unknown, localPath: unknown) =>
     guard(async () => {
       const connection = await accounts().get()
       // Order matters: without this, "nothing is connected" was reported as
@@ -246,10 +247,11 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
       }
       const root = getWorkspaceRoot()
       if (!root) throw new IpcValidationError('No workspace folder is open.')
-      const abs = path.resolve(root, asString(localPath, 1024))
-      if (abs !== root && !abs.startsWith(root + path.sep)) {
-        throw new IpcValidationError('That file is outside the workspace.')
-      }
+      // SEC-01 regression class: a lexical prefix check accepts
+      // `<workspace>/out -> /etc`, so the "save back to Drive" read could be
+      // pointed at a file outside the workspace through a symlink. Same
+      // lstat/readlink resolution and same error text as the fs handlers.
+      const abs = validateFilePath(asString(localPath, 1024), root)
       const token = await accessToken()
       const meta = await getFile(token, asString(fileId, 200), nodeFetch)
       const bytes = new Uint8Array(await fs.readFile(abs))
@@ -259,7 +261,7 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
   )
 
   /** What a Drive file would be called locally — for the UI to show first. */
-  ipcHandle(ipcMain, 'drive:local-name', (_e, name: unknown, mimeType: unknown) =>
+  ipcHandle(ipcMain, IPC.DRIVE_LOCAL_NAME, (_e, name: unknown, mimeType: unknown) =>
     localNameFor({ name: asString(name, 300), mimeType: typeof mimeType === 'string' ? mimeType : '' }),
   )
 }

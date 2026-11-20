@@ -25,6 +25,38 @@ Electron GUI E2E or cross-platform hardware validation is claimed. Full Node/jsd
 (`0` errors, baseline `0`), and `0` critical / `0` high `npm audit` gates are green
 (`35` prod / `40` total moderate advisories remain major-gated).
 
+_Updated 2026-11-20 (b):_ Node/jsdom Vitest is now **341 passed / 3 skipped files,
+3,725 passed / 26 skipped tests**; ESLint `src` is **0 errors / 0 warnings**;
+A2a and A4c are implemented and verified as described in the increment below.
+
+## Increment 2026-11-20 (b) — A2a backpressure, A4c model integrity
+
+- [x] **A2a — response-owned backpressure and honest accounting.** The reply
+      scheduler gained a `backpressure: 'hold' | 'quarantine'` policy (default
+      stays `'quarantine'`, so existing callers are unchanged), a held-queue
+      bound of `maxQueuedSentences * 2`, `onBackpressure` / `onQuarantine`
+      callbacks, and `spokenSentences` / `discardedSentences` counters in
+      `state()`. `stop()` discards **queued** sentences only: the in-flight
+      fragment is cancelled, and it is never counted as spoken. 12 tests,
+      including the case where a stopped reading must not report speech that was
+      never heard.
+- [x] **A4c — artifact-level model integrity states.** `ready` is true **only**
+      for `verified_offline`, which requires a full SHA-256 match on every
+      reviewed artifact; presence alone can no longer read as ready, in the data
+      or in the UI. States: `verified_offline | unverified_files_present |
+      corrupt | missing | invalid_location`, each with a non-destructive recovery
+      hint (nothing is downloaded, deleted or modified). Wired end to end:
+      `speech:model-diagnostics` (main-frame + owner checked, directories
+      resolved in main), preload, renderer type mirror, and a Voice settings
+      panel that names the state and shows `verified/artifacts` counts.
+- [ ] **Honest limitation, stated in the UI:** every reviewed model currently
+      carries `expectedSha256: null`, so **no local engine can reach
+      `verified_offline` today**. The panel says "files present, NOT verified —
+      local speech stays off". That is the truthful state until real pins land;
+      it is not a UI bug.
+- [ ] A2b/A2c (live transport + wiring) remain blocked behind A1d's
+      main-minted owner term; the completed-run reader stays the default.
+
 ## Audit increment — implemented, bounded
 
 - [x] Bind readings/results to their originating workspace document, not a later

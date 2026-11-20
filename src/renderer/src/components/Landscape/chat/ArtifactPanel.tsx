@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowUpRight, X } from 'lucide-react'
 import { FileThumb } from '../../FilePanel/FileThumb'
 import { useWorkspaceRoot } from '../../../hooks/useWorkspaceRoot'
-import { chatMarkdown } from '../../../lib/chatMarkdown'
+import { chatMarkdown, chatMarkdownSync } from '../../../lib/chatMarkdown'
 import { artifactKind, baseName, csvRows } from './chatModel'
 import styles from './ChatView.module.css'
 
@@ -50,7 +50,22 @@ export function ArtifactPanel({ path, stamp, onClose }: { path: string; stamp: n
     }
   }, [path, kind, stamp])
 
-  const md = useMemo(() => (kind === 'markdown' && text !== null ? chatMarkdown(text) : ''), [kind, text])
+  const [md, setMd] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    if (kind !== 'markdown' || text === null) {
+      setMd('')
+      return
+    }
+    const immediate = chatMarkdownSync(text)
+    if (immediate !== null) setMd(immediate)
+    void chatMarkdown(text).then((next) => {
+      if (!cancelled) setMd(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [kind, text])
   const open = (): void => {
     window.dispatchEvent(new CustomEvent('wos:open-file', { detail: { path } }))
   }

@@ -81,7 +81,6 @@ export function safeName(name: string): string {
   const base = String(name || 'download')
     .replace(/[\\/]+/g, '_')
     // Control characters can hide the real extension in a file listing.
-    // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x1f\x7f]/g, '')
     // A leading dot hides the file, and ".." is how traversal begins.
     .replace(/^\.+/, '')

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Search } from 'lucide-react'
 import { FileIcon } from '../FilePanel/fileIcons'
 import type { SearchResult } from '../../types/workspace-api'
@@ -34,14 +34,16 @@ export function CommandBar({ onClose, onOpenFile }: CommandBarProps): JSX.Elemen
     return () => { alive = false }
   }, [])
   const q = query.trim().toLowerCase()
-  const hits = q
+  // Memoised: the conditional below was rebuilt on every render, which made
+  // every callback that lists `hits` a new function on every keystroke.
+  const hits = useMemo(() => q
     ? [...commands,
       { id: 'voice.read-clipboard', label: 'Read clipboard aloud', path: 'Voice' },
       { id: 'voice.stop', label: 'Stop reading aloud', path: 'Voice' },
     ].filter((c) => c.label.toLowerCase().includes(q) || c.path.toLowerCase().includes(q))
       .sort((x, y) => (x.label.toLowerCase().startsWith(q) ? 0 : 1) - (y.label.toLowerCase().startsWith(q) ? 0 : 1))
       .slice(0, 8)
-    : []
+    : [], [q, commands])
 
   // Debounced query — search runs 150ms after the user stops typing.
   useEffect(() => {

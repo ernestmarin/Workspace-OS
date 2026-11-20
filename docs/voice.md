@@ -19,6 +19,36 @@ requires review before sending. Streaming TTS and two-way real-time conversation
 are not implemented. Browser word highlighting, the HUD and history are
 not yet implemented. Voice is not production-ready or real-device end-to-end validated.
 
+## Model integrity: "present" is not "verified"
+
+Settings → Voice now has a **Local model integrity** panel backed by
+`speech:model-diagnostics` (`src/main/speech/modelDiagnostics.ts`). It reports
+one honest state per reviewed model:
+
+| State | Meaning |
+| --- | --- |
+| `verified_offline` | Every reviewed artifact matched its pinned SHA-256. The **only** state in which `ready` is true. |
+| `unverified_files_present` | The files are there and **nothing about them has been checked**. Local speech stays off. |
+| `corrupt` | A file is present but does not match its recorded checksum. |
+| `missing` | Not provisioned. |
+| `invalid_location` | The path escapes the model folder or is a symlink. Refused, not "missing". |
+
+Two consequences worth stating plainly, because the panel will show them today:
+
+1. **No local engine can currently reach `verified_offline`.** Every entry in
+   `REVIEWED_SPEECH_MODELS` carries `expectedSha256: null`, so the best possible
+   report is "files present, NOT verified". That is truthful, not a defect, and
+   it is why the earlier green "files present" indicator was misleading: it read
+   as readiness while nothing had been checked cryptographically.
+2. **Verification never changes your files.** It reads and compares. The recovery
+   hints name a next step (provision the files, reinstall the bundled wrapper,
+   replace a mismatched artifact, fix the model directory); none of them download,
+   delete or modify anything.
+
+The panel also stamps `checkedAt` and `manifestVersion` so a stale snapshot is
+visible, and a failed check says "Verification failed: …" rather than silently
+showing nothing.
+
 ## Kokoro: manual setup
 
 In Settings → Voice, choose Kokoro and select **Prepare Kokoro project files**.

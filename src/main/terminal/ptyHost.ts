@@ -37,7 +37,6 @@ interface PtyModule {
 
 /** Lazy loader — overridable in tests so no native binary is required. */
 let loader: () => PtyModule = () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('node-pty') as PtyModule
 }
 

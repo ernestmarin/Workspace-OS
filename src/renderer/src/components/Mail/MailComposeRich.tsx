@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
+import { COMPOSE_CSP } from '../../lib/previewCsp'
 import { Sparkles, Loader2, AlertCircle, Plus, Trash2, BarChart3, Table2, Link2, FileSpreadsheet, GripVertical, Pencil, Check, Type, Heading as HeadingIcon, Image as ImageIcon, Minus } from 'lucide-react'
 import type { EmailBlock, EmailThemeId, EmailAssistAction, MailLiveData } from '../../types/workspace-api'
 import { blockLabel, ctaBlock, editableKind, type RichComposeState } from './richComposeModel'
@@ -281,7 +282,7 @@ export function MailComposeRich({
 export function RichPreview({ html, tall = false }: { html: string; tall?: boolean }): JSX.Element | null {
   const srcDoc = useMemo(() => {
     if (!html) return ''
-    const csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; media-src data:;"
+    const csp = COMPOSE_CSP
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"></head><body style="margin:0">${html}</body></html>`
   }, [html])
   if (!html) return null

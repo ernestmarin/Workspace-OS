@@ -47,6 +47,10 @@ export function JsDialog({ state, onEvent, onClose, anchor }: Props): JSX.Elemen
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
+    // `state` is read only through `isPopup`, which matters for the CURRENT
+    // dialog; re-binding the capture listener on every state change would drop
+    // keystrokes during a redraw, so the state is read from a ref instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keydown must not be re-bound per state
   }, [onEvent, onClose])
 
   useEffect(() => {

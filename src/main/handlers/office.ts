@@ -6,6 +6,7 @@ import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError, validateFilePath } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import { resolveSoffice, isLibreOfficeAvailable, convertTo, discardConverted } from '../office/libreoffice'
+import { IPC } from '../ipc-channels'
 
 function cacheDir(): string {
   return path.join(app.getPath('userData'), 'office-cache')
@@ -97,9 +98,9 @@ async function toPdfCached(srcPath: string): Promise<Uint8Array> {
  * supersede the OnlyOffice/Docker path when LibreOffice is installed.
  */
 export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): void {
-  ipcHandle(ipcMain, 'office:available', () => isLibreOfficeAvailable())
+  ipcHandle(ipcMain, IPC.OFFICE_AVAILABLE, () => isLibreOfficeAvailable())
 
-  ipcHandle(ipcMain, 'office:print', async (_event, filePath) => {
+  ipcHandle(ipcMain, IPC.OFFICE_PRINT, async (_event, filePath) => {
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const resolved = validateFilePath(filePath, root)
@@ -112,7 +113,7 @@ export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): vo
     if (error) throw new Error(error)
   })
 
-  ipcHandle(ipcMain, 'office:to-pdf', async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.OFFICE_TO_PDF, async (_event, filePath: unknown) => {
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const resolved = validateFilePath(filePath, root)
@@ -120,7 +121,7 @@ export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): vo
     return toPdfCached(resolved)
   })
 
-  ipcHandle(ipcMain, 'office:export-pdf', async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.OFFICE_EXPORT_PDF, async (_event, filePath: unknown) => {
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const resolved = validateFilePath(filePath, root)

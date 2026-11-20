@@ -17,6 +17,8 @@
  * pre-configured endpoints, which short-circuit discovery.
  */
 
+import { isBlockedHost } from '../../url-host-guard'
+
 /** Minimal fetch surface — a GET-and-POST superset of the mail FetchFn. */
 export type OAuthFetch = (
   url: string,
@@ -52,6 +54,46 @@ function ok<T>(value: T): OAuthResult<T> {
 }
 function fail<T>(error: string): OAuthResult<T> {
   return { ok: false, error }
+}
+
+// ── Endpoint trust ───────────────────────────────────────────────────────────
+
+/**
+ * Is this OAuth endpoint safe to send credentials or the user's browser to?
+ *
+ * The endpoint URLs here are supplied by the MCP server's own metadata — a party
+ * we have no trust relationship with at first contact — and two of them are
+ * handed to `shell.openExternal` while the third receives the authorization
+ * code, the PKCE verifier, and then the stored refresh token on every unattended
+ * refresh. Nothing downstream can repair a bad endpoint, so the check lives at
+ * the boundary: the discovery parsers and the two token sinks.
+
+ * Deliberately strict: absolute `https:` only, no `http:` exception even for
+ * loopback. The redirect URI in the PKCE flow is our own loopback listener and
+ * is never passed through here; a server that only speaks cleartext OAuth is a
+ * server whose tokens would travel in the clear, so it is refused instead of
+ * downgraded. User-info (`https://user:pass@host`) is refused too: it makes the
+ * displayed and the connected host differ, and we never render these URLs.
+ */
+export function isSecureEndpointUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048) return false
+  // Reject control characters and whitespace, which URL() would otherwise trim.
+  if (/[\x00-\x20\x7f]/.test(value)) return false
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'https:') return false
+  if (url.username !== '' || url.password !== '') return false
+  if (!url.hostname) return false
+  // Loopback/private/link-local literals are refused even over https: an
+  // authorization server on the user's own machine or LAN is not something a
+  // remote MCP server's metadata may redirect a browser and a refresh token to.
+  // Same classification as the mail image proxy (SEC-05), deliberately shared.
+  if (isBlockedHost(url.hostname)) return false
+  return true
 }
 
 // ── Metadata discovery ───────────────────────────────────────────────────────
@@ -95,7 +137,9 @@ export function parseProtectedResource(
   if (!doc || typeof doc !== 'object') return null
   const m = doc as ProtectedResourceMetadata
   const servers = Array.isArray(m.authorization_servers) ? m.authorization_servers : []
-  const first = servers.find((s) => typeof s === 'string' && s.length > 0)
+  // Skip insecure entries rather than failing the whole document: a server may
+  // list both, and the secure one is the only one we could ever use.
+  const first = servers.find((s) => isSecureEndpointUrl(s))
   if (typeof first !== 'string') return null
   const resource = typeof m.resource === 'string' ? m.resource : undefined
   return { authServer: first, resource }
@@ -111,7 +155,9 @@ export function parseAuthServerMetadata(doc: unknown): {
 } | null {
   if (!doc || typeof doc !== 'object') return null
   const m = doc as AuthServerMetadata
-  if (typeof m.authorization_endpoint !== 'string' || typeof m.token_endpoint !== 'string') {
+  // Both endpoints are required, and both must be https: a document that offers
+  // a cleartext token endpoint is not a downgrade we accept, it is a refusal.
+  if (!isSecureEndpointUrl(m.authorization_endpoint) || !isSecureEndpointUrl(m.token_endpoint)) {
     return null
   }
   return { authorizationEndpoint: m.authorization_endpoint, tokenEndpoint: m.token_endpoint }
@@ -126,7 +172,14 @@ export async function discoverEndpoints(
   mcpUrl: string,
   fetchFn: OAuthFetch,
 ): Promise<OAuthResult<OAuthEndpoints>> {
-  const prDoc = await getJson(fetchFn, wellKnown(mcpUrl, '/.well-known/oauth-protected-resource'))
+  let prDoc: unknown
+  try {
+    prDoc = await getJson(fetchFn, wellKnown(mcpUrl, '/.well-known/oauth-protected-resource'))
+  } catch {
+    // `wellKnown` throws on an unparseable URL; a typed failure keeps the flow's
+    // "never throws" contract and keeps the bad input out of an error string.
+    return fail('Could not discover the server’s OAuth metadata.')
+  }
   const pr = parseProtectedResource(prDoc)
   if (!pr) return fail('Could not discover the server’s OAuth metadata.')
 
@@ -161,6 +214,11 @@ export function buildAuthUrl(params: {
   scopes?: string[]
   resource?: string
 }): string {
+  if (!isSecureEndpointUrl(params.authorizationEndpoint)) {
+    // The consent URL is opened in the user's real browser. A cleartext or
+    // non-network endpoint here is a phishing surface, so building it is refused.
+    throw new Error('Refusing to open a consent URL for a non-https authorization endpoint')
+  }
   const qs = new URLSearchParams({
     response_type: 'code',
     client_id: params.clientId,
@@ -184,11 +242,40 @@ interface TokenResponse {
   error?: string
 }
 
+/**
+ * Ceiling on any single credential-shaped field we forward to a token endpoint.
+ *
+ * The authorization `code` arrives on a loopback HTTP listener that any local
+ * process can reach, and the client id/refresh token come from stored records.
+ * A real value is well under a kilobyte; anything far larger is a caller trying
+ * to make this process the origin of an arbitrarily large POST. Refused rather
+ * than truncated, because a truncated credential is not a credential.
+ */
+const MAX_CREDENTIAL_LENGTH = 4096
+
+function oversizedCredential(body: Record<string, string>): string | null {
+  for (const [key, value] of Object.entries(body)) {
+    if (typeof value === 'string' && value.length > MAX_CREDENTIAL_LENGTH) return key
+  }
+  return null
+}
+
 async function postToken(
   fetchFn: OAuthFetch,
   tokenEndpoint: string,
   body: Record<string, string>,
 ): Promise<OAuthResult<RemoteTokenSet>> {
+  // Last line of defence, and the one that matters for unattended refreshes: a
+  // token endpoint restored from an older record is checked again here, so a
+  // cleartext endpoint can never receive the refresh token. The error names the
+  // requirement and never the secret.
+  if (!isSecureEndpointUrl(tokenEndpoint)) {
+    return fail('The token endpoint is not a valid https URL; refusing to send credentials.')
+  }
+  if (oversizedCredential(body)) {
+    // The field name only — never the value, which may be a live credential.
+    return fail('The authorization server request was rejected: a credential field was oversized.')
+  }
   let res: { ok: boolean; status: number; json: () => Promise<unknown> }
   try {
     res = await fetchFn(tokenEndpoint, {

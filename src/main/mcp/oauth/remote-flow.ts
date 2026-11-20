@@ -5,6 +5,7 @@ import {
   buildAuthUrl,
   discoverEndpoints,
   exchangeCode,
+  isSecureEndpointUrl,
   type OAuthEndpoints,
   type OAuthFetch,
   type RemoteTokenSet,
@@ -42,6 +43,12 @@ async function resolveEndpoints(
   fetchFn: OAuthFetch,
 ): Promise<{ ok: true; value: OAuthEndpoints } | { ok: false; error: string }> {
   if (remote.authorizationEndpoint && remote.tokenEndpoint) {
+    // Configured endpoints bypass discovery entirely, so this is the only place
+    // they are ever inspected. Refusing here gives the user a specific reason
+    // instead of a generic "sign-in could not be started" from the sink guards.
+    if (!isSecureEndpointUrl(remote.authorizationEndpoint) || !isSecureEndpointUrl(remote.tokenEndpoint)) {
+      return { ok: false, error: 'This connector’s OAuth endpoints must both be https URLs.' }
+    }
     return {
       ok: true,
       value: {

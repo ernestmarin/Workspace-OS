@@ -16,7 +16,8 @@ import { VoiceHotkey } from './hotkey'
 import { speechEnginesDir } from './paths'
 import { kokoroFilesStatus, prepareKokoro } from './engines/kokoro-setup'
 import { KokoroDependencyInstaller } from './engines/kokoro-install'
-import { LocalStt, localSttStatus } from './local-stt'
+import { LocalStt, localSttStatus, sttModelDir } from './local-stt'
+import { modelDirFor, verifyReviewedSpeechModels } from './modelDiagnostics'
 import { microphoneGrant } from './microphone-grant'
 
 interface SpeechDocument {
@@ -216,6 +217,23 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
     return kokoroFilesStatus(speechEnginesDir())
   })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_STATUS, (event) => { assertOwner(event); return kokoroFilesStatus(speechEnginesDir()) })
+  /*
+   * VOX-A4c: artifact-level model integrity.
+   *
+   * `SPEECH_KOKORO_STATUS` and `SPEECH_STT_STATUS` answer "are the files
+   * there?", which the settings UI rendered as a green light. A file being
+   * present is not readiness: nothing is downloaded here, several reviewed
+   * models carry no pinned hash, and a provider-supplied weight file can be
+   * replaced without any visible symptom. This reports the honest state and a
+   * non-destructive recovery step; `ready` is true only for a full SHA-256
+   * match against every reviewed artifact.
+   */
+  ipcHandle(ipc, IPC.SPEECH_MODEL_DIAGNOSTICS, async (event) => {
+    assertOwner(event)
+    return verifyReviewedSpeechModels((entry) =>
+      modelDirFor(entry, speechEnginesDir(), sttModelDir()),
+    )
+  })
   ipcHandle(ipc, IPC.SPEECH_KOKORO_PREPARE, (event) => {
     assertOwner(event)
     const resources = app.isPackaged ? path.join(process.resourcesPath, 'voice-kokoro') : path.join(app.getAppPath(), 'resources', 'voice-kokoro')

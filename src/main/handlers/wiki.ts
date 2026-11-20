@@ -10,6 +10,7 @@ import { runProviderOneShot } from '../agent/providerText'
 import { indexNow } from './search'
 import { WIKI_DIR } from '../wiki/wiki-page'
 import * as wiki from '../wiki/wiki-store'
+import { IPC } from '../ipc-channels'
 
 /**
  * The wiki that keeps itself: files the person (or an agent) adds are read one
@@ -82,7 +83,7 @@ async function reindex(root: string, rels: string[]): Promise<void> {
 }
 
 function broadcast(): void {
-  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('wiki:changed')
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(IPC.WIKI_CHANGED)
 }
 
 async function work(): Promise<void> {
@@ -116,7 +117,7 @@ export function registerWikiHandlers(ipcMain: IpcMain): void {
    * Add files or folders. Files already added and unchanged are skipped unless
    * `again`; with `wait` the answer comes when they are done (agents use this).
    */
-  ipcHandle(ipcMain, 'wiki:add', async (_e, paths: unknown, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.WIKI_ADD, async (_e, paths: unknown, opts: unknown) => {
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace is open')
     const list = Array.isArray(paths) ? paths : [paths]
@@ -155,16 +156,16 @@ export function registerWikiHandlers(ipcMain: IpcMain): void {
     return o.wait === true ? { ...answer, results: await Promise.all(done) } : answer
   })
 
-  ipcHandle(ipcMain, 'wiki:status', () => ({ busy: current !== null, current, queued: queue.length, finished, failed }))
-  ipcHandle(ipcMain, 'wiki:changes', (_e, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.WIKI_STATUS, () => ({ busy: current !== null, current, queued: queue.length, finished, failed }))
+  ipcHandle(ipcMain, IPC.WIKI_CHANGES, (_e, limit: unknown) => {
     const root = getWorkspaceRoot()
     return root ? wiki.changes(root, typeof limit === 'number' ? Math.min(50, Math.max(1, limit)) : 10) : []
   })
-  ipcHandle(ipcMain, 'wiki:sources', () => {
+  ipcHandle(ipcMain, IPC.WIKI_SOURCES, () => {
     const root = getWorkspaceRoot()
     return root ? Object.keys(wiki.sources(root)) : []
   })
-  ipcHandle(ipcMain, 'wiki:undo', async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.WIKI_UNDO, async (_e, id: unknown) => {
     const root = getWorkspaceRoot()
     if (!root || typeof id !== 'string' || !id) throw new IpcValidationError('Which change?')
     const pages = wiki.changePages(root, id)
@@ -173,7 +174,7 @@ export function registerWikiHandlers(ipcMain: IpcMain): void {
     broadcast()
     return r
   })
-  ipcHandle(ipcMain, 'wiki:check', () => {
+  ipcHandle(ipcMain, IPC.WIKI_CHECK, () => {
     const root = getWorkspaceRoot()
     return root ? wiki.check(root) : null
   })

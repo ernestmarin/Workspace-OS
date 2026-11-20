@@ -10,7 +10,9 @@ import { mainWindow } from '../main-window'
 import { readPlan, writeTests } from '../apps/app-tests'
 import { runPlan, testing, type TestMode } from '../apps/app-driver'
 import { unzipSync, zipSync } from 'fflate'
+import { newZipBudgetState, zipBudgetFilter } from '../apps/zipBudget'
 import { randomUUID } from 'crypto'
+import { IPC } from '../ipc-channels'
 
 /**
  * Apps: the gallery, running an app, and what an app asks of the workspace.
@@ -218,13 +220,13 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   protocol.handle(APP_SCHEME, (req) => serve(req))
 
   /** What the host needs to check an app's requests (its permissions). */
-  ipcHandle(ipcMain, 'apps:manifest', (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_MANIFEST, (_e, slug: unknown) => {
     const m = apps.readManifest(requireRoot(), requireSlug(slug))
     if (!m) throw new IpcValidationError('No such app')
     return m
   })
 
-  ipcHandle(ipcMain, 'apps:list', () => {
+  ipcHandle(ipcMain, IPC.APPS_LIST, () => {
     const root = getWorkspaceRoot()
     if (!root) return []
     // A copy of a built-in app made before it had an icon.svg shows the built-in's icon.
@@ -232,14 +234,14 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     return apps.listApps(root).map((a) => (!a.icon && a.from && icons.get(a.from) ? { ...a, icon: icons.get(a.from)! } : a))
   })
 
-  ipcHandle(ipcMain, 'apps:templates', () => {
+  ipcHandle(ipcMain, IPC.APPS_TEMPLATES, () => {
     const root = getWorkspaceRoot()
     const have = new Set(root ? apps.listApps(root).map((a) => a.from).filter(Boolean) : [])
     return templates().map((t) => ({ ...t, added: have.has(t.slug) }))
   })
 
   /** Add a built-in app to the workspace (a copy the person owns and can change). */
-  ipcHandle(ipcMain, 'apps:install', (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_INSTALL, (_e, id: unknown) => {
     const root = requireRoot()
     const t = templates().find((x) => x.slug === requireSlug(id))
     if (!t) throw new IpcValidationError('No such app in the gallery')
@@ -251,7 +253,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   /** A new, empty app for the builder to fill. */
-  ipcHandle(ipcMain, 'apps:create', (_e, name: unknown, description: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_CREATE, (_e, name: unknown, description: unknown) => {
     const root = requireRoot()
     const n = typeof name === 'string' && name.trim() ? name.trim().slice(0, 60) : 'New app'
     const slug = apps.freeSlug(root, apps.slugify(n))
@@ -262,7 +264,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     return slug
   })
 
-  ipcHandle(ipcMain, 'apps:duplicate', (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_DUPLICATE, (_e, slug: unknown) => {
     const root = requireRoot()
     const from = apps.appDir(root, requireSlug(slug))
     const copy = apps.freeSlug(root, `${slug}-copy`)
@@ -273,7 +275,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   // ── export and import (.wosapp: a zip of the app's own files, never its data) ──
-  ipcHandle(ipcMain, 'apps:export', async (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_EXPORT, async (_e, slug: unknown) => {
     const root = requireRoot()
     const s = requireSlug(slug)
     const m = apps.readManifest(root, s)
@@ -287,7 +289,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
 
   // Import, in two steps: read and check the file, show the person what it asks for, then add it.
   const pending = new Map<string, apps.AppPackage>()
-  ipcHandle(ipcMain, 'apps:importPick', async () => {
+  ipcHandle(ipcMain, IPC.APPS_IMPORTPICK, async () => {
     requireRoot()
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Workspace OS app', extensions: ['wosapp', 'zip'] }] })
@@ -295,11 +297,25 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     if (r.canceled || !f) return null
     if (fs.statSync(f).size > apps.PACKAGE_LIMITS.totalBytes * 2) throw new IpcValidationError('That file is too large for an app')
     let entries: Record<string, Uint8Array>
+    // The archive is third-party input: bound what expanding it may cost before
+    // any byte is decompressed, not after. The compressed size above says
+    // nothing about how much a deflate bomb expands to, and `fflate` inflates
+    // every entry its filter accepts.
+    const budgetState = newZipBudgetState()
+    const budget = zipBudgetFilter(
+      {
+        maxTotalBytes: apps.PACKAGE_LIMITS.totalBytes,
+        maxEntryBytes: apps.PACKAGE_LIMITS.fileBytes,
+        maxEntries: apps.PACKAGE_LIMITS.files + 16,
+      },
+      budgetState,
+    )
     try {
-      entries = unzipSync(new Uint8Array(fs.readFileSync(f)), { filter: (file) => file.originalSize <= apps.PACKAGE_LIMITS.fileBytes * 2 })
+      entries = unzipSync(new Uint8Array(fs.readFileSync(f)), { filter: budget })
     } catch {
       throw new IpcValidationError('That is not a Workspace OS app file')
     }
+    if (budgetState.rejected) throw new IpcValidationError(budgetState.rejected)
     let pkg: apps.AppPackage
     try {
       pkg = apps.readPackage(entries, path.basename(f).replace(/\.(wosapp|zip)$/i, ''))
@@ -311,7 +327,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     pending.set(token, pkg)
     return { token, manifest: pkg.manifest, files: Object.keys(pkg.files).length, bytes: pkg.bytes }
   })
-  ipcHandle(ipcMain, 'apps:importConfirm', (_e, token: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_IMPORTCONFIRM, (_e, token: unknown) => {
     const root = requireRoot()
     const pkg = typeof token === 'string' ? pending.get(token) : undefined
     if (!pkg) throw new IpcValidationError('Pick the app file again')
@@ -320,22 +336,22 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   /** Whether the window is in macOS full screen (an app's Full screen then only covers it). */
-  ipcHandle(ipcMain, 'apps:windowFull', (e) => BrowserWindow.fromWebContents(e.sender)?.isFullScreen() ?? false)
+  ipcHandle(ipcMain, IPC.APPS_WINDOWFULL, (e) => BrowserWindow.fromWebContents(e.sender)?.isFullScreen() ?? false)
 
   /** The design check (apps-store lintApp): run after each builder turn. */
-  ipcHandle(ipcMain, 'apps:lint', (_e, slug: unknown) => apps.lintApp(requireRoot(), requireSlug(slug)))
+  ipcHandle(ipcMain, IPC.APPS_LINT, (_e, slug: unknown) => apps.lintApp(requireRoot(), requireSlug(slug)))
 
-  ipcHandle(ipcMain, 'apps:reveal', (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_REVEAL, (_e, slug: unknown) => {
     shell.showItemInFolder(path.join(apps.appDir(requireRoot(), requireSlug(slug)), 'app.json'))
   })
 
   /** The app as one sandboxable page. */
-  ipcHandle(ipcMain, 'apps:load', (_e, slug: unknown, theme: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_LOAD, (_e, slug: unknown, theme: unknown) => {
     return apps.composeApp(requireRoot(), requireSlug(slug), getKit(), theme === 'dark' ? 'dark' : 'light')
   })
 
   /** The harness, before the first build: the person's idea becomes Apps/<slug>/BRIEF.md. */
-  ipcHandle(ipcMain, 'apps:brief', async (_e, slug: unknown, idea: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_BRIEF, async (_e, slug: unknown, idea: unknown) => {
     const root = requireRoot()
     const s = requireSlug(slug)
     if (typeof idea !== 'string' || !idea.trim()) throw new IpcValidationError('What should the app do?')
@@ -351,7 +367,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
    * The harness, after a turn: the running app against its brief. `rect` is
    * where the app's frame is in the window (CSS pixels), for the screenshot.
    */
-  ipcHandle(ipcMain, 'apps:review', async (_e, slug: unknown, rect: unknown, tests: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_REVIEW, async (_e, slug: unknown, rect: unknown, tests: unknown) => {
     const root = requireRoot()
     const s = requireSlug(slug)
     let shot: Buffer | null = null
@@ -370,7 +386,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   })
 
   /** The harness, after a turn: the app's end-to-end tests (Apps/<slug>/TESTS.json), written or updated. */
-  ipcHandle(ipcMain, 'apps:testsWrite', async (_e, slug: unknown, request: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_TESTSWRITE, async (_e, slug: unknown, request: unknown) => {
     const root = requireRoot()
     const s = requireSlug(slug)
     const page = path.join(apps.appDir(root, s), 'index.html')
@@ -380,7 +396,7 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
 
   /** The harness: runs the app's tests in its live preview beside the chat (null when it has none). */
   const testRuns = new Set<string>()
-  ipcHandle(ipcMain, 'apps:test', async (_e, slug: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_TEST, async (_e, slug: unknown) => {
     const root = requireRoot()
     const s = requireSlug(slug)
     const plan = readPlan(root, s)
@@ -389,14 +405,14 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     if (testRuns.has(s)) throw new IpcValidationError('The tests of this app are already running')
     testRuns.add(s)
     try {
-      return await runPlan(win, root, s, plan, (i, total, name) => win.webContents.send('apps:test-progress', { slug: s, i, total, name }))
+      return await runPlan(win, root, s, plan, (i, total, name) => win.webContents.send(IPC.APPS_TEST_PROGRESS, { slug: s, i, total, name }))
     } finally {
       testRuns.delete(s)
     }
   })
 
   /** One request from a running app (see resources/apps-kit/bridge.js). */
-  ipcHandle(ipcMain, 'apps:call', async (_e, slug: unknown, method: unknown, args: unknown) => {
+  ipcHandle(ipcMain, IPC.APPS_CALL, async (_e, slug: unknown, method: unknown, args: unknown) => {
     const root = requireRoot()
     const m = apps.readManifest(root, requireSlug(slug))
     if (!m) throw new IpcValidationError('No such app')
