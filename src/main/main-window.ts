@@ -17,9 +17,18 @@ import { BrowserWindow } from 'electron'
  * window is normal, not an error.
  */
 let current: BrowserWindow | null = null
+// Authorization must not inherit mainWindow()'s best-effort delivery fallback.
+let registeredOwner: BrowserWindow | null = null
 
 export function setMainWindow(win: BrowserWindow): void {
   current = win
+  registeredOwner = win
+}
+
+/** Only the explicitly registered live owner may invoke owner-bound IPC. */
+export function isMainWindowSender(sender: Electron.WebContents): boolean {
+  return !!registeredOwner && !registeredOwner.isDestroyed() &&
+    !registeredOwner.webContents.isDestroyed() && registeredOwner.webContents === sender
 }
 
 /** The live main window, or null. Never returns a destroyed one. */
