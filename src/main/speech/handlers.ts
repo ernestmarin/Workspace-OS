@@ -1,0 +1,107 @@
+import { clipboard, globalShortcut, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { defaultKokoroProfile } from '../../shared/speech/defaults'
+import type { VoiceProfile } from '../../shared/speech/types'
+import { mainWindow, sendToWindow } from '../main-window'
+import { ipcHandle, registerCleanup } from '../ipc-registry'
+import { IPC } from '../ipc-channels'
+import { assertMainFrame } from '../security'
+import { getConfig, updateConfig } from './speech-config'
+import { speechKeyStatus, setSpeechKey } from './secrets'
+import { synthesizeFragment } from './engines'
+import { PlaybackBroker } from './playback'
+import { ReadingController } from './reading'
+import { VoiceHotkey } from './hotkey'
+
+function assertOwner(event: IpcMainInvokeEvent): void {
+  assertMainFrame(event)
+  if (!event.senderFrame || mainWindow()?.webContents.id !== event.sender.id) throw new Error('Speech IPC rejected: not the workspace window')
+}
+
+export function registerSpeechHandlers(ipc: IpcMain): void {
+  const broker = new PlaybackBroker((owner, message) => {
+    const win = mainWindow()
+    if (!win || win.webContents.id !== owner) throw new Error('Playback window is unavailable')
+    win.webContents.send(IPC.SPEECH_PLAYBACK, message)
+  })
+  const controller = new ReadingController({
+    synthesize: synthesizeFragment,
+    play: (audio, text, signal, config) => {
+      const win = mainWindow()
+      if (!win) throw new Error('Playback window is unavailable')
+      const owner = win.webContents.id
+      const closed = (): void => broker.closeOwner(owner)
+      win.webContents.once('destroyed', closed)
+      return broker.play(owner, audio, text, config.playback.volume, signal).finally(() => win.webContents.removeListener('destroyed', closed))
+    },
+    onStatus: (status) => sendToWindow(IPC.SPEECH_EVENT, { type: 'state', status }),
+  })
+  const start = (text: string): { readingId: number } => {
+    const reading = controller.read(text, getConfig())
+    void reading.result.then((result) => sendToWindow(IPC.SPEECH_EVENT, { type: 'result', readingId: reading.id, result }))
+    return { readingId: reading.id }
+  }
+  const startClipboard = (): { readingId: number } => start(clipboard.readText())
+  const hotkey = new VoiceHotkey(globalShortcut, () => {
+    try {
+      // Don't read or transmit clipboard text while no workspace window is open.
+      if (mainWindow()) startClipboard()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to read clipboard'
+      sendToWindow(IPC.SPEECH_EVENT, { type: 'error', message })
+    }
+  })
+  try {
+    const cfg = getConfig()
+    if (cfg.hotkey.enabled) hotkey.set(cfg.hotkey.shortcut)
+  } catch (error) {
+    // An unavailable shortcut must not prevent the rest of the app from starting.
+    console.warn('[speech] could not initialize voice shortcut:', error instanceof Error ? error.message : 'unknown error')
+  }
+  ipcHandle(ipc, IPC.SPEECH_SPEAK, (event, text) => {
+    assertOwner(event)
+    if (typeof text !== 'string') throw new Error('Speech text must be a string')
+    return start(text)
+  })
+  ipcHandle(ipc, IPC.SPEECH_READ_CLIPBOARD, (event) => { assertOwner(event); return startClipboard() })
+  ipcHandle(ipc, IPC.SPEECH_SET_HOTKEY, (event, value) => {
+    assertOwner(event)
+    if (typeof value !== 'string' || value.length > 128) throw new Error('Invalid shortcut')
+    const previous = hotkey.shortcut
+    hotkey.set(value)
+    try {
+      updateConfig({ hotkey: { enabled: !!hotkey.shortcut, shortcut: hotkey.shortcut } })
+    } catch (error) {
+      // Restore the previous registration if persistence failed.
+      try { hotkey.set(previous) } catch { /* surfaced by the original failure */ }
+      throw error
+    }
+    return { shortcut: hotkey.shortcut }
+  })
+  ipcHandle(ipc, IPC.SPEECH_STOP, (event) => { assertOwner(event); controller.stop() })
+  ipcHandle(ipc, IPC.SPEECH_STATUS, (event) => { assertOwner(event); return controller.getStatus() })
+  ipcHandle(ipc, IPC.SPEECH_CONFIG, (event) => { assertOwner(event); return getConfig() })
+  ipcHandle(ipc, IPC.SPEECH_KEY_STATUS, (event) => { assertOwner(event); return speechKeyStatus() })
+  ipcHandle(ipc, IPC.SPEECH_SET_KEY, (event, value) => {
+    assertOwner(event)
+    if (typeof value !== 'string' || value.length > 8192) throw new Error('Invalid API key')
+    setSpeechKey('SPEECH_OPENAI_API_KEY', value)
+    return speechKeyStatus()
+  })
+  // A narrow, non-executable selection API: never expose arbitrary CLI config via IPC.
+  ipcHandle(ipc, IPC.SPEECH_SELECT_ENGINE, (event, engine, voice) => {
+    assertOwner(event)
+    if (engine !== 'openai' && engine !== 'kokoro') throw new Error('Unsupported speech engine')
+    if (typeof voice !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(voice)) throw new Error('Invalid voice')
+    const cfg = getConfig()
+    const id = `wos-${engine}`
+    const profile: VoiceProfile = { ...defaultKokoroProfile(), id, name: engine === 'openai' ? 'OpenAI' : 'Kokoro', engine, voice, voice_label: null, engine_options: {} }
+    const profiles = [...cfg.tts.profiles.filter((p) => p.id !== id), profile]
+    return updateConfig({ tts: { ...cfg.tts, profiles, active_profile_id: id, active_backend: engine } })
+  })
+  ipcHandle(ipc, IPC.SPEECH_PLAYBACK_DONE, (event, id, ok) => {
+    assertOwner(event)
+    if (typeof id !== 'string' || typeof ok !== 'boolean') throw new Error('Invalid playback result')
+    return broker.complete(event.sender.id, id, ok)
+  })
+  registerCleanup('speech', () => { hotkey.dispose(); controller.stop() })
+}

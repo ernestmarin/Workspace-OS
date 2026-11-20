@@ -1,3 +1,4 @@
+import { VoicePlayback } from './components/Voice/VoicePlayback'
 import { CodexRequests } from './components/AgentTerminal/CodexRequests'
 import { useEffect, useState } from 'react'
 import { LandscapeShell } from './components/Landscape/LandscapeShell'
@@ -42,6 +43,7 @@ export function App(): JSX.Element {
   // you won't reach at the moment you actually need it.
   return (
     <>
+      <VoicePlayback />
       <LandscapeShell />
       <CodexRequests />
       {bugOpen.open && <BugReporter onClose={bugOpen.close} surface={null} openFile={null} />}

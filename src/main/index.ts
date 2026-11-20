@@ -42,6 +42,7 @@ import { registerRoutinesHandlers, startRoutines, stopRoutines } from './handler
 import { registerNotifyHandlers } from './notify'
 import { registerBugHandlers } from './handlers/bugs'
 import { registerBrowserHandlers } from './browser/browserControl'
+import { registerSpeechHandlers } from './speech/handlers'
 import { installDocgen } from './docgen'
 import { installComponentCli } from './component-cli'
 import { installMetricCli } from './install-metric-cli'
@@ -271,6 +272,7 @@ app.whenReady().then(() => {
   // Browser <webview>. The guest webContents is captured in security.ts.
   registerBrowserHandlers(ipcMain)
   registerUpdaterHandlers(ipcMain)
+  registerSpeechHandlers(ipcMain)
 
   // Auto-update: background check + install-on-quit. No-op in dev/unsigned.
   initUpdater(win, isDev)

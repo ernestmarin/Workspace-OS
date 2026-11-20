@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Sparkles, Send, BookOpen, Mail, Phone, Globe, ShieldCheck } from 'lucide-react'
+import { Sparkles, Send, BookOpen, Mail, Phone, Globe, ShieldCheck, Volume2 } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import styles from './PageAssistant.module.css'
 import { PageActions } from './PageActions'
@@ -58,6 +58,43 @@ export function PageAssistant({ currentUrl, signals, onBrowserAction }: Props): 
   const [profile, setProfile] = useState<Profile | null>(null)
   const [notes, setNotes] = useState<string[]>([])
   const [readError, setReadError] = useState<string | null>(null)
+  const [speechError, setSpeechError] = useState<string | null>(null)
+  const [speechBusy, setSpeechBusy] = useState(false)
+  const speechReading = useRef<number | null>(null)
+  const submittingSpeech = useRef(false)
+  const earlyResults = useRef(new Map<number, { finished: boolean; error?: string }>())
+  const finishSpeech = useCallback((result: { finished: boolean; error?: string }) => {
+    speechReading.current = null
+    setSpeechBusy(false)
+    if (!result.finished && result.error !== 'Cancelled') setSpeechError(result.error ?? 'Speech failed')
+  }, [])
+  useEffect(() => window.workspace.speech.onEvent((event) => {
+    if (event.type !== 'result') return
+    if (event.readingId === speechReading.current) finishSpeech(event.result)
+    else if (submittingSpeech.current) earlyResults.current.set(event.readingId, event.result)
+  }), [finishSpeech])
+  const speakPage = useCallback(async () => {
+    setSpeechError(null)
+    setSpeechBusy(true)
+    try {
+      const result = await window.workspace.browser.extract('text')
+      const text = result.ok ? pageTextFrom(result.data).trim() : ''
+      if (!text) throw new Error('No readable text was found on this page.')
+      const config = await window.workspace.speech.config()
+      if (text.length > config.trigger.max_text_length) throw new Error('Page is too long to read aloud; use shorter text in Voice settings.')
+      submittingSpeech.current = true
+      const reading = await window.workspace.speech.speak(text)
+      speechReading.current = reading.readingId
+      const early = earlyResults.current.get(reading.readingId)
+      if (early) finishSpeech(early)
+    } catch (error) {
+      setSpeechError(error instanceof Error ? error.message : 'Could not read page aloud.')
+      setSpeechBusy(false)
+    } finally {
+      submittingSpeech.current = false
+      earlyResults.current.clear()
+    }
+  }, [finishSpeech])
 
   // Ask-composer state.
   const [draft, setDraft] = useState('')
@@ -234,6 +271,13 @@ export function PageAssistant({ currentUrl, signals, onBrowserAction }: Props): 
         {!hasPage && (
           <div className={styles.empty}>Open a page in the address bar first, then I can read it for you.</div>
         )}
+
+        <button className={styles.primary} onClick={() => void speakPage()} disabled={!hasPage || speechBusy} data-testid="browser-speak-page">
+          <Volume2 size={15} /> {speechBusy ? 'Reading aloud…' : 'Read page aloud'}
+        </button>
+        <div className={styles.hint}>Uses your Voice settings; cloud engines send page text to their provider.</div>
+        {speechBusy && <button className={styles.primary} onClick={() => void window.workspace.speech.stop()}>Stop reading</button>}
+        {speechError && <div className={styles.readError} role="alert">{speechError}</div>}
 
         {/* Deep-read */}
         <button className={styles.primary} onClick={() => void deepRead()} disabled={!hasPage || reading}>

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../../shared/speech/defaults'
-import { ReadingController } from './reading'
+import { ReadingController, splitProviderText } from './reading'
 import type { PcmAudio } from './engines/wav'
 
 const audio: PcmAudio = { pcm: Buffer.alloc(2), sampleRate: 24000, channels: 1, bitsPerSample: 16 }
@@ -40,5 +40,26 @@ describe('reading controller', () => {
     const cfg = defaultConfig()
     expect(await controller.read('hello', cfg).result).toEqual({ finished: false, error: 'engine failed' })
     expect(() => controller.read('x'.repeat(cfg.trigger.max_text_length + 1), cfg)).toThrow('limit')
+  })
+})
+
+
+describe('provider text limits', () => {
+  it('splits on UTF-16 boundaries without losing supplementary characters', () => {
+    const input = 'a'.repeat(4095) + '🦊'.repeat(1000)
+    const pieces = splitProviderText(input, 4096)
+    expect(pieces.join('')).toBe(input)
+    expect(pieces.every((piece) => piece.length <= 4096)).toBe(true)
+    expect(pieces.every((piece) => !/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/.test(piece))).toBe(true)
+  })
+  it('enforces the OpenAI limit even with pagination disabled', async () => {
+    const received: string[] = []
+    const controller = new ReadingController({ synthesize: async (text) => { received.push(text); return audio }, play: async () => {}, onStatus: () => {} })
+    const cfg = defaultConfig()
+    cfg.sanitization.enabled = false
+    cfg.pagination.enabled = false
+    cfg.tts.profiles[0].engine = 'openai'
+    expect(await controller.read('x'.repeat(9000), cfg).result).toEqual({ finished: true })
+    expect(received.map((s) => s.length)).toEqual([4096, 4096, 808])
   })
 })
