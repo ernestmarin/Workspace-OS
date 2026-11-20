@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest'
  * que la clasificación sea exhaustiva y que los sensibles tengan guard.
  *
  * Sensible se define aquí como: cualquier canal cuyo handler deba verificar
- * origen del frame o confinar el filesystem antes de actuar. Tras N+1c hay 243
- * canales con guard y 178 pendientes de clasificación/autorización adicional;
+ * origen del frame o confinar el filesystem antes de actuar. Tras IPC-UPD-01 hay 245
+ * canales con guard y 176 pendientes de clasificación/autorización adicional;
  * la lista EXPLICITLY_NO_GUARD no demuestra que sean no sensibles.
  * Un nuevo canal que no esté en ninguna lista hace fallar esta
  * prueba — es un recordatorio de clasificar, no un permiso por defecto.
@@ -60,6 +60,7 @@ for (const file of mainSources(path.join(root, 'src/main'))) {
     const hasGuard =
       snippet.includes('assertMainFrame') ||
       snippet.includes('assertLokSender') ||
+      snippet.includes('assertUpdaterSender') ||
       snippet.includes('assertWorkspace') ||
       snippet.includes('validateFilePath') ||
       snippet.includes('validateOpenPath') ||
@@ -158,6 +159,8 @@ const MUST_HAVE_GUARD = new Set<string>([
   'terminal:kill',
   'terminal:resize',
   'terminal:write',
+  'updater:check',
+  'updater:install',
   // fs (mutación) — confinados vía sanitize/validateFilePath
   'fs:create',
   'fs:delete',
@@ -583,8 +586,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'trash:empty',
   'trash:list',
   'trash:restore',
-  'updater:check',
-  'updater:install',
   'wiki:changes',
   'wiki:check',
   'wiki:sources',

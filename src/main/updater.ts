@@ -4,6 +4,8 @@ import electronUpdater from 'electron-updater'
 import { app, BrowserWindow, dialog, IpcMain } from 'electron'
 import { ipcHandle, registerCleanup } from './ipc-registry'
 import { log } from './crash-reporter'
+import { isMainWindowSender } from './main-window'
+import { IpcValidationError } from './ipc-validator'
 import { IPC } from './ipc-channels'
 
 /**
@@ -179,16 +181,25 @@ export function checkForUpdatesManual(): void {
   void safeCheck()
 }
 
+function assertUpdaterSender(event: Electron.IpcMainInvokeEvent): void {
+  if (!event?.senderFrame || event.senderFrame.parent !== null || !isMainWindowSender(event.sender) ||
+      event.senderFrame !== event.sender.mainFrame) {
+    throw new IpcValidationError('IPC call rejected: updater requires the current main-window frame')
+  }
+}
+
 /** Registers the renderer-facing updater IPC (install / manual check). */
 export function registerUpdaterHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.UPDATER_INSTALL, () => {
+  ipcHandle(ipcMain, IPC.UPDATER_INSTALL, (event) => {
+    assertUpdaterSender(event)
     try {
       autoUpdater.quitAndInstall()
     } catch (err) {
       log('error', '[updater] quitAndInstall failed', err)
     }
   })
-  ipcHandle(ipcMain, IPC.UPDATER_CHECK, () => {
+  ipcHandle(ipcMain, IPC.UPDATER_CHECK, (event) => {
+    assertUpdaterSender(event)
     checkForUpdatesManual()
   })
 }
