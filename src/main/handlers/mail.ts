@@ -1,6 +1,7 @@
 import { IpcMain, dialog, shell, app, BrowserWindow } from 'electron'
 import { IPC } from '../ipc-channels'
 import { ipcHandle } from '../ipc-registry'
+import { assertMainFrame } from '../security'
 import { IpcValidationError } from '../ipc-validator'
 import { MailRuleStore } from '../mail/rule-store'
 import { classify, classifyFrom } from '../mail/classify'
@@ -419,7 +420,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * referrer and returns data: URIs, which the existing policy already allows —
    * so the button works without widening security for every other surface.
    */
-  ipcHandle(ipcMain, IPC.MAIL_REMOTE_IMAGES, async (_e, urls: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_REMOTE_IMAGES, async (event, urls: unknown) => {
+    assertMainFrame(event)
     if (!Array.isArray(urls)) return { ok: true, value: { images: {}, requested: 0, loaded: 0, failed: 0 } }
     // Bound what crosses IPC before any network work: the list comes from
     // message markup and is therefore attacker-chosen in both length and size.
@@ -431,9 +433,10 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   })
 
   // Non-secret account metadata only (never the password).
-  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_LIST, () => ensureService().listAccounts())
+  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_LIST, (event) => { assertMainFrame(event); return ensureService().listAccounts() })
 
-  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_ADD, async (_e, payload: unknown, secret: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_ADD, async (event, payload: unknown, secret: unknown) => {
+    assertMainFrame(event)
     const input = toAccountInput(payload)
     const pass = asString(secret, 1024)
     const account = await ensureService().addAccount(input, pass)
@@ -441,23 +444,24 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return account // secret intentionally absent from the record
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_REMOVE, async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_REMOVE, async (event, id: unknown) => {
+    assertMainFrame(event)
     await ensureService().removeAccount(asString(id, 64))
     return { ok: true }
   })
 
   // Validate credentials WITHOUT saving — the settings "Test connection" button.
-  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_TEST, (_e, payload: unknown, secret: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_TEST, (event, payload: unknown, secret: unknown) => {
+    assertMainFrame(event)
     const input = toAccountInput(payload)
     const pass = asString(secret, 1024)
     return ensureService().testConnection(input, pass)
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_FOLDERS, (_e, accountId: unknown) =>
-    ensureService().listFolders(asString(accountId, 64)),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_FOLDERS, (event, accountId: unknown) => { assertMainFrame(event); return ensureService().listFolders(asString(accountId, 64)) })
 
-  ipcHandle(ipcMain, IPC.MAIL_MESSAGES, (_e, accountId: unknown, folder: unknown, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_MESSAGES, (event, accountId: unknown, folder: unknown, opts: unknown) => {
+    assertMainFrame(event)
     const o = (opts && typeof opts === 'object' ? opts : {}) as Record<string, unknown>
     const limit = typeof o.limit === 'number' ? o.limit : undefined
     const beforeUid = typeof o.beforeUid === 'number' ? o.beforeUid : undefined
@@ -465,7 +469,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return ensureService().listMessages(asString(accountId, 64), asString(folder, 512), { limit, beforeUid, offset })
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_MESSAGE, (_e, accountId: unknown, folder: unknown, uid: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_MESSAGE, (event, accountId: unknown, folder: unknown, uid: unknown) => {
+    assertMainFrame(event)
     const n = typeof uid === 'number' ? uid : Number(uid)
     return ensureService().fetchMessage(
       asString(accountId, 64),
@@ -484,7 +489,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * `prune` is on because this call lists the folder itself — syncEnvelopes
    * still refuses to act on it unless the listing came back complete.
    */
-  ipcHandle(ipcMain, IPC.MAIL_SYNC, async (_e, accountId: unknown, folder: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SYNC, async (event, accountId: unknown, folder: unknown) => {
+    assertMainFrame(event)
     const a = asString(accountId, 64)
     const f = asString(folder, 512)
     const idx = ensureIndex()
@@ -516,7 +522,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return { ok: true as const, value: att }
   }
 
-  ipcHandle(ipcMain, IPC.MAIL_ATTACHMENT_SAVE, async (_e, accountId, folder, uid, index) => {
+  ipcHandle(ipcMain, IPC.MAIL_ATTACHMENT_SAVE, async (event, accountId, folder, uid, index) => {
+    assertMainFrame(event)
     const got = await materialise(asString(accountId, 64), asString(folder, 512), Number(uid) || 0, Number(index) || 0)
     if (!got.ok) return got
 
@@ -544,7 +551,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * user's, and the name is normalised the same way — an attachment called
    * "../../x" must not be able to reach outside that directory either.
    */
-  ipcHandle(ipcMain, IPC.MAIL_ATTACHMENT_OPEN, async (_e, accountId, folder, uid, index) => {
+  ipcHandle(ipcMain, IPC.MAIL_ATTACHMENT_OPEN, async (event, accountId, folder, uid, index) => {
+    assertMainFrame(event)
     const got = await materialise(asString(accountId, 64), asString(folder, 512), Number(uid) || 0, Number(index) || 0)
     if (!got.ok) return got
 
@@ -567,7 +575,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * it printing rights to reuse it would trade a security boundary for
    * convenience. The offscreen window gets the same locked-down CSP.
    */
-  ipcHandle(ipcMain, IPC.MAIL_EXPORT_PDF, async (_e, html: unknown, subject: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_EXPORT_PDF, async (event, html: unknown, subject: unknown) => {
+    assertMainFrame(event)
     const body = asString(html, 5_000_000)
     const title = safeFilename(asString(subject, 200) || 'message')
 
@@ -594,7 +603,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   })
 
   /** The raw RFC822 source of a message — "show original", for debugging a mail. */
-  ipcHandle(ipcMain, IPC.MAIL_RAW_SOURCE, async (_e, accountId: unknown, folder: unknown, uid: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_RAW_SOURCE, async (event, accountId: unknown, folder: unknown, uid: unknown) => {
+    assertMainFrame(event)
     const res = await ensureService().fetchSource(asString(accountId, 64), asString(folder, 512), Number(uid) || 0)
     if (!res.ok) return res
     // Bounded: a message with a large attachment would otherwise ship megabytes
@@ -602,13 +612,9 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return { ok: true as const, value: res.value.toString('utf-8').slice(0, 200_000) }
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_FOLDER_CREATE, (_e, accountId: unknown, folderPath: unknown) =>
-    ensureService().createFolder(asString(accountId, 64), asString(folderPath, 512)),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_FOLDER_CREATE, (event, accountId: unknown, folderPath: unknown) => { assertMainFrame(event); return ensureService().createFolder(asString(accountId, 64), asString(folderPath, 512)) })
 
-  ipcHandle(ipcMain, IPC.MAIL_FOLDER_RENAME, (_e, accountId: unknown, from: unknown, to: unknown) =>
-    ensureService().renameFolder(asString(accountId, 64), asString(from, 512), asString(to, 512)),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_FOLDER_RENAME, (event, accountId: unknown, from: unknown, to: unknown) => { assertMainFrame(event); return ensureService().renameFolder(asString(accountId, 64), asString(from, 512), asString(to, 512)) })
 
   /**
    * Deletes a folder — the ONE operation here that can destroy mail.
@@ -618,7 +624,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * deliberate act the user performs message by message, with undo available at
    * every step; deleting a full folder in one click is not.
    */
-  ipcHandle(ipcMain, IPC.MAIL_FOLDER_DELETE, async (_e, accountId: unknown, folderPath: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_FOLDER_DELETE, async (event, accountId: unknown, folderPath: unknown) => {
+    assertMainFrame(event)
     const id = asString(accountId, 64)
     const target = asString(folderPath, 512)
 
@@ -703,7 +710,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     w.timer = setTimeout(() => void pollOnce(accountId, folder), 60_000)
   }
 
-  ipcHandle(ipcMain, IPC.MAIL_WATCH_START, async (_e, accountId: unknown, folder: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_WATCH_START, async (event, accountId: unknown, folder: unknown) => {
+    assertMainFrame(event)
     const id = asString(accountId, 64)
     const f = asString(folder, 512)
     stopWatch(id, 'restarting')
@@ -716,13 +724,15 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return { ok: true as const, value: { watching: true } }
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_WATCH_STOP, (_e, accountId: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_WATCH_STOP, (event, accountId: unknown) => {
+    assertMainFrame(event)
     stopWatch(asString(accountId, 64), 'stopped by request')
     return { ok: true as const }
   })
 
   /** Unread + total per folder, for the rail badges. One connection, no locks. */
-  ipcHandle(ipcMain, IPC.MAIL_FOLDER_COUNTS, async (_e, accountId: unknown, folders: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_FOLDER_COUNTS, async (event, accountId: unknown, folders: unknown) => {
+    assertMainFrame(event)
     const list = Array.isArray(folders) ? folders.slice(0, 100).map((f) => asString(f, 512)) : []
     return ensureService().folderCounts(asString(accountId, 64), list)
   })
@@ -735,7 +745,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * behind it. Empty is a normal answer for a folder never synced, and the
    * caller falls back to the network rather than showing an empty mailbox.
    */
-  ipcHandle(ipcMain, IPC.MAIL_CACHED, (_e, accountId: unknown, folder: unknown, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_CACHED, (event, accountId: unknown, folder: unknown, limit: unknown) => {
+    assertMainFrame(event)
     const rows = ensureIndex().listThreads(
       asString(accountId, 64),
       asString(folder, 512),
@@ -748,13 +759,13 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * Recipient suggestions from people you have actually corresponded with.
    * Derived from the index — no contact store, no sync, no extra permission.
    */
-  ipcHandle(ipcMain, IPC.MAIL_CONTACTS, (_e, query: unknown, limit: unknown) => ({
+  ipcHandle(ipcMain, IPC.MAIL_CONTACTS, (event, query: unknown, limit: unknown) => { assertMainFrame(event); return ({
     ok: true as const,
     value: ensureIndex().suggestContacts(
       asString(query, 200),
       typeof limit === 'number' ? Math.min(limit, 20) : 8,
     ),
-  }))
+  }) })
 
   /**
    * Saves a compose draft to the server's Drafts folder.
@@ -767,7 +778,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * MOVED TO TRASH rather than deleted, because this codebase has no
    * destructive verb and drafts are not an exception worth carving out.
    */
-  ipcHandle(ipcMain, IPC.MAIL_SAVE_DRAFT, async (_e, accountId: unknown, draft: unknown, context: unknown, replaceUid: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SAVE_DRAFT, async (event, accountId: unknown, draft: unknown, context: unknown, replaceUid: unknown) => {
+    assertMainFrame(event)
     const id = asString(accountId, 64)
     const account = (await ensureService().listAccounts()).find((a) => a.id === id)
     if (!account) return { ok: false as const, error: { code: 'not-found' as const, message: 'Mail account not found.' } }
@@ -800,18 +812,20 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   })
 
   /** The signature for one account (empty string when none is set). */
-  ipcHandle(ipcMain, IPC.MAIL_SIGNATURE_GET, (_e, accountId: unknown) => ({
+  ipcHandle(ipcMain, IPC.MAIL_SIGNATURE_GET, (event, accountId: unknown) => { assertMainFrame(event); return ({
     ok: true as const,
     value: readSignatures(userDataDir())[asString(accountId, 64)] ?? '',
-  }))
+  }) })
 
-  ipcHandle(ipcMain, IPC.MAIL_SIGNATURE_SET, (_e, accountId: unknown, signature: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SIGNATURE_SET, (event, accountId: unknown, signature: unknown) => {
+    assertMainFrame(event)
     saveSignature(userDataDir(), asString(accountId, 64), asString(signature, 4000))
     return { ok: true as const }
   })
 
   /** Full-text search over the local index — the thing the filter box faked. */
-  ipcHandle(ipcMain, IPC.MAIL_SEARCH, (_e, query: unknown, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SEARCH, (event, query: unknown, opts: unknown) => {
+    assertMainFrame(event)
     const o = (opts && typeof opts === 'object' ? opts : {}) as Record<string, unknown>
     // Structured: `from:ana budget is:unread` — free text still goes to FTS,
     // operators become predicates. An unrecognised operator searches literally.
@@ -824,7 +838,7 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return { ok: true as const, value: rows }
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_INDEX_STATS, () => ({ ok: true as const, value: ensureIndex().stats() }))
+  ipcHandle(ipcMain, IPC.MAIL_INDEX_STATS, (event) => { assertMainFrame(event); return ({ ok: true as const, value: ensureIndex().stats() }) })
 
   // ── Mutating verbs ────────────────────────────────────────────────────────
   //
@@ -844,21 +858,13 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     label: typeof label === 'string' ? label.slice(0, 300) : '',
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_MOVE, async (_e, accountId, folder, uid, messageId, toFolder, label) =>
-    ensureActions().move(asTarget(accountId, folder, uid, messageId, label), asString(toFolder, 512), 'user'),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_MOVE, async (event, accountId, folder, uid, messageId, toFolder, label) => { assertMainFrame(event); return ensureActions().move(asTarget(accountId, folder, uid, messageId, label), asString(toFolder, 512), 'user') })
 
-  ipcHandle(ipcMain, IPC.MAIL_SET_READ, async (_e, accountId, folder, uid, messageId, read, label) =>
-    ensureActions().setRead(asTarget(accountId, folder, uid, messageId, label), Boolean(read), 'user'),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_SET_READ, async (event, accountId, folder, uid, messageId, read, label) => { assertMainFrame(event); return ensureActions().setRead(asTarget(accountId, folder, uid, messageId, label), Boolean(read), 'user') })
 
-  ipcHandle(ipcMain, IPC.MAIL_SET_FLAGGED, async (_e, accountId, folder, uid, messageId, flagged, label) =>
-    ensureActions().setFlagged(asTarget(accountId, folder, uid, messageId, label), Boolean(flagged), 'user'),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_SET_FLAGGED, async (event, accountId, folder, uid, messageId, flagged, label) => { assertMainFrame(event); return ensureActions().setFlagged(asTarget(accountId, folder, uid, messageId, label), Boolean(flagged), 'user') })
 
-  ipcHandle(ipcMain, IPC.MAIL_UNDO, async (_e, accountId: unknown, actionId: unknown) =>
-    ensureActions().undo(asString(accountId, 64), Number(actionId) || 0),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_UNDO, async (event, accountId: unknown, actionId: unknown) => { assertMainFrame(event); return ensureActions().undo(asString(accountId, 64), Number(actionId) || 0) })
 
   /**
    * Undo everything the AGENT did to the mailbox since a moment.
@@ -871,7 +877,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * Scoped to the agent, so a bad agent run cannot take the user's own filing
    * with it.
    */
-  ipcHandle(ipcMain, IPC.MAIL_UNDO_AGENT, async (_e, accountId: unknown, sinceMs: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_UNDO_AGENT, async (event, accountId: unknown, sinceMs: unknown) => {
+    assertMainFrame(event)
     const id = asString(accountId, 64)
     const since = Number(sinceMs)
     return ensureActions().undoSince(id, Number.isFinite(since) ? since : 0, 'agent')
@@ -883,7 +890,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * Reads from the local index rather than IMAP, so analysing 90 days costs no
    * network at all and the proposal appears instantly.
    */
-  ipcHandle(ipcMain, IPC.MAIL_FILING_PROPOSE, (_e, accountId: unknown, folder: unknown, days: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_FILING_PROPOSE, (event, accountId: unknown, folder: unknown, days: unknown) => {
+    assertMainFrame(event)
     const id = asString(accountId, 64)
     const f = asString(folder, 512)
     const n = Number(days)
@@ -918,12 +926,11 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * needed. Failures are counted, never thrown: one message that has moved
    * since the proposal must not abandon the other forty.
    */
-  ipcHandle(ipcMain, IPC.MAIL_FILING_APPLY, (_e, accountId: unknown, plan: unknown) =>
-    applyFilingPlan(asString(accountId, 64), plan as FilingPlan),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_FILING_APPLY, (event, accountId: unknown, plan: unknown) => { assertMainFrame(event); return applyFilingPlan(asString(accountId, 64), plan as FilingPlan) })
 
   /** The undo stack, newest first, with a plain-language line for each entry. */
-  ipcHandle(ipcMain, IPC.MAIL_UNDOABLE, (_e, accountId: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_UNDOABLE, (event, accountId: unknown) => {
+    assertMainFrame(event)
     const rows = ensureJournal().undoable(asString(accountId, 64), { limit: 20 })
     return {
       ok: true as const,
@@ -934,7 +941,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   // ── Phase 2: compose / reply / forward / send ─────────────────────────────
 
   // Validate SMTP credentials WITHOUT saving — the SMTP "Test connection" probe.
-  ipcHandle(ipcMain, IPC.MAIL_SMTP_TEST, (_e, payload: unknown, secret: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SMTP_TEST, (event, payload: unknown, secret: unknown) => {
+    assertMainFrame(event)
     const input = toAccountInput(payload)
     if (!input.smtp) return { ok: false, error: { code: 'unavailable', message: 'No SMTP server given.' } }
     const pass = asString(secret, 1024)
@@ -942,7 +950,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   })
 
   // Add the built-in DEMO mailbox (one click, no form, no secret, no network).
-  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_ADD_DEMO, async () => {
+  ipcHandle(ipcMain, IPC.MAIL_ACCOUNTS_ADD_DEMO, async (event) => {
+    assertMainFrame(event)
     const account = await ensureService().addDemoAccount()
     ensureService().invalidate()
     return account
@@ -979,9 +988,7 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return ensureSender().send(id, toDraft(draft), toContext(context))
   }
 
-  ipcHandle(ipcMain, IPC.MAIL_SEND, async (_e, accountId: unknown, draft: unknown, context: unknown) =>
-    doSend(accountId, draft, context),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_SEND, async (event, accountId: unknown, draft: unknown, context: unknown) => { assertMainFrame(event); return doSend(accountId, draft, context) })
 
   /**
    * The undo-send hold.
@@ -1004,17 +1011,19 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   )
 
   /** Queues a send behind the hold window; returns immediately with its id. */
-  ipcHandle(ipcMain, IPC.MAIL_SEND_QUEUED, (_e, accountId: unknown, draft: unknown, context: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SEND_QUEUED, (event, accountId: unknown, draft: unknown, context: unknown) => {
+    assertMainFrame(event)
     const item = sendQueue.enqueue({ accountId, draft, context })
     return { ok: true as const, value: { id: item.id, holdMs: Math.max(0, item.dueAt - Date.now()) } }
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_SEND_CANCEL, (_e, id: unknown) => ({
+  ipcHandle(ipcMain, IPC.MAIL_SEND_CANCEL, (event, id: unknown) => { assertMainFrame(event); return ({
     ok: true as const,
     value: { cancelled: sendQueue.cancel(asString(id, 64)) },
-  }))
+  }) })
 
-  ipcHandle(ipcMain, IPC.MAIL_SEND_NOW, async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SEND_NOW, async (event, id: unknown) => {
+    assertMainFrame(event)
     const item = await sendQueue.sendNow(asString(id, 64))
     sendQueue.prune()
     if (!item) return { ok: false as const, error: { code: 'not-found' as const, message: 'That message is no longer waiting to send.' } }
@@ -1026,7 +1035,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
 
   // Scan a folder → the messages that plausibly need a human reply (ranked).
   // Pure triage runs inside the service; here we just coerce the inputs.
-  ipcHandle(ipcMain, IPC.MAIL_TRIAGE, async (_e, accountId: unknown, folder: unknown, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_TRIAGE, async (event, accountId: unknown, folder: unknown, opts: unknown) => {
+    assertMainFrame(event)
     const o = (opts && typeof opts === 'object' ? opts : {}) as Record<string, unknown>
     const limit = typeof o.limit === 'number' ? o.limit : undefined
     const maxCandidates = typeof o.maxCandidates === 'number' ? o.maxCandidates : undefined
@@ -1052,7 +1062,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * which already holds the open cases; the parser only accepts assignments
    * to titles in this list.
    */
-  ipcHandle(ipcMain, IPC.MAIL_SIFT, async (_e, accountId: unknown, folder: unknown, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_SIFT, async (event, accountId: unknown, folder: unknown, opts: unknown) => {
+    assertMainFrame(event)
     const o = (opts && typeof opts === 'object' ? opts : {}) as Record<string, unknown>
     const id = asString(accountId, 64)
     const f = asString(folder, 512)
@@ -1121,7 +1132,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    *
    * Reads the local index, so it costs no network and appears instantly.
    */
-  ipcHandle(ipcMain, IPC.MAIL_NEWSLETTERS_PROPOSE, async (_e, accountId: unknown, folder: unknown, days: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_NEWSLETTERS_PROPOSE, async (event, accountId: unknown, folder: unknown, days: unknown) => {
+    assertMainFrame(event)
     const id = asString(accountId, 64)
     const f = asString(folder, 512)
     const n = Number(days)
@@ -1162,7 +1174,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * failures instead of abandoning the batch. A second implementation would
    * have to earn all of that again, and would be the one that got it wrong.
    */
-  ipcHandle(ipcMain, IPC.MAIL_NEWSLETTERS_FILE, async (_e, accountId: unknown, sweep: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_NEWSLETTERS_FILE, async (event, accountId: unknown, sweep: unknown) => {
+    assertMainFrame(event)
     const s = sweep as { folder?: string; messages?: { folder: string; uid: number; subject: string }[] }
     if (!s?.messages?.length) return { ok: true as const, value: { moved: 0, failed: 0, created: 0 } }
     const plan = {
@@ -1181,18 +1194,15 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
 
   /* ── how mail is sorted, and the rules that override it ─────────────────── */
 
-  ipcHandle(ipcMain, IPC.MAIL_RULES_LIST, () => ruleStore().list())
-  ipcHandle(ipcMain, IPC.MAIL_RULES_ADD, (_e, rule: unknown) => ruleStore().add(rule))
-  ipcHandle(ipcMain, IPC.MAIL_RULES_UPDATE, (_e, id: unknown, patch: unknown) =>
-    ruleStore().update(asString(id, 80), patch),
-  )
-  ipcHandle(ipcMain, IPC.MAIL_RULES_REMOVE, async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_RULES_LIST, (event) => { assertMainFrame(event); return ruleStore().list() })
+  ipcHandle(ipcMain, IPC.MAIL_RULES_ADD, (event, rule: unknown) => { assertMainFrame(event); return ruleStore().add(rule) })
+  ipcHandle(ipcMain, IPC.MAIL_RULES_UPDATE, (event, id: unknown, patch: unknown) => { assertMainFrame(event); return ruleStore().update(asString(id, 80), patch) })
+  ipcHandle(ipcMain, IPC.MAIL_RULES_REMOVE, async (event, id: unknown) => {
+    assertMainFrame(event)
     await ruleStore().remove(asString(id, 80))
     return { ok: true }
   })
-  ipcHandle(ipcMain, IPC.MAIL_RULES_REORDER, (_e, id: unknown, delta: unknown) =>
-    ruleStore().reorder(asString(id, 80), Number(delta) < 0 ? -1 : 1),
-  )
+  ipcHandle(ipcMain, IPC.MAIL_RULES_REORDER, (event, id: unknown, delta: unknown) => { assertMainFrame(event); return ruleStore().reorder(asString(id, 80), Number(delta) < 0 ? -1 : 1) })
 
   /**
    * What the app thinks a message is, and why.
@@ -1201,7 +1211,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * it. A classifier the person cannot see is one they cannot correct, and the
    * correction is the whole point of the rules.
    */
-  ipcHandle(ipcMain, IPC.MAIL_CLASSIFY, async (_e, accountId: unknown, folder: unknown, uid: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_CLASSIFY, async (event, accountId: unknown, folder: unknown, uid: unknown) => {
+    assertMainFrame(event)
     const res = await ensureService().fetchMessage(asString(accountId, 64), asString(folder, 512), Number(uid))
     if (!res.ok) return res
     const m = res.value
@@ -1215,7 +1226,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   // Draft a reply for one source message. Fetches the full source, then the
   // DraftService builds the envelope (proven buildOutgoing) + an agent-suggested
   // body. This NEVER sends — the send happens later via MAIL_SEND on approval.
-  ipcHandle(ipcMain, IPC.MAIL_DRAFT_REPLY, async (_e, accountId: unknown, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_DRAFT_REPLY, async (event, accountId: unknown, payload: unknown) => {
+    assertMainFrame(event)
     const o = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
     const id = asString(accountId, 64)
     const folder = asString(o.folder, 512)
@@ -1274,7 +1286,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   // responsive HTML message + plain-text fallback, with live {{metric:<id>}}
   // tokens resolved true at build time. NEVER sends — the renderer previews, then
   // reuses MAIL_SEND with html + text set. Always resolves (never throws).
-  ipcHandle(ipcMain, IPC.MAIL_RICH_BUILD, async (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_RICH_BUILD, async (event, payload: unknown) => {
+    assertMainFrame(event)
     try {
       // Load the current brand so the 'brand' theme derives from the user's saved
       // palette + fonts (ignored by the built-in themes).
@@ -1289,7 +1302,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   // Draft a whole 1:1 email from a one-line brief (the "Draft from my notes"
   // assist that starts from scratch). The agent emits MJML; we resolve live
   // tokens, compile and derive a subject. NEVER sends.
-  ipcHandle(ipcMain, IPC.MAIL_RICH_DRAFT, async (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_RICH_DRAFT, async (event, payload: unknown) => {
+    assertMainFrame(event)
     const o = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
     const brief = asString(o.brief, 6000).trim()
     if (!brief) {
@@ -1318,7 +1332,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * workspace, and refusing to read it would be an arbitrary limit. The path is
    * only ever read, never written.
    */
-  ipcHandle(ipcMain, IPC.MAIL_PICK_WORKBOOK, async () => {
+  ipcHandle(ipcMain, IPC.MAIL_PICK_WORKBOOK, async (event) => {
+    assertMainFrame(event)
     const root = getWorkspaceRoot()
     const res = await dialog.showOpenDialog({
       title: 'Build an email from a spreadsheet',
@@ -1341,7 +1356,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
    * Output goes through the same `toBlock` coercion the compose surface uses, so
    * a model reply is never trusted further than a renderer payload would be.
    */
-  ipcHandle(ipcMain, IPC.MAIL_DRAFT_FROM_FILE, async (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_DRAFT_FROM_FILE, async (event, payload: unknown) => {
+    assertMainFrame(event)
     const o = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
     const filePath = asString(o.filePath, 4096).trim()
     const intent = asString(o.intent, 32) as FromFileIntent
@@ -1399,7 +1415,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
 
   // Assist an existing draft: the current body + an action → a revised body.
   // 1:1 writing help (tighten/clearer/warmer/add-numbers), not campaign gen.
-  ipcHandle(ipcMain, IPC.MAIL_RICH_ASSIST, async (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_RICH_ASSIST, async (event, payload: unknown) => {
+    assertMainFrame(event)
     const o = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
     const action = asString(o.action, 24) as AssistAction
     const draft = asString(o.draft, 12_000)
@@ -1420,7 +1437,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
 
   // The "insert live data" picker source: the workspace's metrics + ranges, and
   // (when an id is given) the block to drop in. No secrets — workspace data only.
-  ipcHandle(ipcMain, IPC.MAIL_LIVE_DATA, (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_LIVE_DATA, (event, payload: unknown) => {
+    assertMainFrame(event)
     const o = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
     const metricId = asString(o.metricId, 64).trim()
     const rangeId = asString(o.rangeId, 64).trim()
@@ -1441,7 +1459,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   // Resolve server settings for an email address: curated table → ISPDB → guess.
   // Returns non-secret connection metadata + the source so the UI can flag a
   // guessed/ISPDB result as "please verify". Never touches credentials.
-  ipcHandle(ipcMain, IPC.MAIL_AUTOCONFIG, async (_e, email: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_AUTOCONFIG, async (event, email: unknown) => {
+    assertMainFrame(event)
     const addr = asString(email, 320).trim()
     const result = await resolveAutoconfig(addr, autoconfigFetch)
     if (!result) return { ok: false as const, error: { code: 'not-found' as const, message: 'Enter a full email address to auto-detect servers.' } }
@@ -1452,14 +1471,15 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
 
   // Cheap probe so the UI can show/hide "Sign in with Google" and, when it's not
   // configured, point the user at where to set the client id.
-  ipcHandle(ipcMain, IPC.MAIL_OAUTH_CONFIGURED, () => ({
+  ipcHandle(ipcMain, IPC.MAIL_OAUTH_CONFIGURED, (event) => { assertMainFrame(event); return ({
     configured: isGoogleOAuthConfigured(userDataDir()),
-  }))
+  }) })
 
   // Run the loopback OAuth flow, then persist an xoauth2 account whose stored
   // secret is the REFRESH TOKEN (safeStorage-encrypted). No token is ever logged
   // or returned to the renderer — only the non-secret account record.
-  ipcHandle(ipcMain, IPC.MAIL_OAUTH_GOOGLE, async (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_OAUTH_GOOGLE, async (event, payload: unknown) => {
+    assertMainFrame(event)
     const clientId = resolveGoogleClientId(userDataDir())
     if (!clientId) {
       return {
@@ -1522,7 +1542,8 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
   // not configured, point the user at where to set the client id.
   // Save an OAuth client id from the UI, so connecting Outlook/Gmail no longer
   // requires hand-creating a JSON file in a folder the user cannot see.
-  ipcHandle(ipcMain, IPC.MAIL_OAUTH_SET_CLIENT_ID, (_e, provider: unknown, clientId: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_OAUTH_SET_CLIENT_ID, (event, provider: unknown, clientId: unknown) => {
+    assertMainFrame(event)
     if (provider !== 'google' && provider !== 'microsoft') {
       throw new IpcValidationError('Unknown OAuth provider')
     }
@@ -1540,14 +1561,15 @@ export function registerMailHandlers(ipcMain: IpcMain): void {
     return { ok: true }
   })
 
-  ipcHandle(ipcMain, IPC.MAIL_OAUTH_MICROSOFT_CONFIGURED, () => ({
+  ipcHandle(ipcMain, IPC.MAIL_OAUTH_MICROSOFT_CONFIGURED, (event) => { assertMainFrame(event); return ({
     configured: isMicrosoftOAuthConfigured(userDataDir()),
-  }))
+  }) })
 
   // Run the loopback OAuth flow, then persist an xoauth2 account (authProvider:
   // 'microsoft') whose stored secret is the REFRESH TOKEN (safeStorage-encrypted).
   // No token is ever logged or returned to the renderer — only the account record.
-  ipcHandle(ipcMain, IPC.MAIL_OAUTH_MICROSOFT, async (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.MAIL_OAUTH_MICROSOFT, async (event, payload: unknown) => {
+    assertMainFrame(event)
     const clientId = resolveMicrosoftClientId(userDataDir())
     if (!clientId) {
       return {
