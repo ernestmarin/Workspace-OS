@@ -7,13 +7,21 @@ interface TerminalInputProps {
   onSubmit: (raw: string) => void
   dictatedText?: string | null
   onDictationConsumed?: () => void
+  /** Incremented when a confirmed reversible voice interface command requests input focus. */
+  focusSignal?: number
 }
 
-export function TerminalInput({ history, onSubmit, dictatedText, onDictationConsumed }: TerminalInputProps): JSX.Element {
+export function TerminalInput({ history, onSubmit, dictatedText, onDictationConsumed, focusSignal }: TerminalInputProps): JSX.Element {
   const [value, setValue] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [autocompleteIndex, setAutocompleteIndex] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (focusSignal && focusSignal > 0) {
+      inputRef.current?.focus()
+    }
+  }, [focusSignal])
 
   useEffect(() => {
     if (!dictatedText) return

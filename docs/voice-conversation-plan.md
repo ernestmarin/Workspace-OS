@@ -44,7 +44,7 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 
 ## Response provenance and interface proposals checkpoint (2026-11-20)
 
-**Code/fixture foundations only; no new realtime or voice-command UI behavior.**
+**End-to-end A1c/A1d completed-mode provenance, Piper/verifier foundations, and U1–U3 visually confirmed interface commands implemented and unit/integration-verified; no real-device/Electron GUI acceptance claimed.**
 
 - A1a: [shared discriminated events](../src/shared/agentRun.ts) carry WOS session /
   run / launch epoch, provider session/turn, response ID, sequence and outcomes.
@@ -55,32 +55,39 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
   20k UTF-16 per delta and 100k cumulative text. Overflow seals this voice source
   without truncating a chunk; consumers must discard/cancel only its owned speech,
   never the agent or its actions. An unclosed item stays `incomplete` on run success.
-- A1b/Codex: the optional `RunSink.assistantResponse` path binds only after RPC
-  responses establish thread/turn, then replays the bounded startup queue through
-  those identities. It preserves item boundaries, fallback/replay sealing and
-  explicit fail/cancel outcomes. RPC loss is failure, not user cancellation;
-  historical exit codes and the terminal/completed-reader path stay unchanged.
-- **Not end-to-end wired:** the normal main handler does not mint/pass this owner
-  or forward the new events; no preload/renderer consumer is added. Missing or
-  mismatched ownership emits no new response events. Claude's contract variant
-  is reserved, not an implemented adapter. A1c/A1d are still required.
-- U1: [proposal helper and tests](../src/shared/speech/interfaceCommands.test.ts)
-  accept only an exact es/en phrase in explicit command mode, a final transcript
-  and matching document/tab/epoch. Five typed focus/navigation IDs, 160 text
-  units, copied context and `requiresVisualReview: true`; no executor, menu IDs,
-  LLM, agent submission, mic or UI imports. Unknown/partial/stale/control/bidi/
-  multiline/injected text returns no proposal. U2/U3 remain unimplemented.
-- Evidence: [13 lifecycle tests](../src/main/agent/assistantResponses.test.ts),
-  26 Codex tests (8 new) and 42 command proposal tests: **81 targeted passes**.
-  Initial RED had 5 behavioral failures/19 passes plus 2 missing-module collection
-  errors; outcome regression separately failed before RPC-loss classification.
-- Final focused run: **393 passes / 41 files**. Full: **3,233 total; 2,939 pass /
-  267 fail / 27 skipped; 321 files, 41 failed**. Fresh baseline: 2,876 passes in
-  319 files with the same failures. **63 new passes**, no new failed identities/
-  files; same 26 Electron and 15 native-binding unavailable files, not a green suite.
-- Typecheck retains the **70-known-error baseline**; build passes. No dependency,
-  model, audio/device/provider/Electron acceptance. Audit: **19 high / 67 moderate**;
-  scanner retry (CLI 3.79.1) failed at ONNX 1.30.0 bootstrap, no source report.
+- A1b/Codex & A1c/Claude: Codex `RunSink.assistantResponse` binds after RPC
+  responses establish thread/turn; [ClaudeAssistantResponses](../src/main/agent/claudeResponses.ts)
+  wires Claude `stream-json` lifecycles (`system`/`init` & `result` `session_id`,
+  pre-`session_id` bounded queue, `content_block_*` prose deltas, `parent_tool_use_id`
+  subagent exclusion, and final-only `result` fallback) in [launchRun.ts](../src/main/agent/launchRun.ts).
+- A1d.1–A1d.3 end-to-end provenance: [handlers/agent.ts](../src/main/handlers/agent.ts)
+  mints a per-launch `responseOwner` epoch returned in `AGENT_RUN` acknowledgement,
+  binds `AGENT_ASSISTANT_RESPONSE` strictly to the originating `sender.id` +
+  `senderFrame.routingId` (cancelling in-flight runs on reload/navigation/destroy),
+  validates payloads via `isAssistantResponseEvent` in [preload](../src/preload/index.ts),
+  and consumes owned responses in [responseConsumer.ts](../src/renderer/src/components/AgentTerminal/responseConsumer.ts)
+  and [useAgentSession.ts](../src/renderer/src/components/AgentTerminal/useAgentSession.ts)
+  while preserving legacy fallback when `responseOwner` is absent.
+- A2/A3 helper & A4 foundations: [ResponseSpeechScheduler](../src/shared/speech/responseScheduler.ts)
+  combines `AssistantProseCollector` + `SentenceStream` with barge-in epoch fencing
+  (completed-run mode remains the default UI reader); [modelManifest.ts](../src/shared/speech/modelManifest.ts)
+  and [modelVerifier.ts](../src/main/speech/modelVerifier.ts) enforce offline SHA-256
+  model verification; [engines/piper.ts](../src/main/speech/engines/piper.ts) adds
+  Spanish/multilingual local ONNX TTS; [engines/process.ts](../src/main/speech/engines/process.ts)
+  adds Windows `taskkill.exe /PID <pid> /T` escalation.
+- U1–U3 reviewed interface commands: [proposal helper](../src/shared/speech/interfaceCommands.ts),
+  one-shot [InterfaceCommandController](../src/renderer/src/components/AgentTerminal/interfaceCommandController.ts)
+  (15s TTL, context/tab/epoch invalidation), explicit `'dictate' | 'commands'` selector in
+  [VoiceDictation.tsx](../src/renderer/src/components/AgentTerminal/VoiceDictation.tsx),
+  and accessible visual confirmation banner (`Confirm command` / `Dismiss`) in
+  [TerminalSession.tsx](../src/renderer/src/components/AgentTerminal/TerminalSession.tsx).
+  Ordinary dictation remains draft-only; commands never auto-execute without visual confirmation.
+- Validation evidence: **48 focused voice/agent/preload/security files (`420` tests) pass**;
+  full repository suite **329 passed / 0 failed / 3 skipped files (`3,596` passed / `26` skipped tests)**.
+  `npm run typecheck` passes with **0 known errors (baseline 0)**; `npm run lint` (`0` errors)
+  and `npm run build` pass. `npm audit` has **0 critical and 0 high** vulnerabilities
+  (`35` prod / `40` total moderate advisories gated on upstream majors). Real Electron GUI,
+  microphone/speaker hardware, and live Whisper/Kokoro/Piper weight inference remain unvalidated in this sandbox.
 
 ## Completed-run ownership checkpoint (2026-11-20)
 

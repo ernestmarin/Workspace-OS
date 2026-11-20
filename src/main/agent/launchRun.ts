@@ -42,6 +42,7 @@ import { appsRel } from '../apps/apps-store'
 import { documentOutputGuidance, type AgentRunFailure, type AssistantRunOwner, type AssistantResponseEvent } from '../../shared/agentRun'
 import { envWithPath, findTool } from '../platform-tools'
 import { ClaudeAssistantText } from './assistantText'
+import { ClaudeAssistantResponses } from './claudeResponses'
 
 /**
  * ONE way to launch a `claude -p` run, whoever asks for it.
@@ -116,6 +117,16 @@ export interface LaunchRunOptions {
 export { isValidModelAlias, modelArgs } from './modelPick'
 
 let cachedBinary: string | null = null
+
+export function issueRunGrant(
+  id: string,
+  capabilities: readonly string[] | 'all',
+  label: string,
+  workspaceRoot: string | null,
+  appSlug?: string | null,
+): string {
+  return grants.issue(id, appSlug ? [] : capabilities, label, workspaceRoot ?? undefined, appSlug ?? undefined)
+}
 
 /** Run output when Git is missing, so the absent revert checkpoint is not a surprise. */
 export function missingGitWarning(platform: NodeJS.Platform): string {
@@ -203,7 +214,7 @@ export async function launchRun(o: LaunchRunOptions): Promise<{ child: ChildProc
       // Per-run identity for the bridge: the CLI forwards this token; main
       // refuses any action outside this run's grant. Minted here, never logged.
       // The app builder may drive only the app it builds (app.*), plus the reads every run has.
-      [AGENT_TOKEN_ENV]: grants.issue(id, appSlug ? [] : o.capabilities, agent?.name ?? id, provider === 'codex' ? getWorkspaceRoot() ?? undefined : undefined, appSlug ?? undefined),
+      [AGENT_TOKEN_ENV]: issueRunGrant(id, o.capabilities, agent?.name ?? id, getWorkspaceRoot(), appSlug),
     } as Record<string, string>
     // The open workspace, as the shells already get it: the `wos-case` CLI (and
     // any script the agent writes) needs it to find Cases/ and Work/.
@@ -377,8 +388,12 @@ export async function launchRun(o: LaunchRunOptions): Promise<{ child: ChildProc
     let buffer = ''
     const failures = new ClaudeFailureTracker()
     const assistantText = new ClaudeAssistantText()
+    const claudeResponses = o.responseOwner && sink.assistantResponse
+      ? new ClaudeAssistantResponses(o.responseOwner, (ev) => sink.assistantResponse?.(ev))
+      : null
     const consumeLine = (line: string): void => {
       failures.consume(line)
+      claudeResponses?.consume(line)
       const spokenCandidate = assistantText.consume(line)
       if (spokenCandidate) sink.assistantText?.(spokenCandidate)
       const sid = extractSessionId(line)
@@ -406,6 +421,7 @@ export async function launchRun(o: LaunchRunOptions): Promise<{ child: ChildProc
     })
     child.on('close', (code) => {
       if (buffer.trim()) consumeLine(buffer)
+      claudeResponses?.finish(code, o.signal?.aborted === true, Boolean(failures.failure))
       // Detect every artifact-worthy file the agent created/changed during the
       // run (one workspace walk). The newest office document auto-opens in the
       // canvas (unchanged behavior); the full classified list feeds the cards.

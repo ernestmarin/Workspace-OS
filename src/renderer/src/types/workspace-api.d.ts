@@ -294,7 +294,7 @@ export interface WorkspaceApi {
     kokoroStatus(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
     prepareKokoro(): Promise<{ projectDir: string; wrapper: boolean; project: boolean; environment: boolean; model: boolean; voices: boolean }>
     config(): Promise<{ playback: { prefetch_next_fragment: boolean }; trigger: { max_text_length: number }; tts: { active_profile_id: string; profiles: { id: string; engine: TtsEngine; voice: string }[] }; hotkey: { enabled: boolean; shortcut: string } }>
-    selectEngine(engine: 'kokoro' | 'openai', voice: string): Promise<void>
+    selectEngine(engine: 'kokoro' | 'openai' | 'piper', voice: string): Promise<void>
     setOpenAiKey(value: string): Promise<Record<string, boolean>>
     keyStatus(): Promise<Record<string, boolean>>
     playbackDone(id: string, ok: boolean): Promise<boolean>
@@ -512,7 +512,7 @@ export interface WorkspaceApi {
     onQuestion: (callback: (question: any) => void) => () => void
   }
   agent: {
-    run: (runId: string, prompt: string, contextFiles: string[], activeFile?: string | null, mode?: 'full' | 'safe', agentName?: string | null, conversationId?: string, model?: string | null, resumeOnly?: boolean, profile?: 'work' | 'chat' | 'app', app?: string) => Promise<{ pid: number; checkpointId: string | null; provider?: 'claude' | 'codex'; model?: string }>
+    run: (runId: string, prompt: string, contextFiles: string[], activeFile?: string | null, mode?: 'full' | 'safe', agentName?: string | null, conversationId?: string, model?: string | null, resumeOnly?: boolean, profile?: 'work' | 'chat' | 'app', app?: string) => Promise<{ pid: number; checkpointId: string | null; provider?: 'claude' | 'codex'; model?: string; responseOwner?: import('../../../shared/agentRun').AssistantRunOwner }>
     /** Default model alias for every run path (mirrors Settings → Agent model); '' = the CLI's default. */
     setDefaultModel: (model: string) => Promise<void>
     listModels: () => Promise<{ codex: { id: string; label: string; hint: string; efforts?: string[] }[]; status?: { available: boolean; account: string; error?: string } }>
@@ -520,6 +520,7 @@ export interface WorkspaceApi {
     forgetConversation: (conversationId: string) => Promise<void>
     onOutput: (callback: (runId: string, chunk: string) => void) => () => void
     onAssistantText: (callback: (runId: string, text: string) => void) => () => void
+    onAssistantResponse?: (callback: (event: import('../../../shared/agentRun').AssistantResponseEvent) => void) => () => void
     onDone: (callback: (runId: string, code: number, checkpointId: string | null, failure?: AgentRunFailure) => void) => () => void
     onArtifact: (callback: (runId: string, path: string) => void) => () => void
     /** Classified list of a run's output files, surfaced as openable artifact cards. */

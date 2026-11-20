@@ -14,8 +14,8 @@ interface ReplyDependencies<Context> {
 export function replyDestination(config: AppConfig): Omit<ReplySpeechSession, 'id'> {
   const profile = config.tts.profiles.find((p) => p.id === config.tts.active_profile_id)
   const engine = profile?.engine ?? config.tts.active_backend
-  if (engine !== 'openai' && engine !== 'kokoro' && engine !== 'local') throw new Error('Reply speech engine is not implemented')
-  const voice = profile?.voice || config.tts.voice || (engine === 'openai' ? config.tts.openai.voice : '')
+  if (engine !== 'openai' && engine !== 'kokoro' && engine !== 'local' && engine !== 'piper') throw new Error('Reply speech engine is not implemented')
+  const voice = profile?.voice || config.tts.voice || (engine === 'openai' ? config.tts.openai.voice : engine === 'piper' ? 'es_ES-davefx-medium' : '')
   return { engine, voice, remote: engine === 'openai' }
 }
 

@@ -54,6 +54,7 @@ export const IPC = {
   AGENT_RUN: 'agent:run',
   AGENT_OUTPUT: 'agent:output',
   AGENT_ASSISTANT_TEXT: 'agent:assistant-text',
+  AGENT_ASSISTANT_RESPONSE: 'agent:assistant-response',
   AGENT_DONE: 'agent:done',
   AGENT_CANCEL: 'agent:cancel',
   // Drop a closed tab's conversation → claude-session-id mapping so the LRU map

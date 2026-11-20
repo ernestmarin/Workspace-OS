@@ -4,6 +4,7 @@ import { speechEnginesDir } from '../paths'
 import { resolveSpeechKey } from '../secrets'
 import { synthesizeLocal } from './local'
 import { synthesizeOpenAi } from './openai'
+import { synthesizePiper } from './piper'
 import { assertKokoroInstalled } from './kokoro'
 import type { PcmAudio } from './wav'
 
@@ -18,6 +19,15 @@ export async function synthesizeFragment(text: string, config: AppConfig, signal
       apiKey: resolveSpeechKey('SPEECH_OPENAI_API_KEY'), signal,
     })
     return { pcm, sampleRate: 24000, channels: 1, bitsPerSample: 16 }
+  }
+  if (engine === 'piper') {
+    return synthesizePiper({
+      text,
+      voice,
+      engineDir: speechEnginesDir(),
+      command: config.tts.command && config.tts.command !== 'uv' ? config.tts.command : undefined,
+      signal,
+    })
   }
   if (engine === 'local' || engine === 'kokoro') {
     const engineDir = speechEnginesDir()

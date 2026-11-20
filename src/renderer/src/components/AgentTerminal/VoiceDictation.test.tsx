@@ -278,6 +278,30 @@ describe('local dictation interaction', () => {
     expect(speech.revokeMicrophone).toHaveBeenCalled()
     expect(transcript).not.toHaveBeenCalled()
   })
+
+  it('routes owned final transcripts in explicit command mode to onFinalCommand without injecting into dictation input (VOX-U3)', async () => {
+    speech.transcribeLocal.mockResolvedValueOnce('muestra archivos')
+    const onTranscript = vi.fn()
+    const onFinalCommand = vi.fn()
+    await act(async () => root.render(<VoiceDictation active onTranscript={onTranscript} onFinalCommand={onFinalCommand} />))
+    const modeSelect = element.querySelector<HTMLSelectElement>('[aria-label="Voice input mode"]')!
+    expect(modeSelect.value).toBe('dictate')
+    await act(async () => { modeSelect.value = 'commands'; modeSelect.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+    await act(async () => { element.querySelector('button')!.click(); await flush() })
+
+    expect(onTranscript).not.toHaveBeenCalled()
+    expect(onFinalCommand).toHaveBeenCalledExactlyOnceWith({
+      text: 'muestra archivos',
+      language: 'es',
+      transcriptId: expect.any(String),
+    })
+
+    // Switching language to German hides/resets command mode back to review-first dictation
+    const langSelect = element.querySelector<HTMLSelectElement>('[aria-label="Dictation language"]')!
+    await act(async () => { langSelect.value = 'de'; langSelect.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(element.querySelector('[aria-label="Voice input mode"]')).toBeNull()
+  })
 })
 
 

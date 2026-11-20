@@ -1,22 +1,29 @@
 # Voice implementation plan & integration checklist
 
-Last reviewed: **2026-11-20**, response-provenance/U1 foundations from merged
-PR #8 (`73e32d4`), retaining the earlier unfinished-work inventory.
+Last reviewed: **2026-11-20**, end-to-end A1c/A1d provenance, U2/U3 visual command
+confirmation, Piper Spanish/multilingual TTS adapter, offline SHA-256 model
+verifier, and zero-error TypeScript/test/high-advisory remediation on top of
+merged PR #8 (`73e32d4`), retaining the earlier unfinished-work inventory.
 
 This checklist combines the TTS foundations from PR #3 with the newer
-experimental dictation, assistant reply and playback work. For the detailed
+experimental dictation, assistant reply, interface command, and playback work. For the detailed
 atomic conversation plan, pinned Hugging Face reference review and status, see
 [voice-conversation-plan.md](voice-conversation-plan.md).
 
-**Current position: partial batch text-to-speech and experimental push-to-talk;
-continuous real-time conversation is not implemented or production-ready.**
+**Current position: batch text-to-speech (OpenAI, Kokoro EN, Piper ES/multilingual),
+end-to-end provenance-owned completed-reply reading, experimental push-to-talk
+dictation, and visually confirmed es/en interface commands are implemented in code
+and unit/integration-verified; continuous real-time conversation and real-device
+Electron E2E are not yet implemented or production-ready.**
 
 Checked items indicate implemented code, not release acceptance. Latest evidence
 is in the
 [current checkpoint](voice-conversation-plan.md#response-provenance-and-interface-proposals-checkpoint-2026-11-20);
 PR #8 ownership, post-PR #6 audit and PR #6 checkpoint totals are historical. No real audio, cloud-provider,
-Electron E2E or cross-platform validation is claimed. The full suite and
-production dependency audit are **not green**.
+Electron GUI E2E or cross-platform hardware validation is claimed. Full Node/jsdom Vitest
+(`329` passed / `0` failed / `3` skipped files; `3,596` passed tests), strict TypeScript
+(`0` errors, baseline `0`), and `0` critical / `0` high `npm audit` gates are green
+(`35` prod / `40` total moderate advisories remain major-gated).
 
 ## Audit increment — implemented, bounded
 
@@ -26,28 +33,29 @@ production dependency audit are **not green**.
 - [x] Correlate Codex text/completion with response-established thread/turn IDs;
       bound/filter startup races, reject terminal item replays/late deltas and
       error-bearing success. Claude terminal results also close its speech source.
-- [x] Share filtered child environments and POSIX process-group cleanup between
-      batch local synthesis and the installer. A real Linux Node-child regression
-      covers a SIGTERM-resistant descendant; **Windows tree cleanup stays open**.
+- [x] Share filtered child environments, POSIX process-group cleanup, and Windows
+      `taskkill.exe /PID <pid> /T` escalation across local synthesis and installers.
+      A real Linux Node-child regression covers a SIGTERM-resistant descendant;
+      **real Windows host validation stays open**.
 - [x] Guard all five nonempty Kokoro prerequisites, constrain default uv with
       no-sync/offline/no-python-downloads and exclude dependency setup from active
-      or queued-at-dispatch Kokoro synthesis. No hash/readiness claim.
+      or queued-at-dispatch Kokoro synthesis. Added offline SHA-256 manifest/verifier
+      (`modelManifest.ts` / `modelVerifier.ts`); live synthesis readiness still requires real models.
 - [x] Add conservative bounded block-stable prose extraction to completed-reply
       buffers, leaving terminal text/manual reading unchanged. Unsupported HTML
       or ambiguous inline markup disables reading rather than guessing.
-- [ ] Remediate the dependency audit: npm reported **19 high + 67 moderate**
-      entries, including Transformers → sharp. Reachability is not proven;
-      forced major native-runtime upgrades without model/packaging tests are not
-      a fix. This blocks security/release acceptance.
+- [x] Remediate critical/high dependency advisories without blind `--force`:
+      `npm audit` reduced from `1 critical, 31 high, 72 moderate` (`19 high, 67 moderate` prod)
+      to **`0 critical, 0 high, 40 moderate`** (`35 moderate` prod; remaining moderates in
+      `mjml`, `exceljs`, and `electron-builder` require breaking upstream majors).
 
 Historical merged PR #7 evidence: **285 focused tests / 34 files pass**;
-that full run has 2,831 passing,
-267 failing and 27 skipped tests, with the same 41 environment-blocked files as
-before edits. Typecheck passes the unchanged 70-error baseline; build passes.
-The additional CLI security scanner failed during installation, producing no scan.
-Commands, baseline comparison and limits: [audit validation](voice-conversation-plan.md#validation-for-the-post-pr-6-audit).
+that full run had 2,831 passing,
+267 failing and 27 skipped tests, with 41 environment-blocked files prior to native Node
+rebuild and Electron test-stub isolation. Commands, baseline comparison and limits:
+[audit validation](voice-conversation-plan.md#validation-for-the-post-pr-6-audit).
 
-## Response-provenance and U1 foundations — adapter/helper tests only
+## Response-provenance, Piper/verifier & U2/U3 increment — unit/integration verified
 
 - [x] Shared typed WOS session/run/epoch, provider session/turn/response ID,
       monotonic sequence, separate item/run outcomes and runtime shape guards.
@@ -56,21 +64,30 @@ Commands, baseline comparison and limits: [audit validation](voice-conversation-
       they do not cancel agents, truncate terminal output or authorize tools.
 - [x] Optional Codex sink path after RPC-established ownership, startup/replay
       filtering and explicit error vs cancellation. Existing exit codes/text stay.
-- [x] U1 pure es/en exact-phrase proposals: five navigation/focus IDs, explicit
-      command mode, owned final transcript, 160-unit limit and visual-review marker.
-      Partial/stale/unknown/injected/multiline/bidi input proposes nothing.
-- [ ] Claude's new adapter, main-minted/acknowledged owner, document-bound IPC /
-      preload and renderer response consumption (A1c/A1d). The normal handler
-      does not supply this new sink/owner; existing completed-run reading is unchanged.
-- [ ] U2 one-shot visual confirmation/UI callbacks; U3 finalized capture/device
-      integration. No interface command is executable from voice yet.
+- [x] Claude `stream-json` response-provenance adapter (`claudeResponses.ts`) wired
+      in `launchRun.ts`, handling `system`/`init` & `result` `session_id`, pre-session
+      queueing, subagent (`parent_tool_use_id`) exclusion, and final-only fallback.
+- [x] End-to-end A1d provenance: main-minted per-launch `responseOwner` epoch in
+      `AGENT_RUN`, originating-document-bound `AGENT_ASSISTANT_RESPONSE` delivery
+      (with reload/navigation/destroy run teardown), schema-validated preload listener,
+      and `ResponseStreamConsumer` completed-mode assembly in `useAgentSession.ts`.
+- [x] `ResponseSpeechScheduler` (`responseScheduler.ts`) combining conservative prose
+      extraction and `SentenceStream` with barge-in epoch fencing (foundation helper;
+      completed-run mode remains the default UI behavior).
+- [x] Piper Spanish/multilingual local ONNX TTS engine (`engines/piper.ts`) wired
+      through dispatch, IPC selection, and reply-consent disclosure, plus offline
+      SHA-256 `verifySpeechModelDirectory` (`modelVerifier.ts`).
+- [x] U1–U3 reviewed interface commands: explicit `'dictate' | 'commands'` capture
+      selector in `VoiceDictation.tsx` (keeping dictation draft-only), one-shot
+      `InterfaceCommandController` with 15s TTL and context/tab/epoch invalidation,
+      and accessible visual confirmation banner (`Confirm command` / `Dismiss`) in
+      `TerminalSession.tsx` invoking reversible navigation/focus callbacks.
 
-Evidence: **81 targeted / 393 focused tests in 41 files pass**. Full comparison:
-**2,939 pass / 267 fail / 27 skipped, 3,233 total in 321 files** versus baseline
-2,876 passes in 319 files, same 41 failed files/test identities: **63 new passes**.
-Typecheck retains 70 known errors; build passes. No new dependencies/models/audio
-acceptance; audit still 19 high / 67 moderate. Scanner bootstrap failed again,
-no source report or security acceptance. See [precise scope/limits](voice-conversation-plan.md#response-provenance-and-interface-proposals-checkpoint-2026-11-20).
+Current evidence: **48 focused voice/agent/preload/security files (`420` tests) pass**;
+full repository suite **329 passed / 0 failed / 3 skipped files (`3,596` passed / `26` skipped tests)**.
+`npm run typecheck` (`0` errors, baseline `0`), `npm run lint` (`0` errors), and `npm run build` pass.
+No real audio hardware, live Whisper/Kokoro/Piper weight inference, cloud provider, or real
+Electron GUI E2E acceptance is claimed. See [precise scope/limits](voice-conversation-plan.md#response-provenance-and-interface-proposals-checkpoint-2026-11-20).
 
 ## Completed-run ownership increment — implemented, not real-device accepted
 
@@ -135,8 +152,10 @@ Evidence: [shared helpers/tests](../src/shared/speech/),
 
 The preparation/dependency steps below are implemented. They do **not** make a
 fresh install ready to synthesize; `uv` and model files are still external prerequisites.
-See [manual setup](voice.md#kokoro-manual-setup). The bundled wrapper accepts
-**English voices only**; a Spanish-capable local output adapter is still required.
+See [manual setup](voice.md#kokoro-manual-setup). The bundled Kokoro wrapper accepts
+**English voices only**; Spanish/multilingual local output is provided by the separate
+local **Piper** ONNX adapter (`src/main/speech/engines/piper.ts`), which still requires
+manually provisioned binary/model files and real-audio validation.
 
 - [x] Bundle the CopySpeech Kokoro wrapper/project manifest and stage them without
       overwriting existing user files; include resources in platform package configs.
@@ -220,10 +239,11 @@ No real microphone/model or Electron validation has been completed.
       while preserving context, grants, approvals and review.
 - [ ] Implement streaming STT/TTS, trained local VAD, barge-in, live response/PCM
       ownership, interruption and safe session reconnect/cleanup.
-- [ ] Implement a separate reviewed voice-interface command mode: typed local
+- [x] Implement a separate reviewed voice-interface command mode: typed local
       allowlist → owned final proposal → visible preview/confirmation → existing
-      reversible UI callback. No arbitrary transcript/menu/tool executor or spoken
-      approval bypass. U1 is a pure helper; U2/U3 runtime/UI work remains open.
+      reversible UI callback (`interfaceCommands.ts`, `interfaceCommandController.ts`,
+      `VoiceDictation.tsx`, `TerminalSession.tsx`). No arbitrary transcript/menu/tool
+      executor or spoken approval bypass; real Electron/mic acoustic validation remains open.
 - [ ] Verify model provenance/integrity, offline behavior, supported languages,
       platform packaging and privacy/latency characteristics on real devices.
 
@@ -231,7 +251,7 @@ No real microphone/model or Electron validation has been completed.
 
 - [ ] Real Electron smoke/E2E from fresh install through synthesis, **audible**
       playback, cancellation and window lifecycle.
-- [ ] Real Kokoro model/audio and configured OpenAI integration tests, plus
+- [ ] Real Kokoro/Piper model/audio and configured OpenAI integration tests, plus
       operating-system keychain and global-hotkey verification.
 - [ ] Windows/macOS/Linux packaging, prerequisites and system-specific behavior;
       accessibility and RTL checks.
@@ -242,7 +262,7 @@ No real microphone/model or Electron validation has been completed.
 Targeted regression command (after installing project dependencies):
 
 ```sh
-npm test -- --maxWorkers=2 src/main/speech src/shared/speech src/preload/speech.test.ts src/renderer/src/components/Voice src/renderer/src/components/AgentTerminal src/main/agent/assistantText.test.ts src/main/agent/assistantResponses.test.ts src/main/agent/providerText.test.ts src/main/agent/providers/codexSession.test.ts
+npm test -- --maxWorkers=2 src/main/speech src/shared/speech src/preload/speech.test.ts src/renderer/src/components/Voice src/renderer/src/components/AgentTerminal src/main/agent/assistantText.test.ts src/main/agent/assistantResponses.test.ts src/main/agent/claudeResponses.test.ts src/main/agent/providerText.test.ts src/main/agent/providers/codexSession.test.ts src/main/security.redteam.test.ts
 ```
 
 Unit/fixture tests do not satisfy the real-audio or release gates above.
@@ -251,22 +271,18 @@ No `uv`/model installation or provider-credential exercise is claimed.
 ## Immediate next steps
 
 Follow [atomic gates A1–A9](voice-conversation-plan.md#next-atomic-integration-gates-in-order)
-and their [independently testable execution slices](voice-conversation-plan.md#atomic-execution-slices),
-without the previous conflict between “Kokoro first” and “scheduler first”:
+and their [independently testable execution slices](voice-conversation-plan.md#atomic-execution-slices):
 
-1. A1a/A1b are contract/optional-Codex-adapter foundations. Next A1c pins/verifies
-   Claude schema/lifecycles, then A1d mints/acknowledges the main owner, forwards
-   document-bound events and integrates owned renderer assembly in completed mode.
-   Unsolicited notifications must not establish the expected owner.
-2. In parallel, U2a one-shot visual confirmation/expiry/context invalidation,
-   then U2b active-context UI callbacks; U1 is now a pure tested proposer only.
-   Ordinary dictation remains a draft; capture U3 also depends on A4/A6.
-3. A2 live response scheduler/backpressure/drain, then A3 separate incremental
-   consent. Never loop global interrupting Speak for every sentence.
-4. Parallel A4 dependency remediation, manifests/licenses/hashes, consented
-   provisioning, actual offline Whisper, Spanish local TTS and Windows cleanup.
-   These block release/automatic voice turns even if fixture orchestration passes.
-5. Existing-session finalized turns, bounded capture/trained VAD/STT, PCM/AEC and
+1. A1a–A1d (contracts, Codex & Claude adapters, main-minted `responseOwner`,
+   document-bound IPC/preload, and renderer completed-mode assembly) and U1–U3
+   (one-shot visual command confirmation + explicit command-capture mode) are now
+   implemented and unit/integration-verified. Validate them in real Electron GUI/audio E2E.
+2. Extend `ResponseSpeechScheduler` (`A2b`/`A2c`) to live transport duration
+   backpressure and acknowledged drain, then add separate opt-in incremental-mode
+   consent (`A3a`/`A3b`) while keeping completed-run mode as the default.
+3. Complete A4c/A4d consented model provisioning/recovery and real offline Whisper,
+   Kokoro, and Piper model execution across Linux, macOS, and Windows hosts.
+4. Existing-session finalized turns, bounded capture/trained VAD/STT, PCM/AEC and
    barge-in (A5–A7); each CopySpeech UX surface remains an individual A8 change.
-6. Real-device multilingual/cross-platform, latency and final security evidence
+5. Real-device multilingual/cross-platform, latency and final security evidence
    before release acceptance (A9). Every unchecked release gate remains open.

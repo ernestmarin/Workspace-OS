@@ -249,11 +249,12 @@ export function registerSpeechHandlers(ipc: IpcMain): void {
   // A narrow, non-executable selection API: never expose arbitrary CLI config via IPC.
   ipcHandle(ipc, IPC.SPEECH_SELECT_ENGINE, (event, engine, voice) => {
     assertOwner(event)
-    if (engine !== 'openai' && engine !== 'kokoro') throw new Error('Unsupported speech engine')
-    if (typeof voice !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(voice)) throw new Error('Invalid voice')
+    if (engine !== 'openai' && engine !== 'kokoro' && engine !== 'piper') throw new Error('Unsupported speech engine')
+    if (typeof voice !== 'string' || !/^[a-zA-Z0-9._-]{1,64}$/.test(voice) || voice.includes('..')) throw new Error('Invalid voice')
     const cfg = getConfig()
     const id = `wos-${engine}`
-    const profile: VoiceProfile = { ...defaultKokoroProfile(), id, name: engine === 'openai' ? 'OpenAI' : 'Kokoro', engine, voice, voice_label: null, engine_options: {} }
+    const name = engine === 'openai' ? 'OpenAI' : engine === 'piper' ? 'Piper' : 'Kokoro'
+    const profile: VoiceProfile = { ...defaultKokoroProfile(), id, name, engine, voice, voice_label: null, engine_options: {} }
     const profiles = [...cfg.tts.profiles.filter((p) => p.id !== id), profile]
     updateConfig({ tts: { ...cfg.tts, profiles, active_profile_id: id, active_backend: engine } })
   })

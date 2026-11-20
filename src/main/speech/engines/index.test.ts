@@ -7,6 +7,7 @@ vi.mock('./kokoro', () => ({ assertKokoroInstalled: vi.fn() }))
 vi.mock('../secrets', () => ({ resolveSpeechKey: () => 'test-key' }))
 vi.mock('./openai', () => ({ synthesizeOpenAi: vi.fn(async () => Buffer.from([0, 0])) }))
 vi.mock('./local', () => ({ synthesizeLocal: vi.fn(async () => ({ pcm: Buffer.from([0, 0]), sampleRate: 24000, channels: 1, bitsPerSample: 16 })) }))
+vi.mock('./piper', () => ({ synthesizePiper: vi.fn(async () => ({ pcm: Buffer.from([1, 0]), sampleRate: 22050, channels: 1, bitsPerSample: 16 })) }))
 
 describe('engine dispatch', () => {
   it('dispatches the active local profile', async () => {
@@ -24,5 +25,11 @@ describe('engine dispatch', () => {
     const cfg = defaultConfig()
     cfg.tts.profiles[0].engine = 'openai'
     expect(await synthesizeFragment('hello', cfg, new AbortController().signal)).toMatchObject({ channels: 1, bitsPerSample: 16, pcm: Buffer.from([0, 0]) })
+  })
+  it('dispatches Spanish-capable local Piper profiles offline (VOX-A4e)', async () => {
+    const cfg = defaultConfig()
+    cfg.tts.profiles[0].engine = 'piper'
+    cfg.tts.profiles[0].voice = 'es_ES-davefx-medium'
+    expect(await synthesizeFragment('Hola mundo', cfg, new AbortController().signal)).toMatchObject({ sampleRate: 22050, channels: 1, bitsPerSample: 16 })
   })
 })
