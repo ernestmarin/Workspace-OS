@@ -6,6 +6,12 @@ export function VoicePlayback(): null {
   useEffect(() => {
     let active: { id: string; source: AudioBufferSourceNode; context: AudioContext } | null = null
     let disposed = false
+    const close = (context: AudioContext): void => {
+      try { void context.close().catch(() => {}) } catch { /* already closed */ }
+    }
+    const acknowledge = (id: string, ok: boolean): void => {
+      try { void window.workspace.speech.playbackDone(id, ok).catch(() => {}) } catch { /* window is closing */ }
+    }
     const offEvents = window.workspace.speech.onEvent((event) => {
       if (event.type === 'error') toastError(`Voice: ${event.message}`)
       else if (event.type === 'result' && !event.result.finished && event.result.error !== 'Cancelled') {
@@ -18,12 +24,12 @@ export function VoicePlayback(): null {
           const current = active
           active = null
           current.source.onended = null
-          current.source.stop()
-          void current.context.close()
+          try { current.source.stop() } catch { /* already stopped */ }
+          close(current.context)
         }
         return
       }
-      if (active || disposed) { void window.workspace.speech.playbackDone(message.id, false); return }
+      if (active || disposed) { acknowledge(message.id, false); return }
       let context: AudioContext | undefined
       try {
         const bytes = atob(message.pcmBase64)
@@ -50,8 +56,8 @@ export function VoicePlayback(): null {
         source.onended = () => {
           if (active?.id !== message.id) return
           active = null
-          void playbackContext.close()
-          void window.workspace.speech.playbackDone(message.id, true)
+          close(playbackContext)
+          acknowledge(message.id, true)
         }
         source.start()
         void context.resume().catch(() => {
@@ -59,13 +65,17 @@ export function VoicePlayback(): null {
           active = null
           source.onended = null
           try { source.stop() } catch { /* already stopped */ }
-          void playbackContext.close()
-          void window.workspace.speech.playbackDone(message.id, false)
+          close(playbackContext)
+          acknowledge(message.id, false)
         })
       } catch {
-        if (context) void context.close()
-        active = null
-        void window.workspace.speech.playbackDone(message.id, false)
+        if (active?.id === message.id) {
+          active.source.onended = null
+          try { active.source.stop() } catch { /* start may have failed */ }
+          active = null
+        }
+        if (context) close(context)
+        acknowledge(message.id, false)
       }
     })
     return () => {
@@ -73,10 +83,12 @@ export function VoicePlayback(): null {
       unsubscribe()
       offEvents()
       if (active) {
-        active.source.onended = null
-        try { active.source.stop() } catch { /* already stopped */ }
-        void active.context.close()
-        void window.workspace.speech.playbackDone(active.id, false)
+        const current = active
+        active = null
+        current.source.onended = null
+        try { current.source.stop() } catch { /* already stopped */ }
+        close(current.context)
+        acknowledge(current.id, false)
       }
     }
   }, [])

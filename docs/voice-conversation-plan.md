@@ -21,6 +21,7 @@ También se han portado componentes internos de CopySpeech: sanitización de tex
 - Permission prompts/grants and STT cancellation have request identities so stale tab cleanup cannot revoke a newer request. Tabs share a trusted renderer; these identities prevent lifecycle races, not a security boundary against compromised renderer code.
 - Dictation discards capture on page hide/visibility loss and microphone track end, detaching listeners, closing its decoding context promptly and cancelling its own transcription. Simulated renderer tests cover these paths; OS/Electron behavior still needs real-device validation.
 - Dictation offers per-tab microphone selection and explicit metadata-only refresh. It requests the exact selected device, never silently falls back if it disappears, and ignores stale enumeration/recording callbacks. Device IDs/names are not persisted. Real Electron enumeration/permission behavior remains unvalidated.
+- Renderer playback now cleans up on cancel, failure and unmount, tolerates already-stopped/closed resources and ignores stale audio callbacks. These are simulated Web Audio tests, not real-device verification.
 - Individual reading IDs can be cancelled through authorized IPC; the Voice settings provide separate stop-current and stop-all controls. A current cancellation leaves queued readings intact and never cancels the agent. Session ownership and automatic interruption remain pending.
 - Optional, off-by-default one-fragment TTS lookahead overlaps synthesis with playback and aborts on stop/failure. It does not stream agent tokens or audio, and may send the next fragment early to a selected cloud TTS provider. Real latency and audio behavior are unmeasured.
 - No real microphone or end-to-end conversation has been validated.
@@ -104,7 +105,7 @@ checks; it does **not** imply real-device or release validation.
   real Electron.
 
 ### Validation and unresolved work
-- Latest focused simulated/unit suite at this inventory: **162 tests in 25
+- Latest focused simulated/unit suite at this inventory: **170 tests in 26
   files passed**. Typecheck passes against an existing **70-error baseline**;
   production build succeeds. These are not real microphone, speaker, model,
   network-provider or Electron end-to-end tests. Historical full-suite failures
