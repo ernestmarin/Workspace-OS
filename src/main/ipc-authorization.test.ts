@@ -181,6 +181,25 @@ const MUST_HAVE_GUARD = new Set<string>([
   // Nota: la mayoría de speech:* son sensibles pero actualmente solo un subset
   // tiene guard explícito; los que sí lo tienen se listan aquí, el resto está
   // en EXPLICITLY_NO_GUARD como deuda documentada (próximo lote mueve).
+  // N+1b: main-frame authorization
+  'apps:brief',
+  'apps:call',
+  'apps:create',
+  'apps:duplicate',
+  'apps:export',
+  'apps:importConfirm',
+  'apps:importPick',
+  'apps:install',
+  'apps:lint',
+  'apps:list',
+  'apps:load',
+  'apps:manifest',
+  'apps:reveal',
+  'apps:review',
+  'apps:templates',
+  'apps:test',
+  'apps:testsWrite',
+  'apps:windowFull',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -251,24 +270,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
 
   // app surfaces — sin guard hoy, deuda P1 (añadir assertMainFrame en lote N+1b)
   'app:start-on',
-  'apps:brief',
-  'apps:call',
-  'apps:create',
-  'apps:duplicate',
-  'apps:export',
-  'apps:importConfirm',
-  'apps:importPick',
-  'apps:install',
-  'apps:lint',
-  'apps:list',
-  'apps:load',
-  'apps:manifest',
-  'apps:reveal',
-  'apps:review',
-  'apps:templates',
-  'apps:test',
-  'apps:testsWrite',
-  'apps:windowFull',
   // browser
   'browser:back',
   'browser:clear-cache',
