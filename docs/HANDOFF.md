@@ -1,6 +1,35 @@
 # Handoff
 
-## Vigente — IPC-SEARCH-01 (`search.ts`) · 2026-11-21
+## Vigente — IPC-WRITERS-01: la lista path-only queda VACÍA · 2026-11-21
+
+Ver [ipc-writers-01-checkpoint-2026-11-21.md](ipc-writers-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `7fba5b2` (IPC-REFRESH-01). Agente local único, autorrevisión no independiente.
+
+- Últimos tres canales sensibles sin guard de origen: `components:save` (escribe el store de componentes), `wiki:add` (reescribe páginas y **gasta tokens del modelo**) y `drive:save` (**sube un archivo local a Google Drive** — el único canal cuyo efecto sale de la máquina). RED: 14 de 17.
+- **`MUST_HAVE_ORIGIN_GUARD` = 37 y la cobertura es 268/268: cero canales path-only por primera vez.** En `drive:save` el guard va **fuera** del envoltorio `guard()`; dentro se habría convertido en `{ ok: false }`, indistinguible de un fallo de red.
+- Cierre de la auditoría de origen, no de la autorización: **los 153 `EXPLICITLY_NO_GUARD` siguen siendo una clasificación sin verificar** en esta sesión. Siguiente auditoría propuesta: **IPC-CLASS-01**, un módulo a la vez, empezando por los clusters grandes (`mail:*`, `case*:*`, `lok:*`). Si un canal no debería ser alcanzable desde un renderer, el arreglo correcto puede ser sacarlo del preload, no ponerle guard.
+- **FIXTURE-01 llegó a su cuarta ocurrencia** (`drive.security.test.ts`, tras `links.test.ts`, `metrics.test.ts` y el propio inventario): tests que pasaban por la razón equivocada. Reforzado en el fixture y con un test de rechazo; el suite completo sigue siendo el gate real.
+- Evidencia: RED 14/17; GREEN 16/16; M18–M20 detectadas; suite completo 1er intento 4 fallos, final **358 archivos + 3 omitidos, 4355 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-REFRESH-01 (`metric|collection:refreshForFile`) · 2026-11-21
+
+Ver [ipc-refresh-01-checkpoint-2026-11-21.md](ipc-refresh-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `76b24be` (IPC-OFFICE-01). Agente local único, autorrevisión no independiente.
+
+- Los dos hooks de auto-refresco (se llaman en cada guardado) releen un documento fuente y **reescriben los valores derivados en el workspace** (celdas xlsx, content controls docx, textos pptx). Ninguno miraba el evento: `validateFilePath` acotaba la ruta, no al emisor. RED: 8 de 8 invocaciones no autorizadas consultaban el store.
+- **FIXTURE-01 (sistémico, tercera ocurrencia)**: cada lote descubre tests que pasaban por la razón equivocada. `metrics.test.ts` invocaba con `{}`; ahora habla como el owner y un test fija el rechazo. Ya ocurrió en `links.test.ts`, `metrics.test.ts` y en el propio inventario. El suite completo es el detector y por eso es parte del gate.
+- Inventario: **473 = 268 + 153 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **34**; cobertura **265/268**; quedan **3**: `components:save`, `wiki:add`, `drive:save`.
+- Evidencia: RED 8/4; GREEN 12/12; M17 detectada; suite completo 1er intento 1 fallo (`metrics.test.ts`), final **357 archivos + 3 omitidos, 4338 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-OFFICE-01 (`office.ts` + `canvas:export-pptx`) · 2026-11-21
+
+Ver [ipc-office-01-checkpoint-2026-11-21.md](ipc-office-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `18823f7` (merge de PR #19). Agente local único, autorrevisión no independiente.
+
+- Los cuatro handlers de `office.ts` y `canvas:export-pptx` ignoraban el evento. Son los de mayor consecuencia: `office:print` convierte con LibreOffice, escribe un PDF temporal y lo entrega a `shell.openPath` (el SO lanza el visor); `office:export-pdf` abre un diálogo nativo y **escribe en el destino que elige quien llama, fuera del workspace**; `canvas:export-pptx` construye un deck en disco. RED: 20 de 20 invocaciones no autorizadas convertían, abrían, exportaban o escribían.
+- Los cuatro ya figuraban en `MUST_HAVE_GUARD` sólo porque su cuerpo llama `validateFilePath`: estar contado como "con guard" no es verificar al emisor. Por eso existe `MUST_HAVE_ORIGIN_GUARD`.
+- Inventario: **473 = 268 + 153 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **32**; cobertura **263/268**; quedan **5 path-only**: `drive:save`, `components:save`, `wiki:add`, `metric:refreshForFile`, `collection:refreshForFile`.
+- La invariante de duplicados de IPC-SEARCH-01 se ganó el sitio en el lote siguiente: saltó sobre mi propia edición antes de llegar al commit.
+- Evidencia: RED 20/3 exit 1; GREEN 23/23; M15/M16 detectadas; Vitest completo **356 archivos + 3 omitidos, 4325 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-SEARCH-01 (`search.ts`) · 2026-11-21
 
 Ver [ipc-search-01-checkpoint-2026-11-21.md](ipc-search-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `92f6bf0` (IPC-WATCH-01). Agente local único, autorrevisión no independiente.
 

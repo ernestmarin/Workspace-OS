@@ -20,16 +20,38 @@ vi.mock('electron', () => ({
 
 import { registerMetricHandlers } from './metrics'
 import { IpcValidationError } from '../ipc-validator'
+import { setMainWindow } from '../main-window'
+
+/**
+ * The registered main window and an event from its current main frame. Since
+ * IPC-REFRESH-01 every handler refuses anything else, so a fabricated `{}` event
+ * would make these traversal assertions pass by refusal instead of validation.
+ */
+function ownerEvent(): { sender: unknown; senderFrame: unknown } {
+  const frame = { parent: null }
+  const webContents = { isDestroyed: () => false, mainFrame: frame, send: vi.fn() }
+  setMainWindow({ isDestroyed: () => false, webContents } as never)
+  return { sender: webContents, senderFrame: frame }
+}
 
 /** A minimal IpcMain that records handlers so a test can invoke them directly. */
-function fakeIpcMain(): { ipcMain: { handle: (c: string, h: (...a: unknown[]) => unknown) => void }; invoke: (c: string, ...a: unknown[]) => Promise<unknown> } {
+function fakeIpcMain(): {
+  ipcMain: { handle: (c: string, h: (...a: unknown[]) => unknown) => void }
+  invoke: (c: string, ...a: unknown[]) => Promise<unknown>
+  invokeAs: (event: unknown, c: string, ...a: unknown[]) => Promise<unknown>
+} {
   const handlers = new Map<string, (...a: unknown[]) => unknown>()
   return {
     ipcMain: { handle: (c, h) => void handlers.set(c, h) },
     invoke: async (c, ...a) => {
       const h = handlers.get(c)
       if (!h) throw new Error(`no handler for ${c}`)
-      return h({}, ...a) // first arg is the ipc event (unused here)
+      return h(ownerEvent(), ...a)
+    },
+    invokeAs: async (event, c, ...a) => {
+      const h = handlers.get(c)
+      if (!h) throw new Error(`no handler for ${c}`)
+      return h(event, ...a)
     },
   }
 }
@@ -49,6 +71,12 @@ describe('metric:refreshForFile path-traversal rejection', () => {
   })
   afterEach(() => {
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('refuses an event that is not the registered main window', async () => {
+    // Pins why `invoke` speaks as the owner: the refusal of an empty event is
+    // independent of the path validation asserted below.
+    await expect(f.invokeAs({}, 'metric:refreshForFile', path.join(dir, 'note.md'))).rejects.toThrow(/IPC call rejected/)
   })
 
   it('rejects a "../../etc/passwd" traversal path (escapes workspace root)', async () => {

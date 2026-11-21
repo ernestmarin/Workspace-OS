@@ -21,6 +21,7 @@ import {
   type DriveAccess,
 } from '../drive/drive-client'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /**
  * Google Drive, connected the way Google asks for it.
@@ -233,8 +234,11 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
    * revision history. And refused outright on a read-only connection, rather
    * than discovered at the end by a 403.
    */
-  ipcHandle(ipcMain, IPC.DRIVE_SAVE, (_e, fileId: unknown, localPath: unknown) =>
-    guard(async () => {
+  ipcHandle(ipcMain, IPC.DRIVE_SAVE, (event, fileId: unknown, localPath: unknown) => {
+    // IPC-WRITERS-01: the only channel here whose effect leaves the machine —
+    // it uploads a local file into the user's Drive.
+    assertMainWindowFrame(event)
+    return guard(async () => {
       const connection = await accounts().get()
       // Order matters: without this, "nothing is connected" was reported as
       // "connected read-only", which sends the person to reconnect a Drive
@@ -257,8 +261,8 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
       const bytes = new Uint8Array(await fs.readFile(abs))
       const saved = await updateFile(token, meta, bytes, nodeFetch)
       return { name: saved.name, modifiedAt: saved.modifiedAt }
-    }),
-  )
+    })
+  })
 
   /** What a Drive file would be called locally — for the UI to show first. */
   ipcHandle(ipcMain, IPC.DRIVE_LOCAL_NAME, (_e, name: unknown, mimeType: unknown) =>

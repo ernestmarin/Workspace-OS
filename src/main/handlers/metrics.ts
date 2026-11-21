@@ -10,6 +10,7 @@ import { readCell } from '../xlsx-cell-reader'
 import { setContentControlText } from '../docx-cc-writer'
 import { setShapeText } from '../pptx-shape-writer'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /** Outcome of refreshing one metric from its source cell (fed to the renderer). */
 interface RefreshResult {
@@ -168,7 +169,8 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   // root (rejecting `../../etc/...` traversal and symlink escapes) before using
   // it — a refresh must never be steered at a path outside the workspace. The
   // stored source filePaths are compared against the resolved, in-root path.
-  ipcHandle(ipcMain, IPC.METRIC_REFRESHFORFILE, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_REFRESHFORFILE, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')

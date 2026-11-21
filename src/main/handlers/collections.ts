@@ -30,6 +30,7 @@ import { setSlideTableCells } from '../pptx-table-writer'
 import { isValidA1 } from '../transclusions'
 import type { RangeGrid } from '../ranges'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /** Outcome of refreshing one collection from its source (fed to the renderer). */
 interface CollectionRefreshResult {
@@ -171,7 +172,8 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
   // Refresh only collections sourced FROM a given file (the auto-refresh-on-save
   // hook — cheap: touches nothing sourced from elsewhere). The incoming filePath
   // is untrusted: validate it stays WITHIN the workspace root before using it.
-  ipcHandle(ipcMain, IPC.COLLECTION_REFRESHFORFILE, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTION_REFRESHFORFILE, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')

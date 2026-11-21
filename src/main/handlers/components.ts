@@ -4,6 +4,7 @@ import path from 'path'
 import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /** A reusable design component (Framer-style asset) with exposed variables. */
 export interface Component {
@@ -86,7 +87,10 @@ function sanitize(input: unknown): Component {
 export function registerComponentsHandlers(ipcMain: IpcMain): void {
   ipcHandle(ipcMain, IPC.COMPONENTS_LIST, () => readAll())
 
-  ipcHandle(ipcMain, IPC.COMPONENTS_SAVE, (_e, input: unknown) => {
+  ipcHandle(ipcMain, IPC.COMPONENTS_SAVE, (event, input: unknown) => {
+    // IPC-WRITERS-01: this writes the shared component store; `sanitize` bounds
+    // what may be stored, the guard bounds who may ask.
+    assertMainWindowFrame(event)
     const c = sanitize(input)
     const list = readAll()
     const i = list.findIndex((x) => x.id === c.id)
