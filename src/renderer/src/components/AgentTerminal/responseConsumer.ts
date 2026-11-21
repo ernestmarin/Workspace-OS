@@ -32,6 +32,7 @@ export interface ResponseConsumerCallbacks {
   onText(runId: string, text: string): void
   onFinish(runId: string, success: boolean): void
   onCancel(runId: string): void
+  /** Accepted lifecycle events only. Failed or inconsistent streams signal onCancel instead. */
   onEvent?(event: AssistantResponseEvent): void
 }
 
@@ -141,7 +142,6 @@ export class ResponseStreamConsumer {
       return
     }
     state.lastSequence = event.sequence
-    this.callbacks.onEvent?.(event)
 
     switch (event.type) {
       case 'response-start': {
@@ -150,6 +150,7 @@ export class ResponseStreamConsumer {
           return
         }
         state.activeResponses.add(event.responseId)
+        this.callbacks.onEvent?.(event)
         return
       }
       case 'text-delta': {
@@ -157,6 +158,7 @@ export class ResponseStreamConsumer {
           this.quarantine(runId)
           return
         }
+        this.callbacks.onEvent?.(event)
         this.callbacks.onText(runId, event.text)
         return
       }
@@ -170,13 +172,16 @@ export class ResponseStreamConsumer {
           return
         }
         state.completedResponses.add(event.responseId)
+        this.callbacks.onEvent?.(event)
         return
       }
       case 'run-end': {
         const cleanSuccess = event.outcome === 'completed' && state.activeResponses.size === 0
         this.runs.delete(runId)
-        if (cleanSuccess) this.callbacks.onFinish(runId, true)
-        else this.callbacks.onCancel(runId)
+        if (cleanSuccess) {
+          this.callbacks.onEvent?.(event)
+          this.callbacks.onFinish(runId, true)
+        } else this.callbacks.onCancel(runId)
         return
       }
       case 'source-error': {

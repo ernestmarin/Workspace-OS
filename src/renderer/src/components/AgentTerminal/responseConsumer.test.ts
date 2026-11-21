@@ -86,3 +86,30 @@ describe('ResponseStreamConsumer (VOX-A1d.2 & VOX-A1d.3)', () => {
     expect(onCancel).toHaveBeenCalledExactlyOnceWith('run-1')
   })
 })
+
+describe('validated event delivery before speech transport', () => {
+  it.each(['early', 'acknowledged'])('does not publish an orphan delta (%s)', timing => {
+    const onEvent = vi.fn(), onCancel = vi.fn()
+    const consumer = new ResponseStreamConsumer({ onEvent, onCancel, onFinish: vi.fn(), onText: vi.fn() })
+    consumer.claim(owner.runId, owner.sessionId)
+    if (timing === 'acknowledged') consumer.acknowledge(owner.runId, owner)
+    consumer.push(makeEvent(1, { type: 'text-delta', responseId: 'r1', text: 'unopened' }))
+    if (timing === 'early') consumer.acknowledge(owner.runId, owner)
+    expect(onCancel).toHaveBeenCalledExactlyOnceWith(owner.runId)
+    expect(onEvent).not.toHaveBeenCalled()
+  })
+  it.each([true, false])('only publishes successful run-end after response-end (closed=%s)', closed => {
+    const onEvent = vi.fn(), onCancel = vi.fn(), onFinish = vi.fn()
+    const consumer = new ResponseStreamConsumer({ onEvent, onCancel, onFinish, onText: vi.fn() })
+    consumer.claim(owner.runId, owner.sessionId)
+    consumer.acknowledge(owner.runId, owner)
+    const events = [makeEvent(1, { type: 'response-start', responseId: 'r1' }),
+      makeEvent(2, { type: 'text-delta', responseId: 'r1', text: 'valid' })]
+    if (closed) events.push(makeEvent(3, { type: 'response-end', responseId: 'r1', outcome: 'completed' }))
+    const end = makeEvent(events.length + 1, { type: 'run-end', outcome: 'completed' })
+    for (const event of [...events, end]) consumer.push(event)
+    expect(onEvent.mock.calls.flat()).toEqual(closed ? [...events, end] : events)
+    expect(onFinish).toHaveBeenCalledTimes(closed ? 1 : 0)
+    expect(onCancel).toHaveBeenCalledTimes(closed ? 0 : 1)
+  })
+})

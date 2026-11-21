@@ -54,8 +54,8 @@ A2a and A4c are implemented and verified as described in the increment below.
       `verified_offline` today**. The panel says "files present, NOT verified —
       local speech stays off". That is the truthful state until real pins land;
       it is not a UI bug.
-- [ ] A2b/A2c (live transport + wiring) remain blocked behind A1d's
-      main-minted owner term; the completed-run reader stays the default.
+- [x] A1d accepted-event boundary: an orphan delta or premature successful run-end cannot reach the event observer. See the post-PR #16 checkpoint in [HANDOFF](HANDOFF.md).
+- [ ] A2b: demonstrate duration-bounded transport and consumer-confirmed drain; then A2c wiring. The owner term exists; completed-run remains the default.
 
 ## Audit increment — implemented, bounded
 
