@@ -7,6 +7,7 @@ import { IpcValidationError, validateFilePath, validateFileName } from '../ipc-v
 import { getWorkspaceRoot } from '../workspace-root'
 import { isAuthorizedArtifact } from '../artifact-allowlist'
 import { trash } from '../trash'
+import { assertMainWindowFrame } from '../main-window'
 
 function sanitize(filePath: unknown): string {
   const root = getWorkspaceRoot()
@@ -78,8 +79,21 @@ async function listWorkspaceFiles(root: string): Promise<string[]> {
   return files
 }
 
+/**
+ * IPC-FS-01 — origin check for the whole surface, first in every handler.
+ *
+ * `sanitize()` confines a path to the workspace; it does not answer "who is
+ * asking". Without this, any frame that could reach the preload bridge — a
+ * stale top-level frame after navigation, a child/detached frame, or a
+ * webContents that is not the registered owner — could read, overwrite, rename
+ * or delete files inside the user's workspace. Reads are guarded too: a
+ * read-only escape is still a privacy breach. The call is `assertMainWindowFrame`
+ * deliberately, not a local alias, so the structural inventory in
+ * `ipc-authorization.test.ts` recognises these handlers by name.
+ */
 export function registerFsHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.FS_READ_DIR, async (_event, dirPath: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_READ_DIR, async (event, dirPath: unknown) => {
+    assertMainWindowFrame(event)
     try {
       const resolved = sanitize(dirPath)
       const entries = await fs.readdir(resolved, { withFileTypes: true })
@@ -110,25 +124,29 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
   })
 
   // Every file under the workspace root (bounded walk) — quick-open's data source.
-  ipcHandle(ipcMain, IPC.FS_LIST_FILES, async () => {
+  ipcHandle(ipcMain, IPC.FS_LIST_FILES, async (event) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) return []
     return listWorkspaceFiles(root)
   })
 
-  ipcHandle(ipcMain, IPC.FS_READ_FILE, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_READ_FILE, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const resolved = sanitizeRead(filePath)
     return fs.readFile(resolved, 'utf-8')
   })
 
-  ipcHandle(ipcMain, IPC.FS_READ_FILE_BYTES, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_READ_FILE_BYTES, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const resolved = sanitizeRead(filePath)
     const buf = await fs.readFile(resolved)
     // Return as Uint8Array — transfers cleanly over IPC
     return new Uint8Array(buf)
   })
 
-  ipcHandle(ipcMain, IPC.FS_WRITE_FILE, async (_event, filePath: unknown, content: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_WRITE_FILE, async (event, filePath: unknown, content: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof content !== 'string') throw new IpcValidationError('content must be a string')
     const resolved = sanitize(filePath)
     // Snapshot the prior version before overwriting (skip the trash store itself).
@@ -138,7 +156,8 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
     await fs.writeFile(resolved, content, 'utf-8')
   })
 
-  ipcHandle(ipcMain, IPC.FS_DELETE, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_DELETE, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const resolved = sanitize(filePath)
     if (isInternalPath(resolved)) {
       throw new IpcValidationError('Cannot delete internal store (.workspace-os)')
@@ -147,7 +166,8 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
     await trash.moveToTrash(resolved, 'delete', stat.isDirectory(), true)
   })
 
-  ipcHandle(ipcMain, IPC.FS_RENAME, async (_event, oldPath: unknown, newName: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_RENAME, async (event, oldPath: unknown, newName: unknown) => {
+    assertMainWindowFrame(event)
     const resolvedOld = sanitize(oldPath)
     const name = validateFileName(newName)
     const newPath = path.join(path.dirname(resolvedOld), name)
@@ -159,7 +179,8 @@ export function registerFsHandlers(ipcMain: IpcMain): void {
     await fs.rename(resolvedOld, resolvedNew)
   })
 
-  ipcHandle(ipcMain, IPC.FS_CREATE, async (_event, dirPath: unknown, name: unknown, isDirectory: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_CREATE, async (event, dirPath: unknown, name: unknown, isDirectory: unknown) => {
+    assertMainWindowFrame(event)
     const resolvedDir = sanitize(dirPath)
     const fileName = validateFileName(name)
     const target = path.join(resolvedDir, fileName)
