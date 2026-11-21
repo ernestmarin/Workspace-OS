@@ -21,11 +21,26 @@ vi.mock('electron', () => ({
 import { registerSearchHandlers, shutdownSearch } from './search'
 import { IPC } from '../ipc-channels'
 import { IpcValidationError } from '../ipc-validator'
+import { setMainWindow } from '../main-window'
+
+/**
+ * The registered main window, and an event coming from its current main frame.
+ * Since IPC-SEARCH-01 every handler refuses anything else, so these coercion
+ * tests must speak as the owner — otherwise they would assert validation
+ * against a refusal and pass for the wrong reason.
+ */
+function ownerEvent(): { sender: unknown; senderFrame: unknown } {
+  const frame = { parent: null }
+  const webContents = { isDestroyed: () => false, mainFrame: frame, send: vi.fn() }
+  setMainWindow({ isDestroyed: () => false, webContents } as never)
+  return { sender: webContents, senderFrame: frame }
+}
 
 /** A minimal IpcMain that records handlers so a test can invoke them directly. */
 function fakeIpcMain(): {
   ipcMain: { handle: (c: string, h: (...a: unknown[]) => unknown) => void }
   invoke: (c: string, ...a: unknown[]) => Promise<unknown>
+  invokeAs: (event: unknown, c: string, ...a: unknown[]) => Promise<unknown>
 } {
   const handlers = new Map<string, (...a: unknown[]) => unknown>()
   return {
@@ -33,7 +48,12 @@ function fakeIpcMain(): {
     invoke: async (c, ...a) => {
       const h = handlers.get(c)
       if (!h) throw new Error(`no handler for ${c}`)
-      return h({}, ...a)
+      return h(ownerEvent(), ...a)
+    },
+    invokeAs: async (event, c, ...a) => {
+      const h = handlers.get(c)
+      if (!h) throw new Error(`no handler for ${c}`)
+      return h(event, ...a)
     },
   }
 }
@@ -60,6 +80,15 @@ describe('links:* handler path coercion', () => {
   afterAll(async () => {
     await shutdownSearch()
     fs.rmSync(dbDir, { recursive: true, force: true })
+  })
+
+  it('refuses an event that is not the registered main window', async () => {
+    // Pins the reason `invoke` speaks as the owner: an empty event is a refusal,
+    // and that refusal is independent of any input validation.
+    await expect(f.invokeAs({}, IPC.LINKS_STUBS)).rejects.toThrow(/IPC call rejected/)
+    await expect(f.invokeAs({}, IPC.LINKS_RESOLVE, 'Note')).rejects.toThrow(/IPC call rejected/)
+    // The same call from the owner still answers.
+    await expect(invoke(IPC.LINKS_STUBS)).resolves.toEqual([])
   })
 
   it('rejects a non-string path (backlinks)', async () => {

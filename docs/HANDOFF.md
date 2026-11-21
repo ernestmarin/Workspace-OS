@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-WATCH-01 (`watcher.ts`) · 2026-11-21
+## Vigente — IPC-SEARCH-01 (`search.ts`) · 2026-11-21
+
+Ver [ipc-search-01-checkpoint-2026-11-21.md](ipc-search-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `92f6bf0` (IPC-WATCH-01). Agente local único, autorrevisión no independiente.
+
+- Los trece handlers de `search.ts` ignoraban el evento y son la cara de **lectura** de las notas: búsqueda, símbolos, **texto extraído de .docx/.xlsx/.pptx/.pdf** (`knowledge:read`), knowledge search, backlinks/outgoing/relacionadas, el grafo entero y la resolución de enlaces. RED: 52 de 52 invocaciones no autorizadas devolvían rutas y texto de notas.
+- Ahora `assertMainWindowFrame` en los trece. Inventario: **473 = 267 + 154 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **27**; cobertura **258/267**; quedan **9 path-only** (`office:*`, `canvas:export-pptx`, `drive:save`, `components:save`, `wiki:add`, `metric|collection:refreshForFile`).
+- Nueva invariante: ninguna categoría puede repetir un canal en su propia lista. Nació de un error real de esta sesión (trece entradas insertadas en el set equivocado, dos duplicados heredados): el `Set` los ocultaba y ningún test fallaba. Medir el inventario contra 473 lo descubrió.
+- El guard destapó un falso positivo del suite completo: `links.test.ts` invocaba los handlers con `{}` como evento, así que sus nueve tests de "validación" pasaban por rechazo. Fixture corregido (`ownerEvent()`) y rechazo fijado con un test propio; no se debilitó ningún guard ni aserción.
+- Evidencia: RED 52/2 exit 1; GREEN 54/54; mutaciones M12 (duplicado), M13 (`knowledge:read`), M14 (`search:start`) detectadas; Vitest completo **355 archivos + 3 omitidos, 4302 tests + 26 omitidos**; tsc 0/0; ESLint 0/0 en 1004 archivos; build 0; auditorías 35/40 sin cambios.
+
+## Anterior — IPC-WATCH-01 (`watcher.ts`) · 2026-11-21
 
 Ver [ipc-watch-01-checkpoint-2026-11-22.md](ipc-watch-01-checkpoint-2026-11-22.md). Rama `arena/e28c7316-workspace-os`, base `8faaf6a` (merge de PR #18). Agente local único, autorrevisión no independiente.
 

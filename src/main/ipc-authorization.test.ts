@@ -192,14 +192,20 @@ const MUST_HAVE_GUARD = new Set<string>([
   'workspace:content-root',
   'workspace:get-root',
   'workspace:write-agent-note',
+  'links:backlinks',
+  'links:graph',
+  'links:outgoing',
+  'links:related',
+  'links:stubs',
+  'search:prioritize',
+  'search:start',
+  'search:index-status',
   'fs:create',
   'fs:delete',
   'fs:read-dir',
   'fs:read-file',
-  'fs:open-folder-dialog',
   'fs:read-file-bytes',
   'fs:rename',
-  'fs:reveal',
   'fs:save-copy-dialog',
   'fs:write-file',
   // drive (upload externo)
@@ -516,11 +522,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'history:star',
   'history:suggest',
   'history:unstar',
-  'links:backlinks',
-  'links:graph',
-  'links:outgoing',
-  'links:related',
-  'links:stubs',
   // mail — más de 50 canales, todos sin guard hoy (deuda P0, lote N+1b)
   // memory / menu / metric (parte) / office / pdf / projects / range / search...
   'memory:confirm',
@@ -566,9 +567,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'rangeLink:forFile',
   'rangeLink:previewSyncAll',
   'rangeLink:remove',
-  'search:prioritize',
-  'search:start',
-  'search:index-status',
   'sessions:load',
   'sessions:save',
   'skills:list',
@@ -640,6 +638,19 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'fs:watch-start',
   'fs:watch-stop',
   'fs:write-file',
+  'knowledge:read',
+  'knowledge:search',
+  'links:backlinks',
+  'links:graph',
+  'links:outgoing',
+  'links:related',
+  'links:resolve',
+  'links:stubs',
+  'search:index-status',
+  'search:prioritize',
+  'search:query',
+  'search:start',
+  'search:symbols',
   'workspace:content-root',
   'workspace:get-root',
   'workspace:write-agent-note',
@@ -660,6 +671,21 @@ describe('N+1 IPC authorization — exhaustividad y guard', () => {
     for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) {
       const overlap = [...sets[i]].filter((c) => sets[j].has(c))
       expect(overlap, `solapamiento entre categorías ${i} y ${j}: ${overlap.join(', ')}`).toEqual([])
+    }
+  })
+
+  it('ninguna categoría repite un canal en su propia lista', () => {
+    // Un `Set` oculta sus propios duplicados, así que un canal insertado dos veces
+    // por error no cambia el tamaño ni rompe la exhaustividad: el inventario
+    // mentiría en silencio. Esta comprobación lee la lista literal de este archivo
+    // porque el duplicado sólo existe en el texto.
+    const self = read('src/main/ipc-authorization.test.ts')
+    for (const name of ['MUST_HAVE_GUARD', 'GRANT_CHECKED', 'PUSH_CHANNELS', 'EXPLICITLY_NO_GUARD', 'MUST_HAVE_ORIGIN_GUARD']) {
+      const block = self.slice(self.indexOf(`const ${name} = new Set<string>([`))
+      const body = block.slice(0, block.indexOf('])'))
+      const entries = [...body.matchAll(/^  '([^']+)',$/gm)].map((m) => m[1])
+      const repeated = entries.filter((entry, index) => entries.indexOf(entry) !== index)
+      expect(repeated, `${name} repite: ${repeated.join(', ')}`).toEqual([])
     }
   })
 
