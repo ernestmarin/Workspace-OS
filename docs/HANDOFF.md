@@ -1,5 +1,43 @@
 # Handoff
 
+## Vigente — IPC-SYS-01 · 2026-11-20
+
+**Aceptado: nivel 2 requerido y demostrado**, no nivel 3. Rama `arena/3bd77f1e-workspace-os`, base del lote `a6a0bff`, árbol/índice limpios al iniciar. Agente local único, autorrevisión. `editRouter` usa el bridge de preload; ambos handlers de clipboard antes ignoraban el evento. Ahora comprueban la ventana registrada viva, WebContents exacto y frame principal actual antes de leer, escribir o validar el texto. Sin fallback de entrega, sin excepción para otra ventana principal. Registro y autorización reales, Electron y portapapeles simulados; no se accedió al portapapeles del usuario. No se afirma consentimiento por operación, seguridad de navegación ni cobertura de un renderer comprometido.
+
+| Evidencia (Linux, Node 22.22.3 ABI 127, npm 10.9.8) | Código / exit | Resultado |
+|---|---|---|
+| Vitest focal `ipc-authorization.test.ts` | base / 0 | 7 pasan; no baseline completo nuevo |
+| `handlers/system.clipboard.test.ts` | RED antes del fix / 1 | 17 resoluciones indebidas: 8 emisores por canal y escritura no-texto no autorizada; 1 control pasa |
+| Vitest clipboard + inventario + `editRouter` + `officeClipboard` | fix / 0 | 59/59; lectura, escritura Unicode/vacía y negativa no-texto preservadas tras recrear owner |
+| Mutación retrospectiva quitando las dos llamadas; restauración en finally | mutado / 1 | mismos 17 fallos, control verde |
+| tsc main + renderer; ESLint completo (comandos canónicos) | final restaurado / 0,0,0 | sin diagnósticos, lint 0/0 |
+| Vitest completo con 2 workers; npm run build | final / 0,0 | 350 archivos pasan + 3 omitidos; **4149 pasan + 26 omitidos**. +18 pruebas sobre el checkpoint anterior; tres bundles propios restaurados |
+| npm audit --omit=dev --json; npm audit --json | final / 1,1 | fallidos, 35/40 moderate; sin high/critical. Sin cambios de paquetes |
+
+Solo `clipboard:read` y `clipboard:write` cambian de conjunto: **473 = 247 guard + 174 pendientes en clasificación textual + 22 grants + 30 push**. `speech:read-clipboard` llama a un `assertOwner` propio: no inferir falta de autorización de su clasificación estructural; revisar aparte. `system:status` no se cambió. Sin instalación/rebuild, push ni servicios persistentes. El resto del inventario y riesgos del checkpoint N+1c y el lifecycle del updater siguen abiertos.
+
+**Próximo candidato IPC-TRASH-01 (P0 integridad):** `handlers/trash.ts`, especialmente `trash:empty` que llama directamente a `trash.empty()` sin evento. Agente local: revisar callers de lista/restauración/borrado/vaciado y contratos de persistencia antes de editar. Exigir fixtures sintéticas, rechazo sin pérdida ni modificación y control legítimo de recuperación; nivel 2, mutación, inventario y gates completos. No tocar papelera real. Parada al completar el ciclo acordado; verificar HEAD, árbol y ABI antes del siguiente lote.
+
+## Histórico — IPC-UPD-01 · 2026-11-20
+
+Base `863e42e` limpia, rama efectiva `arena/3bd77f1e-workspace-os` (no la de la ficha). Checkout shallow: el objeto HEAD identifica `286e1a680dc12afb70433a4196027250a0e15dbe` como segundo padre; no hay objeto padre para recorrerlo. Propietario/único revisor: agente local. Sin subagentes ni mutex global. Un lote por presupuesto conservador; ejecución serial, sin servicios persistentes. Los checkpoints siguientes son históricos.
+
+**Aceptado NIVEL 2 (requerido 2):** `updater:install` podía llegar al reinicio y `updater:check` al chequeo/diálogo sin verificar emisor. Ambos validan primero ventana registrada viva, WebContents exacto y frame principal actual. No se cambió menú, política de instalación, callbacks ni push. `updater.authorization.test.ts` ejecuta registro y autoridad reales con Electron/updater simulados. Por canal: evento ausente, frame null/hijo/obsoleto, owner ajeno/reemplazado, ventana/WebContents destruidos; rechazo sin instalación ni diálogo, control positivo tras reemplazo. RED previo 16 fallos (promesa resuelta) + 2 controles verdes; GREEN focalizado 27/27 incluyendo updater previo e inventario; mutación retrospectiva quitando ambas llamadas 16/2, restaurada en finally y revalidada en suite completa. Inventario 473 = 245 guard + 176 sin guard + 22 grants + 30 push; solo los dos updater cambiaron de conjunto.
+
+| Gate (Linux Node 22.22.3 ABI 127, npm 10.9.8) | Estado de código / exit | Resultado |
+|---|---|---|
+| npm ci --ignore-scripts --no-audit --no-fund; rebuild:node con nodedir=/usr/local | base / 0,0 | dependencias ausentes; sin cambios de lockfile |
+| Vitest focal baseline: ipc-authorization, updater.test | base / 0 | 7 + 2 tests; no baseline completo nuevo |
+| tsc --noEmit -p tsconfig.node.json y src/renderer/tsconfig.json | delta final / 0,0 | sin diagnósticos |
+| eslint --config config/eslint.config.mjs src --format json | final / 0 | 0 errores, 0 warnings |
+| vitest run --config config/vitest.config.ts --maxWorkers=2 | final / 0 | 349 archivos pasan, 3 omitidos; 4131 pasan, 26 omitidos |
+| npm run build | final / 0 | tres bundles propios restaurados, no incluidos |
+| npm audit --omit=dev --json; npm audit --json | final / 1,1 | 35/40 moderate, sin high/critical; fallidos, no corregidos |
+
+Skips por archivo: recall.eval 1, case-insights 2, platform-tools 6, wiki.live 4, treeWatcher 1, proposals.live 6, chat.live 2, libreoffice.convert 2, lokTemp 2. Comparación integral solo histórica (+18 tests de identidad). Auditorías incluyen cadenas de ExcelJS/uuid, MJML/formatter y tooling de empaquetado; sin migración ni evaluación de compatibilidad nueva. Sin push, PR, descargas separadas, feed, dispositivo ni release. No aceptación NIVEL 3. El registro de autoridad sigue a createWindow; el destino de diálogos/push del updater aún usa la ventana de initUpdater: pendiente de lifecycle, no demostrado por el control de autorización. Navegación/origen y renderer comprometido fuera de alcance.
+
+**Siguiente candidato IPC-SYS-01:** agente local, inspeccionar callers de `handlers/system.ts` empezando por lectura/escritura de clipboard; delimitar antes de editar. Sin datos reales: clipboard simulado, owner/frame reales en registro, rechazo sin lectura/mutación, controles tras recreación; exigir nivel 2, inventario exacto, mutación y mismos gates. Mantener inventario residual del checkpoint N+1c (Office, IPC, voz y demás áreas sin revisar); sin adelantar voz ni sustituir dispositivo por mocks. Reanudar verificando rama, HEAD, árbol y ABI. Misión abierta.
+
 ## Checkpoint N+1c — 2026-11-20 (posterior a PR #14)
 
 Ver [lok-authorization-checkpoint-2026-11-20.md](lok-authorization-checkpoint-2026-11-20.md). Rama `arena/d4868d3a-workspace-os`, base `8a9cc7a`. Los 45 handlers de lok.ts exigen owner registrado vivo y su main frame actual; fallback de entrega no concede autoridad. Inventario: 243 con guard, 178 sin guard, 22 grant-checked, 30 push. Gates frescos: tsc main/renderer exit 0, ESLint 0/0, Vitest **4113 passed / 26 skipped**, build exit 0. Auditorías 35/40 moderate (exit 1). Sin aceptación Electron/LOK real ni NIVEL 3, sin push. Ver riesgos de lifecycle/Office, próximos contratos y evidencia RED/GREEN en el checkpoint.
