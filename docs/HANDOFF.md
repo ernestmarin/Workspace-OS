@@ -1,6 +1,18 @@
 # Handoff
 
-## Vigente — post-PR #16: A1d accepted-event boundary + IPC-TRASH-01
+## Vigente — VOX-A2b: acknowledged response-playback transport · 2026-11-21
+
+Ver [voice-a2b-checkpoint-2026-11-21.md](voice-a2b-checkpoint-2026-11-21.md). Rama `arena/d78637b6-workspace-os`, base `bc643c4` (checkout **grafted**: los SHA históricos del contrato — `863e42e2`, `286e1a6` — no existen en este clon y no se pudieron verificar). Agente local único, autorrevisión Red/Blue **no independiente**. Linux, Node 22.22.3, ABI 127; `npm ci --ignore-scripts` y `rebuild:node` exit 0 sin cambios de lockfile.
+
+- **VOX-A2B-01 (defecto reproducido, corregido).** Un transporte que lanza **sincrónicamente** (el guard de `play` en `handlers.ts` lo hace cuando su documento desaparece) escapaba de `pump()`, se **atribuía falsamente a un desbordamiento de texto**, ponía en cuarentena una respuesta sana y dejaba `inFlight` incrementado para siempre: `whenDrained()` no resolvía nunca. Ahora es un fragmento fallido, contado, sin excepción hacia el llamador.
+- **VOX-A2B-02 (defecto reproducido, corregido).** La duración solo se estimaba por longitud de texto; 10 caracteres con 30 s de audio contaban como 400 ms y `maxBufferedDurationMs` no limitaba audio real. Ahora la duración **medida del PCM** sustituye la estimación mientras el audio suena (`hold`, motivo `duration-cap`) y alimenta `spokenDurationMs`.
+- **VOX-A2B-03 (frontera inexistente, creada).** `ResponseSpeechScheduler` no tenía ningún transporte productivo ni llamador. Nuevo `src/main/speech/responseTransport.ts`: `finished: true` **solo** con el ack del renderer, un único asentamiento por fragmento, `cancelFragment` con cancelación real y acks tardíos ignorados, `closeAll()` para documento reemplazado y **una sola ranura de playback** (la que tiene `VoicePlayback`). N2 requerido y demostrado contra el `PlaybackBroker` real con PCM sintético.
+- **Evidencia:** baseline focal 28/316 exit 0; RED 3 fallos/12 pasan (exit 1); GREEN 16/16; transporte 11/11; matriz de mutación M1–M5 detectada y restaurada; focal final 29/330; ambos tsc 0/0; Vitest completo **352 archivos + 3 omitidos, 4177 tests + 26 omitidos**; build 0; auditorías 35/40 moderate exit 1/1. Delta exacto +1 archivo / +15 tests sobre el baseline heredado (4162+15=4177).
+- **Límite honesto:** el comando canónico de ESLint falla aquí en un archivo **preexistente y no modificado** (`lokMacros.ts`, parse error por profundidad de pila del sandbox); con pila ampliada da 0/0 en 1001 archivos. Se registra **FALLIDO — causa entorno**, no como verde.
+- **Sin cableado (A2c).** `handlers.ts`/`replies.ts` siguen usando `ReadingController`; el transporte nuevo no es alcanzable desde la app en ejecución: **no hay cambio de comportamiento de voz visible** y no se declara aceptación NIVEL 3, ni audio real, ni dispositivo.
+- **Siguiente: A2c** — cablear el transporte al camino de respuestas manteniendo `mode: 'completed'` por defecto, `maxInFlight: RESPONSE_PLAYBACK_SLOTS`, `closeAll()` en `SpeechDocument.invalidate()` y Voice Stop; probar documento reemplazado a mitad de locución, cancelación con asentamiento único y que el camino `ReadingController` no cambie.
+
+## Histórico — post-PR #16: A1d accepted-event boundary + IPC-TRASH-01
 
 Rama `arena/d8da67ce-workspace-os`, base limpia `952775d`. Dos lotes, un agente local, trabajo serial y autorrevisión. Linux Node 22.22.3 / npm 10.9.8 / ABI 127. Dependencias ausentes: ci sin scripts ni audit y rebuild:node con headers locales, exit 0. Sin hardware, GUI, modelos, proveedores ni publicación.
 

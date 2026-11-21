@@ -1,6 +1,6 @@
 # Native, local-first voice conversation: atomic implementation plan
 
-Post-PR #16 decision: the renderer observer now receives only accepted response transitions. Next validate A2b at the playback acknowledgement boundary before A2c; no live audio acceptance. [Current checkpoint](HANDOFF.md).
+Post-PR #16 decision: the renderer observer now receives only accepted response transitions. **A2b is now implemented at the playback acknowledgement boundary** (measured durations, acknowledged drain, single playback slot) and verified against the real broker — still unwired, so no live audio acceptance. Next is A2c wiring. [Current checkpoint](voice-a2b-checkpoint-2026-11-21.md).
 
 Last reviewed: **2026-11-20**, response-provenance/U1 foundations from WOS
 `73e32d4` (merged PR #8; earlier checkpoints below remain historical).
@@ -413,8 +413,9 @@ into one change just because it shares a gate.
 - **A2-completed — implemented**: native frozen consent, narrow main/preload,
   delayed-ack lifecycle and completed-reader UI wiring, including scoped Stop.
   **A2a — open after A1**: response-owned bounded queue/duration/backpressure.
-  **A2b**: extend the narrow transport for live responses and acknowledged drain;
-  **A2c**: wire it without regressing the default completed-run mode.
+  **A2b — implemented, N2, unwired**: `responseTransport.ts` extends the narrow
+  transport for live responses with acknowledged drain and measured durations;
+  **A2c — next**: wire it without regressing the default completed-run mode.
 - **A3a**: add incremental-mode consent and early-cloud/partial-failure disclosure
   with mode off by default. **A3b**: wire prose/sentences through A2, testing
   generation completion separately from drain; retain completed-reply mode.

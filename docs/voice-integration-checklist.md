@@ -309,9 +309,15 @@ and their [independently testable execution slices](voice-conversation-plan.md#a
    document-bound IPC/preload, and renderer completed-mode assembly) and U1–U3
    (one-shot visual command confirmation + explicit command-capture mode) are now
    implemented and unit/integration-verified. Validate them in real Electron GUI/audio E2E.
-2. Extend `ResponseSpeechScheduler` (`A2b`/`A2c`) to live transport duration
-   backpressure and acknowledged drain, then add separate opt-in incremental-mode
-   consent (`A3a`/`A3b`) while keeping completed-run mode as the default.
+2. `A2b` is implemented and tested at NIVEL 2
+   ([checkpoint](voice-a2b-checkpoint-2026-11-21.md)): measured-PCM duration
+   replaces the text estimate, a failed/synchronous-throwing transport is a
+   counted failed fragment instead of a quarantined reply, and
+   `ResponsePlaybackTransport` resolves `finished` only on the renderer's
+   acknowledgement, with one settling per fragment, late acks ignored and a
+   single playback slot matching `VoicePlayback`. **It is not wired yet**, so no
+   user-visible behaviour changed. Next: `A2c` wiring with completed-run mode as
+   the default, then separate opt-in incremental-mode consent (`A3a`/`A3b`).
 3. Complete A4c/A4d consented model provisioning/recovery and real offline Whisper,
    Kokoro, and Piper model execution across Linux, macOS, and Windows hosts.
 4. Existing-session finalized turns, bounded capture/trained VAD/STT, PCM/AEC and
