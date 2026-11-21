@@ -7,6 +7,7 @@ import { IpcValidationError, validateFilePath } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import { resolveSoffice, isLibreOfficeAvailable, convertTo, discardConverted } from '../office/libreoffice'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 function cacheDir(): string {
   return path.join(app.getPath('userData'), 'office-cache')
@@ -96,11 +97,22 @@ async function toPdfCached(srcPath: string): Promise<Uint8Array> {
 /**
  * Docker-free office operations via LibreOffice (Phase 1–2). Export and view
  * supersede the OnlyOffice/Docker path when LibreOffice is installed.
+ *
+ * IPC-OFFICE-01 — these handlers spawn an external program on a workspace file,
+ * hand the result to the OS default viewer, and write outside the workspace
+ * (export) or into it (nothing here writes outside, but print hands a path to
+ * `shell.openPath`). `validateFilePath` bounds the path; it does not establish
+ * who is asking, so every handler starts by requiring the registered main
+ * window's current main frame.
  */
 export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): void {
-  ipcHandle(ipcMain, IPC.OFFICE_AVAILABLE, () => isLibreOfficeAvailable())
+  ipcHandle(ipcMain, IPC.OFFICE_AVAILABLE, (event) => {
+    assertMainWindowFrame(event)
+    return isLibreOfficeAvailable()
+  })
 
-  ipcHandle(ipcMain, IPC.OFFICE_PRINT, async (_event, filePath) => {
+  ipcHandle(ipcMain, IPC.OFFICE_PRINT, async (event, filePath) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const resolved = validateFilePath(filePath, root)
@@ -113,7 +125,8 @@ export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): vo
     if (error) throw new Error(error)
   })
 
-  ipcHandle(ipcMain, IPC.OFFICE_TO_PDF, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.OFFICE_TO_PDF, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const resolved = validateFilePath(filePath, root)
@@ -121,7 +134,8 @@ export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): vo
     return toPdfCached(resolved)
   })
 
-  ipcHandle(ipcMain, IPC.OFFICE_EXPORT_PDF, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.OFFICE_EXPORT_PDF, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const resolved = validateFilePath(filePath, root)

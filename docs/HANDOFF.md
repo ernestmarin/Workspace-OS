@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-SEARCH-01 (`search.ts`) · 2026-11-21
+## Vigente — IPC-OFFICE-01 (`office.ts` + `canvas:export-pptx`) · 2026-11-21
+
+Ver [ipc-office-01-checkpoint-2026-11-21.md](ipc-office-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `18823f7` (merge de PR #19). Agente local único, autorrevisión no independiente.
+
+- Los cuatro handlers de `office.ts` y `canvas:export-pptx` ignoraban el evento. Son los de mayor consecuencia: `office:print` convierte con LibreOffice, escribe un PDF temporal y lo entrega a `shell.openPath` (el SO lanza el visor); `office:export-pdf` abre un diálogo nativo y **escribe en el destino que elige quien llama, fuera del workspace**; `canvas:export-pptx` construye un deck en disco. RED: 20 de 20 invocaciones no autorizadas convertían, abrían, exportaban o escribían.
+- Los cuatro ya figuraban en `MUST_HAVE_GUARD` sólo porque su cuerpo llama `validateFilePath`: estar contado como "con guard" no es verificar al emisor. Por eso existe `MUST_HAVE_ORIGIN_GUARD`.
+- Inventario: **473 = 268 + 153 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **32**; cobertura **263/268**; quedan **5 path-only**: `drive:save`, `components:save`, `wiki:add`, `metric:refreshForFile`, `collection:refreshForFile`.
+- La invariante de duplicados de IPC-SEARCH-01 se ganó el sitio en el lote siguiente: saltó sobre mi propia edición antes de llegar al commit.
+- Evidencia: RED 20/3 exit 1; GREEN 23/23; M15/M16 detectadas; Vitest completo **356 archivos + 3 omitidos, 4325 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-SEARCH-01 (`search.ts`) · 2026-11-21
 
 Ver [ipc-search-01-checkpoint-2026-11-21.md](ipc-search-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `92f6bf0` (IPC-WATCH-01). Agente local único, autorrevisión no independiente.
 
