@@ -9,6 +9,7 @@ import { SearchIndex } from '../search/index-db'
 import { Indexer } from '../search/indexer'
 import { validateSearchQuery, validateFilePath, IpcValidationError } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
+import { assertMainWindowFrame } from '../main-window'
 import { forms, inRoot, scopeByPath, scopeGraph, stubsOf } from '../search/scope'
 
 /** The open workspace as path prefixes for the index's SQL (none open: nothing matches). */
@@ -29,8 +30,18 @@ function ensureIndex(): SearchIndex {
   return index
 }
 
+/**
+ * IPC-SEARCH-01 — origin check for the read surface.
+ *
+ * Everything here answers with the user's own notes: search hits, symbols,
+ * extracted document text, backlinks, the whole link graph. Input validation
+ * (`validateSearchQuery`, `validateFilePath`) constrains *what* is asked, not
+ * *who* asks, so every handler first requires the registered main window's
+ * current main frame.
+ */
 export function registerSearchHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.SEARCH_QUERY, (_event, query: unknown) => {
+  ipcHandle(ipcMain, IPC.SEARCH_QUERY, (event, query: unknown) => {
+    assertMainWindowFrame(event)
     const q = validateSearchQuery(query)
     // One index serves every workspace ever opened: answer for the open one only.
     return scopeByPath(ensureIndex().query(q, 50, under()), getWorkspaceRoot(), (r) => r.path)
@@ -38,18 +49,21 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
 
   // Go-to-symbol: substring search over the structural-symbol index (markdown
   // headings + code entities) built alongside the content index.
-  ipcHandle(ipcMain, IPC.SEARCH_SYMBOLS, (_event, query: unknown) => {
+  ipcHandle(ipcMain, IPC.SEARCH_SYMBOLS, (event, query: unknown) => {
+    assertMainWindowFrame(event)
     const q = validateSearchQuery(query)
     return scopeByPath(ensureIndex().searchSymbols(q, 50, under()), getWorkspaceRoot(), (r) => r.path)
   })
 
-  ipcHandle(ipcMain, IPC.SEARCH_INDEX_STATUS, () => {
+  ipcHandle(ipcMain, IPC.SEARCH_INDEX_STATUS, (event) => {
+    assertMainWindowFrame(event)
     ensureIndex()
     return indexer?.status() ?? { running: false, indexed: 0, queued: 0, done: 0, total: 0 }
   })
 
   // Starts indexing the active workspace; called after a folder is opened.
-  ipcHandle(ipcMain, IPC.SEARCH_START, async () => {
+  ipcHandle(ipcMain, IPC.SEARCH_START, async (event) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) return
     ensureIndex()
@@ -60,7 +74,8 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
   // is searchable almost immediately, even mid-scan of a huge workspace. Scoped
   // to the workspace root. Lexical check first, then realpath confinement to
   // defeat a symlink inside the workspace pointing outside it.
-  ipcHandle(ipcMain, IPC.SEARCH_PRIORITIZE, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.SEARCH_PRIORITIZE, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root || typeof filePath !== 'string') return
     const resolved = path.resolve(filePath)
@@ -114,14 +129,16 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
   // Ranked any-word search over every indexed file's text (office files too), and
   // one file's text as the index read it, so an agent can cite and quote a
   // .docx/.xlsx/.pptx/.pdf it cannot read itself.
-  ipcHandle(ipcMain, IPC.KNOWLEDGE_SEARCH, (_event, query: unknown, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.KNOWLEDGE_SEARCH, (event, query: unknown, limit: unknown) => {
+    assertMainWindowFrame(event)
     const q = validateSearchQuery(query)
     const n = typeof limit === 'number' && limit > 0 ? Math.min(25, Math.floor(limit)) : 8
     const root = getWorkspaceRoot()
     return scopeByPath(ensureIndex().ask(q, n, under()), root, (h) => h.path).map((h) => ({ ...h, path: root ? path.relative(root, h.path) : h.path }))
   })
 
-  ipcHandle(ipcMain, IPC.KNOWLEDGE_READ, async (_event, filePath: unknown, offset: unknown) => {
+  ipcHandle(ipcMain, IPC.KNOWLEDGE_READ, async (event, filePath: unknown, offset: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace is open')
     const abs = validateFilePath(typeof filePath === 'string' && !path.isAbsolute(filePath) ? path.join(root, filePath) : filePath, root)
@@ -141,11 +158,13 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
   // ── Knowledge base ([[wikilink]] graph) ────────────────────────────────────
   // Path inputs are validated to stay within the workspace root (same guard the
   // metrics handler uses), so a compromised renderer can't probe arbitrary paths.
-  ipcHandle(ipcMain, IPC.LINKS_BACKLINKS, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.LINKS_BACKLINKS, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     return scopeByPath(ensureIndex().backlinksFor(requireWorkspacePath(filePath)), getWorkspaceRoot(), (b) => b.path)
   })
 
-  ipcHandle(ipcMain, IPC.LINKS_OUTGOING, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.LINKS_OUTGOING, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     // A link that resolves into another workspace is, from here, not written yet.
     return ensureIndex()
@@ -153,24 +172,28 @@ export function registerSearchHandlers(ipcMain: IpcMain): void {
       .map((l) => (l.resolvedPath && !inRoot(l.resolvedPath, root) ? { ...l, resolvedPath: null } : l))
   })
 
-  ipcHandle(ipcMain, IPC.LINKS_STUBS, () => {
+  ipcHandle(ipcMain, IPC.LINKS_STUBS, (event) => {
+    assertMainWindowFrame(event)
     return stubsOf(scopeGraph(ensureIndex().graph(2000, 2000, under()), getWorkspaceRoot()))
   })
 
   // Whole-workspace [[wikilink]] graph (nodes = notes + stubs, edges = resolved
   // links). No input → nothing to validate; node ids are workspace file paths,
   // same exposure surface as the backlinks/outgoing handlers above.
-  ipcHandle(ipcMain, IPC.LINKS_GRAPH, () => {
+  ipcHandle(ipcMain, IPC.LINKS_GRAPH, (event) => {
+    assertMainWindowFrame(event)
     return scopeGraph(ensureIndex().graph(2000, 2000, under()), getWorkspaceRoot())
   })
 
   // Related notes for the active file — link-graph proximity (direct links +
   // bibliographic coupling + co-citation). Path-validated like backlinks.
-  ipcHandle(ipcMain, IPC.LINKS_RELATED, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.LINKS_RELATED, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     return scopeByPath(ensureIndex().relatedNotes(requireWorkspacePath(filePath)), getWorkspaceRoot(), (r) => r.path)
   })
 
-  ipcHandle(ipcMain, IPC.LINKS_RESOLVE, (_event, name: unknown) => {
+  ipcHandle(ipcMain, IPC.LINKS_RESOLVE, (event, name: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof name !== 'string' || name.trim() === '') {
       throw new IpcValidationError('name must be a non-empty string')
     }

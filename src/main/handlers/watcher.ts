@@ -6,15 +6,30 @@ import { ipcHandle } from '../ipc-registry'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../workspace-root'
 import { appStateDir, contentRoot, contentRootRel } from '../host-profile'
 import { IpcValidationError, validateFilePath } from '../ipc-validator'
-import { sendToWindow, setMainWindow } from '../main-window'
+import { assertMainWindowFrame, sendToWindow, setMainWindow } from '../main-window'
 import { rebuildMenu } from '../menu'
 import { watchTree, type TreeWatcher } from '../fs/treeWatcher'
 
 let watcher: TreeWatcher | null = null
 
+/**
+ * IPC-WATCH-01 — origin check for the workspace lifecycle surface.
+ *
+ * This module decides which folder is the authoritative workspace root, writes
+ * notes into the workspace store, copies a workspace file to a destination
+ * outside it, and reveals arbitrary paths in the OS file manager. None of that
+ * may be reachable from a stale, child or foreign frame, so every handler
+ * starts by requiring the registered main window's current main frame.
+ *
+ * `fs:reveal` deliberately takes paths outside the workspace (a downloaded file,
+ * a Drive artifact): `shell.showItemInFolder` shows a location the user already
+ * has, reads no content and runs nothing, so confining it would break legitimate
+ * use without removing a capability.
+ */
 export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): void {
   setMainWindow(win)
-  ipcHandle(ipcMain, IPC.FS_WATCH_START, async () => {
+  ipcHandle(ipcMain, IPC.FS_WATCH_START, async (event) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
 
@@ -34,14 +49,16 @@ export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): v
     }
   })
 
-  ipcHandle(ipcMain, IPC.FS_WATCH_STOP, () => {
+  ipcHandle(ipcMain, IPC.FS_WATCH_STOP, (event) => {
+    assertMainWindowFrame(event)
     watcher?.close()
     watcher = null
   })
 
   // Native folder picker — selecting a folder makes it the authoritative
   // workspace root that every file-system validator scopes to.
-  ipcHandle(ipcMain, IPC.FS_OPEN_FOLDER_DIALOG, async () => {
+  ipcHandle(ipcMain, IPC.FS_OPEN_FOLDER_DIALOG, async (event) => {
+    assertMainWindowFrame(event)
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
     const dir = result.filePaths[0]
     if (!dir) return null
@@ -56,11 +73,12 @@ export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): v
   })
 
   // Returns the persisted root (if any) so the renderer can restore its tree on launch.
-  ipcHandle(ipcMain, IPC.WORKSPACE_GET_ROOT, () => getWorkspaceRoot())
+  ipcHandle(ipcMain, IPC.WORKSPACE_GET_ROOT, (event) => { assertMainWindowFrame(event); return getWorkspaceRoot() })
 
   // Where the app's content folders (Cases/, Work/, Wiki/, Apps/) live for the
   // open workspace: absolute path and workspace-relative prefix ("" = the root).
-  ipcHandle(ipcMain, IPC.WORKSPACE_CONTENT_ROOT, () => {
+  ipcHandle(ipcMain, IPC.WORKSPACE_CONTENT_ROOT, (event) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     return root ? { path: contentRoot(root), rel: contentRootRel(root) } : null
   })
@@ -68,7 +86,8 @@ export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): v
   // Writes a note for agents (e.g. the captured browser page) into this
   // workspace's store, wherever host-profile.ts puts it. Returns the absolute
   // path and how to refer to it from the workspace (relative when inside it).
-  ipcHandle(ipcMain, IPC.WORKSPACE_WRITE_AGENT_NOTE, async (_e, name: unknown, body: unknown) => {
+  ipcHandle(ipcMain, IPC.WORKSPACE_WRITE_AGENT_NOTE, async (event, name: unknown, body: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new Error('No workspace folder is open')
     if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,60}\.md$/.test(name)) throw new Error('Invalid note name')
@@ -82,12 +101,14 @@ export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): v
   })
 
   // Reveal in Finder/Explorer
-  ipcHandle(ipcMain, IPC.FS_REVEAL, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_REVEAL, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof filePath === 'string') shell.showItemInFolder(filePath)
   })
 
   // Save-a-copy: pick a destination, copy the source file there.
-  ipcHandle(ipcMain, IPC.FS_SAVE_COPY_DIALOG, async (_event, srcPath: unknown) => {
+  ipcHandle(ipcMain, IPC.FS_SAVE_COPY_DIALOG, async (event, srcPath: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const src = validateFilePath(srcPath, root)
