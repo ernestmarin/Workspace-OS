@@ -11,6 +11,7 @@ import { indexNow } from './search'
 import { WIKI_DIR } from '../wiki/wiki-page'
 import * as wiki from '../wiki/wiki-store'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /**
  * The wiki that keeps itself: files the person (or an agent) adds are read one
@@ -117,7 +118,10 @@ export function registerWikiHandlers(ipcMain: IpcMain): void {
    * Add files or folders. Files already added and unchanged are skipped unless
    * `again`; with `wait` the answer comes when they are done (agents use this).
    */
-  ipcHandle(ipcMain, IPC.WIKI_ADD, async (_e, paths: unknown, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.WIKI_ADD, async (event, paths: unknown, opts: unknown) => {
+    // IPC-WRITERS-01: adding to the wiki rewrites pages in the workspace and
+    // calls a language model; both are effects on the user's behalf.
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace is open')
     const list = Array.isArray(paths) ? paths : [paths]

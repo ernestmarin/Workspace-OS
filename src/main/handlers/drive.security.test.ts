@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { setMainWindow } from '../main-window'
 
 /**
  * RT-07 — Drive "save back" accepted a symlink escape.
@@ -72,8 +73,30 @@ vi.mock('../drive/drive-client', () => ({
 import { IPC } from '../ipc-channels'
 import { registerDriveHandlers } from './drive'
 
+/**
+ * The registered main window and an event from its current main frame.
+ *
+ * Since IPC-WRITERS-01 `drive:save` refuses anything else — and it refuses by
+ * *throwing* (the guard sits outside the result envelope), so a fabricated event
+ * would turn every `{ ok: false }` assertion below into a rejection and the
+ * constants of this test into a different test. `invokeAs` keeps the refusal
+ * reachable for the one test that pins it.
+ */
+function ownerEvent(): { sender: unknown; senderFrame: unknown } {
+  const frame = { parent: null }
+  const webContents = { isDestroyed: () => false, mainFrame: frame, send: vi.fn() }
+  setMainWindow({ isDestroyed: () => false, webContents } as never)
+  return { sender: webContents, senderFrame: frame }
+}
+
 const invoke = (channel: string, ...args: unknown[]): Promise<unknown> =>
-  mock.handlers.get(channel)!({ senderFrame: { parent: null } }, ...args)
+  mock.handlers.get(channel)!(ownerEvent(), ...args)
+
+// `async` on purpose: the guard throws synchronously (it runs before the result
+// envelope), and `ipcMain.handle` turns that into a rejection for the renderer —
+// so the test must observe a rejection, not a synchronous throw.
+const invokeAs = async (event: unknown, channel: string, ...args: unknown[]): Promise<unknown> =>
+  mock.handlers.get(channel)!(event, ...args)
 
 let root = ''
 let outside = ''
@@ -110,6 +133,15 @@ describe('RT-07 drive:save path confinement', () => {
     fs.symlinkSync(path.join(outside, 'secret.pdf'), path.join(root, 'link.pdf'))
     expect(await invoke(IPC.DRIVE_SAVE, 'f1', 'link.pdf')).toMatchObject({ ok: false })
     expect(mock.uploaded).toEqual([])
+  })
+
+  it('refuses an event that is not the registered main window', async () => {
+    // Pins the refusal separately from the path rules above: no upload, and the
+    // throw is not turned into an { ok: false } envelope.
+    await expect(invokeAs({ senderFrame: { parent: null } }, IPC.DRIVE_SAVE, 'f1', 'notes.pdf')).rejects.toThrow(
+      /IPC call rejected/,
+    )
+    expect(mock.uploaded).toHaveLength(0)
   })
 
   it('still saves a genuine file inside the workspace', async () => {

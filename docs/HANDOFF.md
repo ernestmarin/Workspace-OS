@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-REFRESH-01 (`metric|collection:refreshForFile`) · 2026-11-21
+## Vigente — IPC-WRITERS-01: la lista path-only queda VACÍA · 2026-11-21
+
+Ver [ipc-writers-01-checkpoint-2026-11-21.md](ipc-writers-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `7fba5b2` (IPC-REFRESH-01). Agente local único, autorrevisión no independiente.
+
+- Últimos tres canales sensibles sin guard de origen: `components:save` (escribe el store de componentes), `wiki:add` (reescribe páginas y **gasta tokens del modelo**) y `drive:save` (**sube un archivo local a Google Drive** — el único canal cuyo efecto sale de la máquina). RED: 14 de 17.
+- **`MUST_HAVE_ORIGIN_GUARD` = 37 y la cobertura es 268/268: cero canales path-only por primera vez.** En `drive:save` el guard va **fuera** del envoltorio `guard()`; dentro se habría convertido en `{ ok: false }`, indistinguible de un fallo de red.
+- Cierre de la auditoría de origen, no de la autorización: **los 153 `EXPLICITLY_NO_GUARD` siguen siendo una clasificación sin verificar** en esta sesión. Siguiente auditoría propuesta: **IPC-CLASS-01**, un módulo a la vez, empezando por los clusters grandes (`mail:*`, `case*:*`, `lok:*`). Si un canal no debería ser alcanzable desde un renderer, el arreglo correcto puede ser sacarlo del preload, no ponerle guard.
+- **FIXTURE-01 llegó a su cuarta ocurrencia** (`drive.security.test.ts`, tras `links.test.ts`, `metrics.test.ts` y el propio inventario): tests que pasaban por la razón equivocada. Reforzado en el fixture y con un test de rechazo; el suite completo sigue siendo el gate real.
+- Evidencia: RED 14/17; GREEN 16/16; M18–M20 detectadas; suite completo 1er intento 4 fallos, final **358 archivos + 3 omitidos, 4355 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-REFRESH-01 (`metric|collection:refreshForFile`) · 2026-11-21
 
 Ver [ipc-refresh-01-checkpoint-2026-11-21.md](ipc-refresh-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `76b24be` (IPC-OFFICE-01). Agente local único, autorrevisión no independiente.
 
