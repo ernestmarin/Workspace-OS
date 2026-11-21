@@ -1,5 +1,7 @@
 # Voice (work in progress)
 
+Completed-run remains the default. The response observer filters inconsistent stream transitions before dispatch; this does not enable incremental playback. [Transport gate and evidence](HANDOFF.md).
+
 See the
 [Voice implementation plan & integration checklist](voice-integration-checklist.md)
 for completed code, partial work, remaining scope and release validation gates.

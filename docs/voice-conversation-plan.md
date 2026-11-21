@@ -1,5 +1,7 @@
 # Native, local-first voice conversation: atomic implementation plan
 
+Post-PR #16 decision: the renderer observer now receives only accepted response transitions. Next validate A2b at the playback acknowledgement boundary before A2c; no live audio acceptance. [Current checkpoint](HANDOFF.md).
+
 Last reviewed: **2026-11-20**, response-provenance/U1 foundations from WOS
 `73e32d4` (merged PR #8; earlier checkpoints below remain historical).
 **Product goal: a fully real-time voice-managed WOS interface and voice

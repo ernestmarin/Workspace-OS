@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest'
  * que la clasificación sea exhaustiva y que los sensibles tengan guard.
  *
  * Sensible se define aquí como: cualquier canal cuyo handler deba verificar
- * origen del frame o confinar el filesystem antes de actuar. Tras IPC-SYS-01 hay 247
- * canales con guard y 174 pendientes de clasificación/autorización adicional;
+ * origen del frame o confinar el filesystem antes de actuar. Tras IPC-TRASH-01 hay 251
+ * canales con guard y 170 pendientes de clasificación/autorización adicional;
  * la lista EXPLICITLY_NO_GUARD no demuestra que sean no sensibles.
  * Un nuevo canal que no esté en ninguna lista hace fallar esta
  * prueba — es un recordatorio de clasificar, no un permiso por defecto.
@@ -160,6 +160,10 @@ const MUST_HAVE_GUARD = new Set<string>([
   'terminal:kill',
   'terminal:resize',
   'terminal:write',
+  'trash:delete',
+  'trash:empty',
+  'trash:list',
+  'trash:restore',
   'clipboard:read',
   'clipboard:write',
   'updater:check',
@@ -583,10 +587,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'transclusion:forFile',
   'transclusion:previewSyncAll',
   'transclusion:remove',
-  'trash:delete',
-  'trash:empty',
-  'trash:list',
-  'trash:restore',
   'wiki:changes',
   'wiki:check',
   'wiki:sources',

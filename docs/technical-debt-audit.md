@@ -1,5 +1,7 @@
 # Workspace OS — Technical Debt, Red Team & Voice Integration Audit Registry
 
+Post-PR #16 addendum: **IPC-TRASH-01** (four owner-bound recovery handlers, N2) and **VOX-A1d-EVENT** (accepted lifecycle events only, N1) closed at their stated levels. A2b transport is open. [Current evidence and residual risks](HANDOFF.md); dated baseline below is historical.
+
 Last updated: **2026-11-20 (b)**  
 Branch: `arena/f7547409-workspace-os` (base commit `1668bc2af84acb0d99973b69094b63f5e5682f20`)  
 Execution model: Arena Agent Mode (organized into 5 non-overlapping file-ownership fronts executed via batched tool runs, with `package.json`/lockfile, installs, and native rebuilds strictly serialized).
