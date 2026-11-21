@@ -264,3 +264,154 @@ describe('ResponseSpeechScheduler — backpressure (VOX-A2a)', () => {
     expect(scheduler.state().backpressured).toBe(false)
   })
 })
+
+/**
+ * VOX-A2b — the transport contract.
+ *
+ * A scheduler that only ever talks to a promise-returning stub cannot tell the
+ * difference between three things the real path does differently:
+ *
+ *  - a transport that THROWS synchronously (the existing main-side play guard
+ *    does exactly this when the document is gone),
+ *  - a fragment whose real audio is far longer than its text estimate,
+ *  - a fragment that never confirmed playback.
+ *
+ * These are the invariants of the boundary, not of the audio itself.
+ */
+describe('ResponseSpeechScheduler — transport boundary (VOX-A2b)', () => {
+  const flush = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve) })
+
+  it('treats a synchronous transport throw as a failed fragment, never as a spoken one, and still drains', async () => {
+    const cancelled: number[] = []
+    const failures: string[] = []
+    const scheduler = new ResponseSpeechScheduler({
+      mode: 'completed',
+      maxInFlight: 1,
+      speakFragment: () => { throw new Error('Playback document is unavailable') },
+      cancelFragment: (id) => { cancelled.push(id) },
+      onFragmentError: (message) => { failures.push(message) },
+    })
+
+    scheduler.push(ev(1, { type: 'response-start', responseId: 'r1' }))
+    scheduler.push(ev(2, { type: 'text-delta', responseId: 'r1', text: 'Only one sentence here.\n\n' }))
+    scheduler.push(ev(3, { type: 'response-end', responseId: 'r1', outcome: 'completed' }))
+    // A dead transport must not escape as an exception into the caller: this is
+    // reached from an IPC/event handler whose failure would be a crash, not a
+    // dropped sentence.
+    expect(() => scheduler.push(ev(4, { type: 'run-end', outcome: 'completed' }))).not.toThrow()
+    await flush()
+
+    // A transport refusal is NOT a text overflow: the reply is healthy and the
+    // scheduler must not quarantine it over a dead audio sink.
+    expect(scheduler.state().quarantined).toBe(false)
+    expect(scheduler.state().inFlightCount).toBe(0)
+    expect(scheduler.state().spokenSentences).toBe(0)
+    expect(scheduler.state().failedSentences).toBe(1)
+    expect(failures).toEqual(['Playback document is unavailable'])
+    expect(cancelled).toEqual([])
+    // In-flight accounting was leaked before this contract existed, so the
+    // drain promise never resolved and every later await hung.
+    await scheduler.whenDrained()
+    expect(scheduler.state().playbackDrained).toBe(true)
+  })
+
+  it('holds on the measured audio duration, not on the text estimate', async () => {
+    const pending: Array<{ resolve: (r: { finished: boolean }) => void; prepared?: (durationMs: number) => void }> = []
+    const reports: Array<{ held: boolean; reason: string | null }> = []
+    let nextId = 1
+    const scheduler = new ResponseSpeechScheduler({
+      mode: 'incremental',
+      incrementalConsent: true,
+      backpressure: 'hold',
+      maxInFlight: 1,
+      maxQueuedSentences: 4,
+      maxBufferedDurationMs: 25_000,
+      onBackpressure: (report) => { reports.push({ held: report.held, reason: report.reason }) },
+      speakFragment: (_text, onId, onPrepared) => {
+        const id = nextId++
+        onId?.(id)
+        return new Promise((resolve) => { pending.push({ resolve, prepared: onPrepared }) })
+      },
+      cancelFragment: vi.fn(),
+    })
+
+    scheduler.push(ev(1, { type: 'response-start', responseId: 'r1' }))
+    scheduler.push(ev(2, {
+      type: 'text-delta',
+      responseId: 'r1',
+      text: 'Short one. Short two. Short three. Short four.\n\n',
+    }))
+    expect(pending).toHaveLength(1)
+    expect(scheduler.state().backpressured).toBe(false)
+
+    // The first sentence is 10 characters of text but 30 seconds of audio.
+    pending[0].prepared?.(30_000)
+    expect(scheduler.state().bufferedDurationMs).toBeGreaterThanOrEqual(30_000)
+    expect(scheduler.state().backpressured).toBe(true)
+    expect(reports.at(-1)).toEqual({ held: true, reason: 'duration-cap' })
+    // Nothing further was dispatched on the strength of a 400ms guess.
+    expect(pending).toHaveLength(1)
+
+    // Once the audio really ends, the hold releases and speech continues.
+    pending.shift()!.resolve({ finished: true })
+    await flush()
+    expect(scheduler.state().backpressured).toBe(false)
+    expect(pending).toHaveLength(1)
+  })
+
+  it('loses only the fragment the transport refused, not the rest of the reply', async () => {
+    const spoken: string[] = []
+    const failures: string[] = []
+    const scheduler = new ResponseSpeechScheduler({
+      mode: 'incremental',
+      incrementalConsent: true,
+      maxInFlight: 1,
+      maxQueuedSentences: 4,
+      speakFragment: (text) => {
+        if (text.startsWith('First')) return Promise.reject(new Error('Synthesis failed'))
+        spoken.push(text)
+        return Promise.resolve({ finished: true, durationMs: 900 })
+      },
+      cancelFragment: vi.fn(),
+      onFragmentError: (message) => { failures.push(message) },
+    })
+
+    scheduler.push(ev(1, { type: 'response-start', responseId: 'r1' }))
+    scheduler.push(ev(2, { type: 'text-delta', responseId: 'r1', text: 'First line is lost. Second line is heard.\n\n' }))
+    scheduler.push(ev(3, { type: 'response-end', responseId: 'r1', outcome: 'completed' }))
+    scheduler.push(ev(4, { type: 'run-end', outcome: 'completed' }))
+    await flush()
+
+    expect(scheduler.state().quarantined).toBe(false)
+    expect(scheduler.state().failedSentences).toBe(1)
+    expect(scheduler.state().spokenSentences).toBe(1)
+    expect(spoken).toEqual(['Second line is heard.'])
+    expect(failures).toEqual(['Synthesis failed'])
+    expect(scheduler.state().spokenDurationMs).toBe(900)
+  })
+
+  it('records the measured duration of what was actually heard, not the text estimate', async () => {
+    let nextId = 1
+    const scheduler = new ResponseSpeechScheduler({
+      mode: 'incremental',
+      incrementalConsent: true,
+      maxInFlight: 1,
+      maxQueuedSentences: 4,
+      maxBufferedDurationMs: 25_000,
+      speakFragment: async (_text, onId) => {
+        onId?.(nextId++)
+        return { finished: true, durationMs: 40_000 }
+      },
+      cancelFragment: vi.fn(),
+    })
+
+    scheduler.push(ev(1, { type: 'response-start', responseId: 'r1' }))
+    scheduler.push(ev(2, { type: 'text-delta', responseId: 'r1', text: 'First short line. Second short line.\n\n' }))
+    await flush()
+    // "One short line." is a 400ms estimate and 40s of real audio. A scheduler
+    // that reports the estimate cannot tell the listener (or the caller) how
+    // much was actually spoken.
+    expect(scheduler.state().spokenSentences).toBe(1)
+    expect(scheduler.state().spokenDurationMs).toBe(40_000)
+  })
+})

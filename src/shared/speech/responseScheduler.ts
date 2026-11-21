@@ -12,6 +12,19 @@
  *    Overflow quarantines ONLY this speech scheduler, never the agent or tools.
  *  - Separates `generationDone` from `playbackDrained`; failed/cancelled turns or
  *    `source-error` cancel all queued and in-flight fragments immediately.
+ *
+ * VOX-A2b — the boundary with the real audio transport:
+ *  - A fragment counts as spoken only when the transport CONFIRMS it was heard.
+ *    Queueing it, or handing it to the transport, is not playback.
+ *  - The text-length estimate is an admission guess. When the transport reports
+ *    the measured audio duration, accounting switches to the real number; a
+ *    measured fragment that exceeds the buffered-duration cap holds dispatch
+ *    exactly like a full queue does.
+ *  - A transport that fails — including one that throws synchronously, as the
+ *    main-side play guard does once its document is gone — is a failed
+ *    fragment. It is never reported as a text overflow, never quarantines a
+ *    healthy reply, and never leaks the in-flight accounting that `whenDrained`
+ *    depends on.
  */
 import type { AssistantResponseEvent } from '../agentRun'
 import { AssistantProseStream } from './assistantProse'
@@ -22,7 +35,12 @@ export type ReplyScheduleMode = 'completed' | 'incremental'
 export interface ScheduledFragmentResult {
   finished: boolean
   error?: string
+  /** Real audio duration measured by the transport, when it knows it. */
+  durationMs?: number
 }
+
+/** Reported once per fragment the transport could not play to completion. */
+export type FragmentErrorReporter = (error: string) => void
 
 /**
  * What the scheduler does when the producer outruns the audio.
@@ -52,13 +70,24 @@ export interface ResponseSpeechSchedulerOptions {
   onBackpressure?: (report: BackpressureReport) => void
   /** Called once if the source overflowed a hard text bound. */
   onQuarantine?: (reason: 'queue-overflow' | 'text-overflow' | 'notifying') => void
+  /** Called when a fragment fails for a reason other than a stop or quarantine. */
+  onFragmentError?: FragmentErrorReporter
   /** Must be explicitly true when `mode === 'incremental'`. */
   incrementalConsent?: boolean
   maxInFlight?: number
   maxQueuedSentences?: number
   maxBufferedDurationMs?: number
   maxTotalTextLength?: number
-  speakFragment: (text: string, onReadingId?: (id: number) => void) => Promise<ScheduledFragmentResult>
+  /**
+   * `onMeasuredDuration` reports the real audio duration as soon as the
+   * transport knows it (after synthesis, before playback ends), so the cap can
+   * act on measured audio instead of a character count.
+   */
+  speakFragment: (
+    text: string,
+    onReadingId?: (id: number) => void,
+    onMeasuredDuration?: (durationMs: number) => void,
+  ) => Promise<ScheduledFragmentResult>
   cancelFragment: (id: number) => void
 }
 
@@ -74,13 +103,24 @@ export interface ResponseSchedulerState {
   bufferedDurationMs: number
   /** Sentences spoken to completion. */
   spokenSentences: number
+  /** Measured audio duration of the sentences actually heard. */
+  spokenDurationMs: number
   /** Sentences never spoken because of a hold overflow or a stop. */
   discardedSentences: number
+  /** Fragments the transport failed to play, excluding stops and quarantine. */
+  failedSentences: number
 }
 
 interface QueuedSentence {
   text: string
+  /** Admission estimate, replaced by the measured duration once reported. */
   estimatedMs: number
+  /** Settled fragments must not be re-accounted by a late duration report. */
+  done?: boolean
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : 'Speech fragment failed'
 }
 
 /** Conservative speaking-rate estimate (~12 UTF-16 chars/sec, min 400ms per sentence). */
@@ -109,6 +149,8 @@ export class ResponseSpeechScheduler {
   private releasedCount = 0
   private discardedCount = 0
   private spokenCount = 0
+  private spokenDuration = 0
+  private failedCount = 0
 
   constructor(private readonly options: ResponseSpeechSchedulerOptions) {
     const mode = options.mode ?? 'completed'
@@ -137,7 +179,9 @@ export class ResponseSpeechScheduler {
       inFlightCount: this.inFlight,
       bufferedDurationMs: queuedDuration + this.inFlightDurationMs,
       spokenSentences: this.spokenCount,
+      spokenDurationMs: this.spokenDuration,
       discardedSentences: this.discardedCount,
+      failedSentences: this.failedCount,
     }
   }
 
@@ -314,24 +358,47 @@ export class ResponseSpeechScheduler {
       this.inFlight++
       this.inFlightDurationMs += next.estimatedMs
       let assignedId: number | undefined
-      void this.options
-        .speakFragment(next.text, (id) => {
-          assignedId = id
-          if (this.cancelled || this.quarantined) {
-            try { this.options.cancelFragment(id) } catch { /* best-effort */ }
-          } else {
-            this.activeIds.add(id)
-          }
-        })
-        .catch(() => ({ finished: false }))
+      let pending: Promise<ScheduledFragmentResult>
+      try {
+        pending = Promise.resolve(
+          this.options.speakFragment(
+            next.text,
+            (id) => {
+              assignedId = id
+              if (this.cancelled || this.quarantined) {
+                try { this.options.cancelFragment(id) } catch { /* best-effort */ }
+              } else {
+                this.activeIds.add(id)
+              }
+            },
+            (measurement) => this.noteMeasuredDuration(next, measurement, true),
+          ),
+        )
+      } catch (error) {
+        // A dead transport (destroyed window, replaced document) can refuse
+        // before it ever returns a promise. That is one failed fragment, not a
+        // text overflow and not an exception for the caller's event handler to
+        // carry.
+        pending = Promise.resolve({ finished: false, error: errorText(error) })
+      }
+      void pending
+        .catch((error: unknown): ScheduledFragmentResult => ({ finished: false, error: errorText(error) }))
         .then((result) => {
-          // Counted only when the fragment actually finished: a cancelled one
-          // was never heard, and pretending otherwise would inflate the
+          // Counted only when the fragment was confirmed as played: a cancelled
+          // one was never heard, and pretending otherwise would inflate the
           // "spoken" number the accounting exists to keep honest.
-          if (result?.finished && !this.cancelled && !this.quarantined) this.spokenCount += 1
+          if (result?.finished && !this.cancelled && !this.quarantined) {
+            this.noteMeasuredDuration(next, result.durationMs, false)
+            this.spokenCount += 1
+            this.spokenDuration += next.estimatedMs
+          } else if (!this.cancelled && !this.quarantined) {
+            this.failedCount += 1
+            try { this.options.onFragmentError?.(result?.error ?? 'Speech fragment failed') } catch { /* listener must not throw */ }
+          }
           return result
         })
         .finally(() => {
+          next.done = true
           if (assignedId !== undefined) this.activeIds.delete(assignedId)
           this.inFlight = Math.max(0, this.inFlight - 1)
           this.inFlightDurationMs = Math.max(0, this.inFlightDurationMs - next.estimatedMs)
@@ -342,6 +409,30 @@ export class ResponseSpeechScheduler {
           }
           this.notifyIfDrained()
         })
+    }
+  }
+
+  /**
+   * Replaces a fragment's text-length guess with the duration the transport
+   * actually measured. Idempotent: repeating the same measurement is a no-op,
+   * and a fragment that already settled is never re-accounted.
+   *
+   * `enforceCap` is only meaningful while the audio is still playing; at that
+   * point a fragment longer than the whole buffered-duration budget means the
+   * producer must wait for it instead of racing ahead of it.
+   */
+  private noteMeasuredDuration(item: QueuedSentence, rawMs: unknown, enforceCap: boolean): void {
+    if (item.done) return
+    if (typeof rawMs !== 'number' || !Number.isFinite(rawMs) || rawMs <= 0) return
+    const delta = rawMs - item.estimatedMs
+    if (delta === 0) return
+    item.estimatedMs = rawMs
+    this.inFlightDurationMs = Math.max(0, this.inFlightDurationMs + delta)
+    if (!enforceCap || this.cancelled || this.quarantined || this.held !== null) return
+    const queuedMs = this.queue.reduce((acc, entry) => acc + entry.estimatedMs, 0)
+    if (this.inFlightDurationMs + queuedMs > this.maxBufferedDurationMs) {
+      this.held = 'duration-cap'
+      this.emitBackpressure()
     }
   }
 

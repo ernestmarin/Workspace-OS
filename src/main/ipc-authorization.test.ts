@@ -46,6 +46,10 @@ function mainSources(dir: string): string[] {
 }
 const re = /ipcHandle\s*\(\s*ipcMain\s*,\s*IPC\.([A-Z_0-9]+)/g
 const channelGuard = new Map<string, boolean>() // channel -> hasGuard in its snippet
+// IPC-FS-01: path confinement (`sanitize`, `validateFilePath`) is not an origin
+// check, so a channel can be "guarded" and still accept a caller it should have
+// refused. This second map records whether the snippet verifies WHO is asking.
+const channelOriginGuard = new Map<string, boolean>()
 const channelFiles = new Map<string, string[]>()
 for (const file of mainSources(path.join(root, 'src/main'))) {
   if (file.endsWith('ipc-surface.test.ts') || file.endsWith('ipc-authorization.test.ts')) continue
@@ -69,9 +73,18 @@ for (const file of mainSources(path.join(root, 'src/main'))) {
       snippet.includes('sanitizeRead') ||
       snippet.includes('realPathSafe') ||
       snippet.includes('validateSearchQuery') // search scoping counts as guard
+    const hasOriginGuard =
+      snippet.includes('assertMainWindowFrame') ||
+      snippet.includes('assertMainFrame(') ||
+      snippet.includes('assertLokSender') ||
+      snippet.includes('assertUpdaterSender') ||
+      snippet.includes('assertOwner(')
     const prev = channelGuard.get(channel)
     if (prev === undefined) channelGuard.set(channel, hasGuard)
     else channelGuard.set(channel, prev || hasGuard)
+    const prevOrigin = channelOriginGuard.get(channel)
+    if (prevOrigin === undefined) channelOriginGuard.set(channel, hasOriginGuard)
+    else channelOriginGuard.set(channel, prevOrigin || hasOriginGuard)
     const arr = channelFiles.get(channel) ?? []
     arr.push(path.relative(root, file))
     channelFiles.set(channel, arr)
@@ -169,6 +182,9 @@ const MUST_HAVE_GUARD = new Set<string>([
   'updater:check',
   'updater:install',
   // fs (mutación) — confinados vía sanitize/validateFilePath
+  // IPC-FS-01: the quick-open walk is a read of every path in the workspace;
+  // it now requires the registered main frame like the rest of the surface.
+  'fs:list-files',
   'fs:create',
   'fs:delete',
   'fs:read-dir',
@@ -479,7 +495,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'drive:open',
   'drive:search',
   // fs (parte no sensible hoy: list/reveal/watch)
-  'fs:list-files',
   'fs:open-folder-dialog',
   'fs:reveal',
   'fs:watch-start',
@@ -610,6 +625,18 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'agents:write',
 ])
 
+// IPC-FS-01 — the workspace filesystem surface (src/main/handlers/fs.ts).
+const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
+  'fs:create',
+  'fs:delete',
+  'fs:list-files',
+  'fs:read-dir',
+  'fs:read-file',
+  'fs:read-file-bytes',
+  'fs:rename',
+  'fs:write-file',
+])
+
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
   it('conoce todos los canales declarados (ninguno por defecto)', () => {
     const allKnown = new Set([...MUST_HAVE_GUARD, ...GRANT_CHECKED, ...PUSH_CHANNELS, ...EXPLICITLY_NO_GUARD])
@@ -640,6 +667,21 @@ describe('N+1 IPC authorization — exhaustividad y guard', () => {
       if (!channelGuard.get(ch)) missing.push(`${ch} (${(channelFiles.get(ch) ?? []).join(', ')})`)
     }
     expect(missing, `sensibles sin guard: ${missing.join('; ')}`).toEqual([])
+  })
+
+  it('el filesystem del workspace verifica el emisor, no solo la ruta', () => {
+    // These handlers take a renderer-supplied path. Confining the path stops
+    // traversal; it does not stop a stale, child or foreign frame from asking.
+    // Every one of them must also refuse a caller that is not the registered
+    // main window's current main frame.
+    for (const ch of MUST_HAVE_ORIGIN_GUARD) {
+      expect(declared.has(ch), `${ch} no está declarado`).toBe(true)
+      expect(MUST_HAVE_GUARD.has(ch), `${ch} debe seguir en MUST_HAVE_GUARD`).toBe(true)
+      expect(
+        channelOriginGuard.get(ch),
+        `${ch} (${(channelFiles.get(ch) ?? []).join(', ')}) confina la ruta pero no verifica el emisor`,
+      ).toBe(true)
+    }
   })
 
   it('GRANT_CHECKED son exactamente WORKSPACE_DATA_OPERATIONS', async () => {
