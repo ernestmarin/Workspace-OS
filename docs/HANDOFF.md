@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — IPC-OFFICE-01 (`office.ts` + `canvas:export-pptx`) · 2026-11-21
+## Vigente — IPC-REFRESH-01 (`metric|collection:refreshForFile`) · 2026-11-21
+
+Ver [ipc-refresh-01-checkpoint-2026-11-21.md](ipc-refresh-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `76b24be` (IPC-OFFICE-01). Agente local único, autorrevisión no independiente.
+
+- Los dos hooks de auto-refresco (se llaman en cada guardado) releen un documento fuente y **reescriben los valores derivados en el workspace** (celdas xlsx, content controls docx, textos pptx). Ninguno miraba el evento: `validateFilePath` acotaba la ruta, no al emisor. RED: 8 de 8 invocaciones no autorizadas consultaban el store.
+- **FIXTURE-01 (sistémico, tercera ocurrencia)**: cada lote descubre tests que pasaban por la razón equivocada. `metrics.test.ts` invocaba con `{}`; ahora habla como el owner y un test fija el rechazo. Ya ocurrió en `links.test.ts`, `metrics.test.ts` y en el propio inventario. El suite completo es el detector y por eso es parte del gate.
+- Inventario: **473 = 268 + 153 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **34**; cobertura **265/268**; quedan **3**: `components:save`, `wiki:add`, `drive:save`.
+- Evidencia: RED 8/4; GREEN 12/12; M17 detectada; suite completo 1er intento 1 fallo (`metrics.test.ts`), final **357 archivos + 3 omitidos, 4338 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-OFFICE-01 (`office.ts` + `canvas:export-pptx`) · 2026-11-21
 
 Ver [ipc-office-01-checkpoint-2026-11-21.md](ipc-office-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `18823f7` (merge de PR #19). Agente local único, autorrevisión no independiente.
 

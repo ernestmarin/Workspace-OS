@@ -638,6 +638,8 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'fs:watch-start',
   'fs:watch-stop',
   'fs:write-file',
+  'collection:refreshForFile',
+  'metric:refreshForFile',
   'canvas:export-pptx',
   'office:available',
   'office:export-pdf',
