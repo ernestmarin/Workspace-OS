@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — dos lotes el 2026-11-21: VOX-A2b y IPC-FS-01
+## Vigente — IPC-WATCH-01 (`watcher.ts`) · 2026-11-21
+
+Ver [ipc-watch-01-checkpoint-2026-11-22.md](ipc-watch-01-checkpoint-2026-11-22.md). Rama `arena/e28c7316-workspace-os`, base `8faaf6a` (merge de PR #18). Agente local único, autorrevisión no independiente.
+
+- Los ocho handlers de `watcher.ts` ignoraban el evento, incluidos tres que van más allá de vigilar: `fs:open-folder-dialog` **decide la raíz autoritativa**, `workspace:write-agent-note` escribe en el store, `fs:save-copy-dialog` copia fuera del workspace y `fs:reveal` muestra rutas arbitrarias en el gestor de archivos del SO. RED: 32 de 32 invocaciones no autorizadas actuaban. Ahora `assertMainWindowFrame` en todos.
+- Inventario: **473 = 259 guard + 162 sin guard + 22 grants + 30 push**; `MUST_HAVE_ORIGIN_GUARD` = **14**. Cobertura de origen 245/259; **quedan 14 canales path-only** (lista y salvedad en el checkpoint), siguiente objetivo `search.ts`.
+- `fs:reveal` **no** se confina al workspace a propósito (callers legítimos fuera de él; `showItemInFolder` no lee contenido ni ejecuta nada): decisión escrita en el módulo.
+- Evidencia: RED 32/2 exit 1; GREEN 34/34; mutaciones M9–M11 detectadas; Vitest completo **354 archivos + 3 omitidos, 4246 tests + 26 omitidos**; tsc 0/0; ESLint 0/0 en 1003 archivos; build 0; auditorías 35/40 sin cambios.
+
+## Histórico — dos lotes el 2026-11-21: VOX-A2b y IPC-FS-01
 
 1. **[VOX-A2b](voice-a2b-checkpoint-2026-11-21.md)** — transporte de respuesta con ack y duración medida. N2; **sin cablear** (A2c abierto), sin cambio de voz visible.
 2. **[IPC-FS-01](ipc-fs-01-checkpoint-2026-11-21.md)** — los ocho handlers del filesystem del workspace verifican al emisor. N2. Inventario medido: **473 = 252 guard + 169 sin guard + 22 grants + 30 push**, más el nuevo `MUST_HAVE_ORIGIN_GUARD` (8). **Quedan 15 canales `MUST_HAVE_GUARD` sin guard de origen** (lista y salvedad metodológica en el checkpoint); siguiente lote natural: `watcher.ts` (`fs:save-copy-dialog` + 8 canales), un módulo por commit.

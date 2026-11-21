@@ -185,12 +185,21 @@ const MUST_HAVE_GUARD = new Set<string>([
   // IPC-FS-01: the quick-open walk is a read of every path in the workspace;
   // it now requires the registered main frame like the rest of the surface.
   'fs:list-files',
+  'fs:open-folder-dialog',
+  'fs:reveal',
+  'fs:watch-start',
+  'fs:watch-stop',
+  'workspace:content-root',
+  'workspace:get-root',
+  'workspace:write-agent-note',
   'fs:create',
   'fs:delete',
   'fs:read-dir',
   'fs:read-file',
+  'fs:open-folder-dialog',
   'fs:read-file-bytes',
   'fs:rename',
+  'fs:reveal',
   'fs:save-copy-dialog',
   'fs:write-file',
   // drive (upload externo)
@@ -495,10 +504,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'drive:open',
   'drive:search',
   // fs (parte no sensible hoy: list/reveal/watch)
-  'fs:open-folder-dialog',
-  'fs:reveal',
-  'fs:watch-start',
-  'fs:watch-stop',
   // history / knowledge-links / lok (resto)
   'history:bookmarks',
   'history:clear',
@@ -611,11 +616,8 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'window:maximize',
   'window:minimize',
   'workspace:close',
-  'workspace:content-root',
-  'workspace:get-root',
   'workspace:open-recent',
   'workspace:recents',
-  'workspace:write-agent-note',
   // agents / misc
   'agents:build',
   'agents:capabilities',
@@ -634,7 +636,13 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'fs:read-file',
   'fs:read-file-bytes',
   'fs:rename',
+  'fs:save-copy-dialog',
+  'fs:watch-start',
+  'fs:watch-stop',
   'fs:write-file',
+  'workspace:content-root',
+  'workspace:get-root',
+  'workspace:write-agent-note',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
