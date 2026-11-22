@@ -205,3 +205,47 @@ Alternative with no product decision needed: **a `pull_request` CI workflow**
 since every gate in §4.6 is local execution and nothing re-runs it on a branch.
 It requires explicit authorisation to modify `.github/`, which is still an
 unfilled `[PLACEHOLDER]`.
+
+## Appendix A — IPC surface re-derived mechanically (Frente A5, investigation only)
+
+Re-derived at `2c2dbc1` with the **same scanner and the same regexes** as
+`src/main/ipc-surface.test.ts`, so the numbers are comparable to
+`docs/ipc-class-01-triage.md`. No product file was changed for this.
+
+| Measure | Value | Historical reference | Delta |
+| --- | --- | --- | --- |
+| `src/main` files scanned | 294 | — | — |
+| Channels declared in `ipc-channels.ts` | **473** | 473 | 0 |
+| Handler registration sites (`ipcHandle` / `ipcMain.handle`) | **443** | 243 + 178 + 22 = 443 | 0 |
+| Distinct channels with an invoke handler | 443 | — | — |
+| Duplicate registrations | 0 | 0 | 0 |
+| Registrations missing from the registry | 0 | 0 | 0 |
+| Unresolved `IPC.*` constants | 0 | 0 | 0 |
+| Literal channel strings at registration sites | 0 | 0 | 0 |
+| Channels preload can invoke | 443 | — | — |
+| Orphan preload invocations | **0** | 0 | 0 |
+| Push channels listed by hand in the test | **28** | 30 | **−2** |
+| Fire-and-forget responses listed | 1 | 1 | 0 |
+
+**Finding IPC-INV-01 (inventory drift, not a security hole).** The three triage
+classes still total exactly 443, so the invoke surface has not moved. But
+`443 + 28 + 1 = 472` against 473 declared channels: **`agent:action-invoke`
+(`IPC.AGENT_ACTION_INVOKE`) is in neither set.** Verified against the code:
+main pushes it (`src/main/agent/actionBridge.ts:203`, `win.webContents.send`) and
+preload only listens (`src/preload/index.ts:216`, `ipcRenderer.on`), never
+invokes it — so it *is* a push channel. The test's own doc comment describes this
+pair, but the set `MAIN_PUSH_CHANNELS` does not contain the channel.
+
+Why it stayed green: every invariant in `ipc-surface.test.ts` is one-directional
+(registered ⇒ declared; preload-invoked ⇒ registered or push). Nothing asserts
+that every declared channel is accounted for, and preload never invokes this one,
+so the orphan check cannot see it. It is exactly the "adding a push channel
+should be a visible decision" property the test claims, off by one.
+
+Severity **low**: no unauthenticated path, no unsettled promise today. The
+closing move is a **tightening** test (every declared channel is an invoke
+handler, a listed push channel, or a listed fire-and-forget response), which
+would fail RED on this one channel and pass once the list is completed. It is
+deliberately **not** folded into this batch: adding a channel to a hand-maintained
+list inside a test file is a change to an acceptance criterion and needs its own
+RED, and nothing here is red.
