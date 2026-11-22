@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-MEM-01 · 2026-11-21
+## Vigente — IPC-HIST-01 · 2026-11-21
+
+Ver [ipc-hist-01-checkpoint-2026-11-21.md](ipc-hist-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `00dc7b6` (IPC-MEM-01).
+
+- Doce handlers de `history.ts` no miraban el evento: `history:search` es **full-text sobre el contenido de las páginas**, `recent`/`bookmarks`/`suggest`/`is-starred` son el registro de todo lo leído, `forget`/`forget-since`/`clear` **borran de verdad** (el índice elimina también las filas FTS) y `browser:clear-cache` vacía la caché HTTP. RED 49/50.
+- **HIST-02 — el hallazgo grande:** `history.ts` registra con `ipcMain.handle(IPC.X, …)`, no con el registro `ipcHandle`, y el inventario sólo escaneaba la segunda forma. Los doce canales **nunca se examinaron**: su entrada en `EXPLICITLY_NO_GUARD` pasaba porque no había snippet que fallara. El escáner ya lee ambas formas, corta cada snippet en el siguiente registro de cualquiera de las dos, y un test nuevo exige que el fichero se escanee y que **todo** `MUST_HAVE_GUARD` tenga snippet. M39 (quitar la forma del escáner) hace fallar 3 tests.
+- Apertura perezosa del índice fijada desde los dos lados: un rechazo nunca lo abre, el primer uso del owner lo abre exactamente una vez.
+- Inventario: **473 = 359 + 62 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **128**. De los 62, 20 son B: quedan **42 canales verdict-A** (`speech:*` 23, `browser:*` 19).
+- Evidencia: RED 49/1; GREEN 50/50; M39–M41 detectadas; suite completo **367 archivos + 3 omitidos, 4762 tests + 26 omitidos**; ESLint 0 sobre 1016 ficheros; build 0.
+
+## Anterior — IPC-MEM-01 · 2026-11-21
 
 Ver [ipc-mem-01-checkpoint-2026-11-21.md](ipc-mem-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `efc1118` (IPC-BUG-01).
 

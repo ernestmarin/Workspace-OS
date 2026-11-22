@@ -63,7 +63,7 @@ inventory → mutation → gates → checkpoint).
 | 7 | **derived-state stores** ✅ *done — IPC-STORE-01* | 25 | `collection:*` 2, `collectionLink:*` 4, `components:*` 2, `metric:*` 2, `range:*` 3, `rangeLink:*` 4, `transclusion:*` 4, `wiki:*` 4 (`changes`, `check`, `sources`, `undo`) | deletes, bulk refreshes, syncs and `wiki:undo` (**rewrites pages**); the read-only members list user-authored links and paths |
 | 8 | **memory** ✅ *done — IPC-MEM-01* | 15 | `memory:*` (all but `status`) | the personal memory store: remember / forget / correct / query / propose (model) |
 | 9 | **speech** | 23 | `speech:*` (all but four status channels) | `read-clipboard` (**clipboard**), `set-key` (**secret**), `stt-transcribe` (audio to a provider), `kokoro-install` (installs binaries), `speak` |
-| 10 | **history** | 11 | `history:*` | the user's browsing history: recent, search, star, forget, clear |
+| 10 | **history** ✅ *done — IPC-HIST-01* | 11 | `history:*` | the user's browsing history: recent, search, star, forget, clear |
 | 11 | **browser control** | 20 | `browser:*` | a foreign frame driving the user's guest browser: navigate, click, type, screenshot, deep-read (page content), downloads |
 | 12 | **checkpoints & snapshots** ✅ *done — IPC-DIAG-01* | 6 | `checkpoint:list`, `checkpoint:diff`, `checkpoint:rollback`, `snapshot:list`, `snapshot:save`, `snapshot:delete` | `rollback` **restores files** from git history; snapshots persist and delete saved workspace state. *Added to this table late: these six were counted in the 123 verdict-A total but had no cluster row (see IPC-DIAG-01, finding DIAG-02).* |
 
@@ -102,6 +102,7 @@ two commits (metrics/collections + wiki).
 | IPC-DIAG-01 | printing, agents, checkpoints & snapshots | 12 | [ipc-diag-01-checkpoint-2026-11-21.md](ipc-diag-01-checkpoint-2026-11-21.md) |
 | IPC-BUG-01 | bug reports | 6 | [ipc-bug-01-checkpoint-2026-11-21.md](ipc-bug-01-checkpoint-2026-11-21.md) |
 | IPC-MEM-01 | memory | 15 | [ipc-mem-01-checkpoint-2026-11-21.md](ipc-mem-01-checkpoint-2026-11-21.md) |
+| IPC-HIST-01 | history (+ scanner repair) | 12 | [ipc-hist-01-checkpoint-2026-11-21.md](ipc-hist-01-checkpoint-2026-11-21.md) |
 
 **Corrections made while doing it:** `drive:connection` had been triaged B ("whether
 an account is linked"). It returns the whole connection object, **email included**.
@@ -111,4 +112,14 @@ content"); it returns the absolute repository path, the log path and the number 
 filed reports, so it moved to A and was guarded in IPC-BUG-01. The B table's
 "no user content" reason is the one to distrust.
 
-**Remaining: 54 verdict-A channels** (`speech:*` 23, `browser:*` 20, `history:*` 11).
+**Remaining: 42 verdict-A channels** (`speech:*` 23, `browser:*` 19 — `browser:clear-cache` was guarded with its module in IPC-HIST-01).
+
+**Tooling repair made while doing it (HIST-02):** `handlers/history.ts` registers
+with `ipcMain.handle(IPC.X, …)` instead of the `ipcHandle` registry, and the
+inventory only scanned the registry form. Its twelve channels were never
+examined — their `EXPLICITLY_NO_GUARD` entry passed because no snippet existed to
+fail. The scanner now reads both forms, bounds each snippet at the next
+registration of either kind, and a test asserts that the file is scanned and that
+every `MUST_HAVE_GUARD` channel has a snippet. Any earlier count is only as good
+as this scan; the channel *list* was always right (`ipc-channels.ts` is parsed
+separately), the *examination* was not.

@@ -4,6 +4,7 @@ import { IPC } from '../ipc-channels'
 import { userDataDir } from '../userdata-path'
 import { HistoryIndex, type HistoryEntry, type Suggestion } from '../browser/history-index'
 import { BROWSER_PARTITION } from '../security'
+import { assertMainWindowFrame } from '../main-window'
 
 /**
  * Browsing history + bookmarks over one store.
@@ -37,7 +38,8 @@ export function registerHistoryHandlers(): void {
    * Signing out belongs where it is already scoped per account
    * (handlers/accounts.ts clears by origin), not behind a menu item about cache.
    */
-  ipcMain.handle(IPC.BROWSER_CLEAR_CACHE, async () => {
+  ipcMain.handle(IPC.BROWSER_CLEAR_CACHE, async (event) => {
+    assertMainWindowFrame(event)
     await session.fromPartition(BROWSER_PARTITION).clearCache()
     return { ok: true }
   })
@@ -52,7 +54,8 @@ export function registerHistoryHandlers(): void {
    */
   ipcMain.handle(
     IPC.HISTORY_RECORD,
-    (_e, arg: { url: string; title?: string; favicon?: string; text?: string }) => {
+    (event, arg: { url: string; title?: string; favicon?: string; text?: string }) => {
+      assertMainWindowFrame(event)
       if (!arg?.url) return { ok: false }
       idx().recordVisit({
         url: arg.url,
@@ -66,49 +69,63 @@ export function registerHistoryHandlers(): void {
   )
 
   /** Full-text over page CONTENT — the reason this index exists. */
-  ipcMain.handle(IPC.HISTORY_SEARCH, (_e, arg: { query: string; limit?: number }): HistoryEntry[] =>
-    idx().search(arg?.query ?? '', arg?.limit ?? 50),
-  )
+  ipcMain.handle(IPC.HISTORY_SEARCH, (event, arg: { query: string; limit?: number }): HistoryEntry[] => {
+    assertMainWindowFrame(event)
+    return idx().search(arg?.query ?? '', arg?.limit ?? 50)
+  })
 
   /** Omnibox suggestions — url/title match, ranked by frecency. */
-  ipcMain.handle(IPC.HISTORY_SUGGEST, (_e, arg: { prefix: string; limit?: number }): Suggestion[] =>
-    idx().suggest(arg?.prefix ?? '', Date.now(), arg?.limit ?? 8),
-  )
+  ipcMain.handle(IPC.HISTORY_SUGGEST, (event, arg: { prefix: string; limit?: number }): Suggestion[] => {
+    assertMainWindowFrame(event)
+    return idx().suggest(arg?.prefix ?? '', Date.now(), arg?.limit ?? 8)
+  })
 
-  ipcMain.handle(IPC.HISTORY_RECENT, (_e, arg: { limit?: number }): HistoryEntry[] =>
-    idx().recent(arg?.limit ?? 100),
-  )
+  ipcMain.handle(IPC.HISTORY_RECENT, (event, arg: { limit?: number }): HistoryEntry[] => {
+    assertMainWindowFrame(event)
+    return idx().recent(arg?.limit ?? 100)
+  })
 
-  ipcMain.handle(IPC.HISTORY_STAR, (_e, arg: { url: string; title?: string; favicon?: string }) => {
+  ipcMain.handle(IPC.HISTORY_STAR, (event, arg: { url: string; title?: string; favicon?: string }) => {
+    assertMainWindowFrame(event)
     idx().star(arg.url, Date.now(), arg.title ?? '', arg.favicon ?? '')
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.HISTORY_UNSTAR, (_e, arg: { url: string }) => {
+  ipcMain.handle(IPC.HISTORY_UNSTAR, (event, arg: { url: string }) => {
+    assertMainWindowFrame(event)
     idx().unstar(arg.url)
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.HISTORY_IS_STARRED, (_e, arg: { url: string }) => idx().isStarred(arg?.url ?? ''))
+  ipcMain.handle(IPC.HISTORY_IS_STARRED, (event, arg: { url: string }) => {
+    assertMainWindowFrame(event)
+    return idx().isStarred(arg?.url ?? '')
+  })
 
-  ipcMain.handle(IPC.HISTORY_BOOKMARKS, (_e, arg: { limit?: number }): HistoryEntry[] =>
-    idx().bookmarks(arg?.limit ?? 500),
-  )
+  ipcMain.handle(IPC.HISTORY_BOOKMARKS, (event, arg: { limit?: number }): HistoryEntry[] => {
+    assertMainWindowFrame(event)
+    return idx().bookmarks(arg?.limit ?? 500)
+  })
 
   // Deletion is real — the index module removes the FTS rows too, so a
   // forgotten page is not merely hidden from the list while its text stays
   // searchable on disk.
-  ipcMain.handle(IPC.HISTORY_FORGET, (_e, arg: { url: string }) => {
+  ipcMain.handle(IPC.HISTORY_FORGET, (event, arg: { url: string }) => {
+    assertMainWindowFrame(event)
     idx().forget(arg.url)
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.HISTORY_FORGET_SINCE, (_e, arg: { since: number }) => ({
-    ok: true,
-    removed: idx().forgetSince(arg?.since ?? Date.now()),
-  }))
+  ipcMain.handle(IPC.HISTORY_FORGET_SINCE, (event, arg: { since: number }) => {
+    assertMainWindowFrame(event)
+    return {
+      ok: true,
+      removed: idx().forgetSince(arg?.since ?? Date.now()),
+    }
+  })
 
-  ipcMain.handle(IPC.HISTORY_CLEAR, () => {
+  ipcMain.handle(IPC.HISTORY_CLEAR, (event) => {
+    assertMainWindowFrame(event)
     idx().clear()
     return { ok: true }
   })

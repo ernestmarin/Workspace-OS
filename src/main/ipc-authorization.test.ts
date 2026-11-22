@@ -44,7 +44,15 @@ function mainSources(dir: string): string[] {
     return [full]
   })
 }
-const re = /ipcHandle\s*\(\s*ipcMain\s*,\s*IPC\.([A-Z_0-9]+)/g
+// Two registration forms reach ipcMain: the `ipcHandle` registry (nearly every
+// module) and a bare `ipcMain.handle(IPC.X, …)`. IPC-HIST-01 found `history.ts`
+// using the second one for twelve channels, which the first version of this
+// scanner never saw — so those channels sat in EXPLICITLY_NO_GUARD and their
+// "no guard" was an artefact of the scan, not a decision.
+const registrars: RegExp[] = [
+  /ipcHandle\s*\(\s*ipcMain\s*,\s*IPC\.([A-Z_0-9]+)/g,
+  /ipcMain\.handle\(\s*\n?\s*IPC\.([A-Z_0-9]+)/g,
+]
 const channelGuard = new Map<string, boolean>() // channel -> hasGuard in its snippet
 // IPC-FS-01: path confinement (`sanitize`, `validateFilePath`) is not an origin
 // check, so a channel can be "guarded" and still accept a caller it should have
@@ -54,40 +62,48 @@ const channelFiles = new Map<string, string[]>()
 for (const file of mainSources(path.join(root, 'src/main'))) {
   if (file.endsWith('ipc-surface.test.ts') || file.endsWith('ipc-authorization.test.ts')) continue
   const content = fs.readFileSync(file, 'utf8')
-  let m: RegExpExecArray | null
-  while ((m = re.exec(content)) !== null) {
-    const chName = m[1]
-    const channel = byName.get(chName) ?? `UNKNOWN:${chName}`
-    const start = m.index
-    const nextIdx = content.indexOf('ipcHandle', start + 10)
-    const snippet = content.slice(start, nextIdx > 0 ? nextIdx : start + 5000)
-    const hasGuard =
-      snippet.includes('assertMainFrame') ||
-      snippet.includes('assertLokSender') ||
-      snippet.includes('assertUpdaterSender') ||
-      snippet.includes('assertMainWindowFrame') ||
-      snippet.includes('assertWorkspace') ||
-      snippet.includes('validateFilePath') ||
-      snippet.includes('validateOpenPath') ||
-      snippet.includes('sanitize(') ||
-      snippet.includes('sanitizeRead') ||
-      snippet.includes('realPathSafe') ||
-      snippet.includes('validateSearchQuery') // search scoping counts as guard
-    const hasOriginGuard =
-      snippet.includes('assertMainWindowFrame') ||
-      snippet.includes('assertMainFrame(') ||
-      snippet.includes('assertLokSender') ||
-      snippet.includes('assertUpdaterSender') ||
-      snippet.includes('assertOwner(')
-    const prev = channelGuard.get(channel)
-    if (prev === undefined) channelGuard.set(channel, hasGuard)
-    else channelGuard.set(channel, prev || hasGuard)
-    const prevOrigin = channelOriginGuard.get(channel)
-    if (prevOrigin === undefined) channelOriginGuard.set(channel, hasOriginGuard)
-    else channelOriginGuard.set(channel, prevOrigin || hasOriginGuard)
-    const arr = channelFiles.get(channel) ?? []
-    arr.push(path.relative(root, file))
-    channelFiles.set(channel, arr)
+  for (const re of registrars) {
+    re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(content)) !== null) {
+      const chName = m[1]
+      const channel = byName.get(chName) ?? `UNKNOWN:${chName}`
+      const start = m.index
+      // The snippet ends at the next registration of either form, so one guarded
+      // handler cannot make its neighbours look guarded.
+      const bounds = [content.indexOf('ipcHandle', start + 10), content.indexOf('ipcMain.handle', start + 10)].filter(
+        (i) => i > 0,
+      )
+      const nextIdx = bounds.length ? Math.min(...bounds) : -1
+      const snippet = content.slice(start, nextIdx > 0 ? nextIdx : start + 5000)
+      const hasGuard =
+        snippet.includes('assertMainFrame') ||
+        snippet.includes('assertLokSender') ||
+        snippet.includes('assertUpdaterSender') ||
+        snippet.includes('assertMainWindowFrame') ||
+        snippet.includes('assertWorkspace') ||
+        snippet.includes('validateFilePath') ||
+        snippet.includes('validateOpenPath') ||
+        snippet.includes('sanitize(') ||
+        snippet.includes('sanitizeRead') ||
+        snippet.includes('realPathSafe') ||
+        snippet.includes('validateSearchQuery') // search scoping counts as guard
+      const hasOriginGuard =
+        snippet.includes('assertMainWindowFrame') ||
+        snippet.includes('assertMainFrame(') ||
+        snippet.includes('assertLokSender') ||
+        snippet.includes('assertUpdaterSender') ||
+        snippet.includes('assertOwner(')
+      const prev = channelGuard.get(channel)
+      if (prev === undefined) channelGuard.set(channel, hasGuard)
+      else channelGuard.set(channel, prev || hasGuard)
+      const prevOrigin = channelOriginGuard.get(channel)
+      if (prevOrigin === undefined) channelOriginGuard.set(channel, hasOriginGuard)
+      else channelOriginGuard.set(channel, prevOrigin || hasOriginGuard)
+      const arr = channelFiles.get(channel) ?? []
+      arr.push(path.relative(root, file))
+      channelFiles.set(channel, arr)
+    }
   }
 }
 // Push channels nunca se registran con ipcHandle (main → renderer)
@@ -475,6 +491,19 @@ const MUST_HAVE_GUARD = new Set<string>([
   'memory:similar',
   'memory:stats',
   'memory:tidy',
+  // Lote IPC-HIST-01 — historial de navegación, marcadores y caché
+  'browser:clear-cache',
+  'history:record',
+  'history:search',
+  'history:suggest',
+  'history:recent',
+  'history:star',
+  'history:unstar',
+  'history:is-starred',
+  'history:bookmarks',
+  'history:forget',
+  'history:forget-since',
+  'history:clear',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -546,7 +575,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   // app surfaces — sin guard hoy, deuda P1 (añadir assertMainFrame en lote N+1b)
   // browser
   'browser:back',
-  'browser:clear-cache',
   'browser:clear-consent',
   'browser:click',
   'browser:current',
@@ -570,17 +598,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'drive:local-name',
   // fs (parte no sensible hoy: list/reveal/watch)
   // history / knowledge-links / lok (resto)
-  'history:bookmarks',
-  'history:clear',
-  'history:forget',
-  'history:forget-since',
-  'history:is-starred',
-  'history:recent',
-  'history:record',
-  'history:search',
-  'history:star',
-  'history:suggest',
-  'history:unstar',
   // mail — más de 50 canales, todos sin guard hoy (deuda P0, lote N+1b)
   // memory / menu / metric (parte) / office / pdf / projects / range / search...
   'memory:status',
@@ -749,6 +766,19 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'memory:similar',
   'memory:stats',
   'memory:tidy',
+  // Lote IPC-HIST-01 — historial de navegación, marcadores y caché
+  'browser:clear-cache',
+  'history:record',
+  'history:search',
+  'history:suggest',
+  'history:recent',
+  'history:star',
+  'history:unstar',
+  'history:is-starred',
+  'history:bookmarks',
+  'history:forget',
+  'history:forget-since',
+  'history:clear',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
@@ -820,6 +850,19 @@ describe('N+1 IPC authorization — exhaustividad y guard', () => {
 
   it('PUSH_CHANNELS no tienen handler ipcHandle (son main→renderer)', () => {
     for (const ch of PUSH_CHANNELS) expect(channelGuard.get(ch)).toBe(false)
+  })
+
+  it('el escáner ve las dos formas de registro de ipcMain', () => {
+    // IPC-HIST-01: `handlers/history.ts` registers with `ipcMain.handle(IPC.X, …)`
+    // instead of the `ipcHandle` registry. Until the scanner knew that form, its
+    // twelve channels were invisible here and looked unguarded because nobody
+    // looked — the difference between a decision and a blind spot.
+    for (const ch of ['browser:clear-cache', 'history:clear', 'history:record', 'history:search']) {
+      expect(channelFiles.get(ch) ?? [], `${ch} no fue escaneado`).toContain('src/main/handlers/history.ts')
+    }
+    // And every channel that claims a guard must have been seen by the scanner.
+    const unseen = [...MUST_HAVE_GUARD].filter((c) => !channelFiles.has(c))
+    expect(unseen, `MUST_HAVE_GUARD sin snippet: ${unseen.join(', ')}`).toEqual([])
   })
 
   it('EXPLICITLY_NO_GUARD no tiene guard — es decisión explícita, no olvido', () => {
