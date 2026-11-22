@@ -402,6 +402,9 @@ const MUST_HAVE_GUARD = new Set<string>([
   'pdf:pages:rotate',
   'pdf:print',
   'pdf:sign',
+  'workspace:close',
+  'workspace:open-recent',
+  'workspace:recents',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -613,9 +616,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'window:close',
   'window:maximize',
   'window:minimize',
-  'workspace:close',
-  'workspace:open-recent',
-  'workspace:recents',
   // agents / misc
   'agents:build',
   'agents:capabilities',
@@ -652,6 +652,9 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'pdf:pages:rotate',
   'pdf:print',
   'pdf:sign',
+  'workspace:close',
+  'workspace:open-recent',
+  'workspace:recents',
   'canvas:export-pptx',
   'office:available',
   'office:export-pdf',

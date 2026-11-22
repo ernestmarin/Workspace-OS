@@ -52,7 +52,7 @@ inventory → mutation → gates → checkpoint).
 
 | # | Cluster | n | Channels | Why it is A |
 | --- | --- | --- | --- | --- |
-| 1 | **workspace root** | 3 | `workspace:open-recent`, `workspace:close`, `workspace:recents` | `open-recent` calls `openWorkspacePath(dir)` with an **unvalidated string** — it reassigns the authoritative workspace root, exactly what `fs:open-folder-dialog` does and what IPC-WATCH-01 guarded. `recents` returns the user's recent folder paths. |
+| 1 | **workspace root** ✅ *done — IPC-WORKSPACE-02* | 3 | `workspace:open-recent`, `workspace:close`, `workspace:recents` | `open-recent` calls `openWorkspacePath(dir)` with an **unvalidated string** — it reassigns the authoritative workspace root, exactly what `fs:open-folder-dialog` does and what IPC-WATCH-01 guarded. `recents` returns the user's recent folder paths. |
 | 2 | **drive** | 5 | `drive:connect`, `drive:disconnect`, `drive:list`, `drive:open`, `drive:search` | network + OAuth secrets + `drive:open` writes a remote file into the workspace |
 | 3 | **chat sessions** | 3 | `sessions:load`, `sessions:save`, `chat:upload` | conversation transcripts and uploaded attachments on disk |
 | 4 | **printing** | 1 | `print:document` | builds a hidden window and prints; `event.sender` is used only for re-entrancy, not authorization |
@@ -87,5 +87,11 @@ from `EXPLICITLY_NO_GUARD` to `MUST_HAVE_GUARD` and added to
 checkpoint. Cluster 7 is the largest and lowest-consequence; it can be split into
 two commits (metrics/collections + wiki).
 
-**Done in this batch:** cluster "pdf" — 9 channels, see
-[ipc-pdf-01-checkpoint-2026-11-21.md](ipc-pdf-01-checkpoint-2026-11-21.md).
+**Done so far:**
+
+| Batch | Cluster | n | Checkpoint |
+| --- | --- | --- | --- |
+| IPC-PDF-01 | pdf | 9 | [ipc-pdf-01-checkpoint-2026-11-21.md](ipc-pdf-01-checkpoint-2026-11-21.md) |
+| IPC-WORKSPACE-02 | workspace root | 3 | [ipc-workspace-02-checkpoint-2026-11-21.md](ipc-workspace-02-checkpoint-2026-11-21.md) |
+
+**Remaining: 120 verdict-A channels.**

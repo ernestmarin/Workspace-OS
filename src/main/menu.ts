@@ -3,7 +3,7 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import { ipcHandle } from './ipc-registry'
-import { mainWindow, sendToWindow } from './main-window'
+import { mainWindow, sendToWindow, assertMainWindowFrame } from './main-window'
 import { officeMenus, type OfficeMenuState, type MI } from './menu-office'
 import { paletteCommands } from './office-menu-table'
 import { browserMenus, type BrowserContext } from './menu-browser'
@@ -376,11 +376,23 @@ export function registerMenu(ipcMain: IpcMain, isDev: boolean): void {
   buildMenu()
 
   // Panel close-folder button uses this; menu items call the helpers directly.
-  ipcHandle(ipcMain, IPC.WORKSPACE_CLOSE, () => closeWorkspaceFolder())
+  // IPC-WORKSPACE-02: closing the folder is a change of the authoritative root.
+  ipcHandle(ipcMain, IPC.WORKSPACE_CLOSE, (event) => {
+    assertMainWindowFrame(event)
+    closeWorkspaceFolder()
+  })
 
   // Recent workspace roots — File ▸ Open Recent and the empty-state list.
-  ipcHandle(ipcMain, IPC.WORKSPACE_RECENTS, () => pruneRecentWorkspaces())
-  ipcHandle(ipcMain, IPC.WORKSPACE_OPEN_RECENT, (_event, dir: unknown) => {
+  ipcHandle(ipcMain, IPC.WORKSPACE_RECENTS, (event) => {
+    assertMainWindowFrame(event)
+    return pruneRecentWorkspaces()
+  })
+  // IPC-WORKSPACE-02: this is `open-folder-dialog` without the dialog — it sets
+  // the root every filesystem validator scopes to, so it must be the owner
+  // asking. (Still unvalidated beyond "is a directory": recorded in the
+  // checkpoint as WORKSPACE-03, to be decided with the renderer's recent list.)
+  ipcHandle(ipcMain, IPC.WORKSPACE_OPEN_RECENT, (event, dir: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof dir !== 'string') return false
     return openWorkspacePath(dir)
   })

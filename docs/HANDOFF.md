@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — IPC-CLASS-01 (triage) + IPC-PDF-01 · 2026-11-21
+## Vigente — IPC-WORKSPACE-02 · 2026-11-21
+
+Ver [ipc-workspace-02-checkpoint-2026-11-21.md](ipc-workspace-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `7ed5297` (IPC-PDF-01).
+
+- `workspace:open-recent` llamaba a `openWorkspacePath(dir)` con un **string del que llama** y sólo comprobaba que fuese un directorio existente, para después fijar `setWorkspaceRoot(dir)` — el valor al que se acotan **todos** los validadores de ruta. Es la misma clase que `fs:open-folder-dialog` (guardado en IPC-WATCH-01), pero con la ruta elegida por el emisor. También `workspace:close` y `workspace:recents`. RED 12/12; ahora los tres verifican el frame.
+- **WORKSPACE-03 (registrado, sin cerrar)**: incluso para el owner, `open-recent` acepta cualquier directorio existente, no sólo los de la lista de recientes. Es una decisión de capacidad, no de autorización; se deja anotada para tomarla a propósito.
+- Inventario: **473 = 280 + 141 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **49**. `EXPLICITLY_NO_GUARD` bajó de 153 a 141; quedan **120 canales verdict-A** del triage.
+- Evidencia: RED 12/3; GREEN 15/15; M23 detectada; suite completo **360 archivos + 3 omitidos, 4408 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-CLASS-01 (triage) + IPC-PDF-01 · 2026-11-21
 
 Ver [ipc-class-01-triage.md](ipc-class-01-triage.md) e [ipc-pdf-01-checkpoint-2026-11-21.md](ipc-pdf-01-checkpoint-2026-11-21.md). Rama `arena/9cd5feee-workspace-os`, base `54189d8` (merge de PR #20). Agente local único, autorrevisión no independiente.
 
