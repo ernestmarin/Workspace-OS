@@ -142,3 +142,9 @@ registration of either kind, and a test asserts that the file is scanned and tha
 every `MUST_HAVE_GUARD` channel has a snippet. Any earlier count is only as good
 as this scan; the channel *list* was always right (`ipc-channels.ts` is parsed
 separately), the *examination* was not.
+
+## Cierre de la serie y la clase siguiente (2026-11-21, tras PR #22)
+
+Los **473 canales** están cerrados: `473 = 405 MUST_HAVE_GUARD + 16 EXPLICITLY_NO_GUARD + 22 GRANT_CHECKED + 30 PUSH_CHANNELS`, `MUST_HAVE_ORIGIN_GUARD` = **174**, verdict-A restantes **0**, y el barrido mecánico (`src/main/ipc-authorization.test.ts`) fija que los canales que el escáner no ve son **exactamente** `PUSH_CHANNELS`.
+
+Con la autorización agotada, el backlog que queda ya no es de emisores sino de **qué hacen los handlers con los bytes**: `drive:open` sobrescribía copias locales (IPC-DRIVE-03), `chat:upload` no tenía presupuesto de carpeta (IPC-UPLOAD-01) y los writers `.xlsx` reemplazaban ficheros que habían cambiado bajo ellos (IPC-DOC-WRITE-01). Los tres están cerrados y anotados en `technical-debt-audit.md` §3.4 (`DATA-01`…`DATA-04`); `DATA-04` (los cinco writers docx/pptx) es el siguiente lote.

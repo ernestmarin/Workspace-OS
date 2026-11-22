@@ -1,5 +1,19 @@
 # Handoff
 
+## Vigente — IPC-DRIVE-03 · IPC-UPLOAD-01 · IPC-DOC-WRITE-01 · 2026-11-21
+
+Ver [ipc-drive-03-checkpoint-2026-11-21.md](ipc-drive-03-checkpoint-2026-11-21.md), [ipc-upload-01-checkpoint-2026-11-21.md](ipc-upload-01-checkpoint-2026-11-21.md) e [ipc-doc-write-01-checkpoint-2026-11-21.md](ipc-doc-write-01-checkpoint-2026-11-21.md). Plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/f72b6745-workspace-os`, base `19441e0` (merge de PR #22).
+
+Tres lotes del backlog de datos/recursos, cada uno con su RED, su GREEN y sus mutaciones. La serie de guards de emisor está cerrada (`MUST_HAVE_ORIGIN_GUARD` = 174, verdict-A = 0); lo que quedaba eran fallos que **no son de autorización** y por eso ninguna de las trece tandas anteriores los había tocado.
+
+- **IPC-DRIVE-03 · pérdida de datos silenciosa.** `drive:open` escribía en `path.join(dir, path.basename(filename))`: el nombre remoto decidía la ruta local y nada más. Un Drive con `report.docx` en dos carpetas dejaba **un** fichero, y el canvas/office tenían esa ruta abierta. "Siempre sufijo" habría sido regresión (reabrir el mismo fichero debe refrescar *esa* copia), así que hacía falta el id: nuevo `DriveCopyIndex` (`<workspace>/.workspace-os/drive-copies.json`, 500 entradas, escritura atómica, índice corrupto = vacío) y reutilización sólo si la ruta sigue dentro del `Drive/` de este workspace. `uniquePath` extraído a `src/main/util/unique-path.ts` y compartido con las descargas del navegador. RED 6/1, GREEN 7/7, M48/M49/M50.
+- **IPC-UPLOAD-01 · el tope era de la llamada, no de la carpeta.** `chat:upload` rechazaba ficheros de más de 25 MB y no tenía límite acumulado: 25 MB aceptados indefinidamente dentro del workspace. Presupuesto de 512 MiB (`WOS_MAX_UPLOADS_BYTES` para poder probarlo), contado sólo sobre ficheros regulares — un symlink no infla el total ni saca el recorrido del workspace — y comprobado **antes** de crear la carpeta del día. RED 4/1, GREEN 5/5, M51/M52/M53.
+- **IPC-DOC-WRITE-01 · el guardado se comía el guardado de otro.** Los dos writers `.xlsx` leían, editaban en memoria, verificaban un temporal y `rename` sobre el original: crash-safe y **ciego a conflictos**. Cualquier guardado de Excel/LibreOffice/sync entre la lectura y el rename se destruía y la llamada devolvía `{ ok: true }`. Nuevo `src/main/doc-identity.ts` (dev+ino+tamaño+mtime, porque el rename cambia el ino y el guardado en sitio cambia el resto) y `loadValidatedXlsx` devuelve la identidad del **descriptor que leyó los bytes**. RED: la suite existente **afirmaba el overwrite** (`ooxml-writers-shape`, "pathname is replaced" → `{ ok: true }`) y se endureció a `changed-on-disk`, con la propiedad N+2c resultando más fuerte. M54/M55.
+- **Decisión de test, a la vista:** no se debilitó ningún guard para pasar un test; se corrigió un test que bendecía la pérdida de datos, y la sección 5 del checkpoint lo explica para que sea revisable.
+- Evidencia: suite completo **373 archivos + 3 omitidos, 4999 tests + 26 omitidos**; tsc 0 (nodo y renderer); ESLint 0 sobre 1025 ficheros; build 0; `npm audit` 40 moderadas / 0 altas / 0 críticas.
+- **DOC-WRITE-04 (abierto):** los cinco writers docx/pptx comparten la misma forma read→rename y leen por `loadArchive` (JSZip), así que aún no tienen identidad. Es el siguiente lote.
+- Pendiente, por orden: **revisión independiente** de la serie, **NIVEL 3** (sigue sin haber ni un Electron real, micrófono, LibreOffice ni cuenta de Drive), DOC-WRITE-02, **WORKSPACE-03** (decisión de capacidad, no defecto), SEARCH-02 y el orden del índice ZIP.
+
 ## Vigente — IPC-SPEECH-02 · 2026-11-21
 
 Ver [ipc-speech-02-checkpoint-2026-11-21.md](ipc-speech-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `653cd0f` (IPC-BROWSER-02).
