@@ -28,6 +28,7 @@ import {
 } from './deepRead'
 import { getWorkspaceRoot } from '../workspace-root'
 import { realPathSafe } from '../ipc-validator'
+import { assertMainWindowFrame } from '../main-window'
 
 /**
  * BROWSER DRIVE (main side).
@@ -418,69 +419,87 @@ export async function type(
 
 /** Register the four browser-drive IPC handlers. */
 export function registerBrowserHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.BROWSER_NAVIGATE, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_NAVIGATE, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { url?: unknown; tab?: unknown }
     const url = requireHttpUrl(a?.url)
     return navigate(requireGuest(a?.tab), url)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_SCREENSHOT, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_SCREENSHOT, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { destPath?: unknown; tab?: unknown }
     return screenshot(requireGuest(a?.tab), a?.destPath)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_THUMBNAIL, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_THUMBNAIL, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { width?: unknown; tab?: unknown }
     return thumbnail(requireGuest(a?.tab), a?.width)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_EXTRACT, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_EXTRACT, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { mode?: unknown; tab?: unknown }
     return extract(requireGuest(a?.tab), normalizeMode(a?.mode))
   })
-  ipcHandle(ipcMain, IPC.BROWSER_MAP, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_MAP, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return map(requireGuest((arg as { tab?: unknown })?.tab))
   })
-  ipcHandle(ipcMain, IPC.BROWSER_CURRENT, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_CURRENT, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return current(requireGuest((arg as { tab?: unknown })?.tab))
   })
-  ipcHandle(ipcMain, IPC.BROWSER_DISMISS_COOKIES, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_DISMISS_COOKIES, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return dismissCookies(requireGuest((arg as { tab?: unknown })?.tab))
   })
-  ipcHandle(ipcMain, IPC.BROWSER_CLEAR_CONSENT, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_CLEAR_CONSENT, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return clearConsent(requireGuest((arg as { tab?: unknown })?.tab))
   })
-  ipcHandle(ipcMain, IPC.BROWSER_DEEP_READ, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_DEEP_READ, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { url?: unknown; maxPages?: unknown; focus?: unknown; tab?: unknown }
     return deepRead(requireGuest(a?.tab), a?.url, a?.maxPages, a?.focus)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_CLICK, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_CLICK, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { selector?: unknown; text?: unknown; tab?: unknown }
     return click(requireGuest(a?.tab), a?.selector, a?.text)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_SCROLL, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_SCROLL, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { to?: unknown; by?: unknown; tab?: unknown }
     return scroll(requireGuest(a?.tab), a?.to, a?.by)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_WAIT_FOR, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_WAIT_FOR, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { selector?: unknown; text?: unknown; timeoutMs?: unknown; tab?: unknown }
     return waitFor(requireGuest(a?.tab), a?.selector, a?.text, a?.timeoutMs)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_BACK, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_BACK, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return back(requireGuest((arg as { tab?: unknown })?.tab))
   })
-  ipcHandle(ipcMain, IPC.BROWSER_FORWARD, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_FORWARD, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return forward(requireGuest((arg as { tab?: unknown })?.tab))
   })
-  ipcHandle(ipcMain, IPC.BROWSER_TYPE, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_TYPE, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { selector?: unknown; text?: unknown; tab?: unknown }
     return type(requireGuest(a?.tab), a?.selector, a?.text)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_SET_ACTIVE_GUEST, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_SET_ACTIVE_GUEST, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return setActiveGuest((arg as { id?: unknown })?.id)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_REGISTER_TAB, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_REGISTER_TAB, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     const a = arg as { tabId?: unknown; webContentsId?: unknown }
     return registerTab(a?.tabId, a?.webContentsId)
   })
-  ipcHandle(ipcMain, IPC.BROWSER_UNREGISTER_TAB, async (_e, arg: unknown) => {
+  ipcHandle(ipcMain, IPC.BROWSER_UNREGISTER_TAB, async (event, arg: unknown) => {
+    assertMainWindowFrame(event)
     return unregisterTab((arg as { tabId?: unknown })?.tabId)
   })
 }

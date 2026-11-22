@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-HIST-01 · 2026-11-21
+## Vigente — IPC-BROWSER-02 · 2026-11-21
+
+Ver [ipc-browser-02-checkpoint-2026-11-21.md](ipc-browser-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `b1dca61` (IPC-HIST-01).
+
+- Diecinueve handlers del drive del navegador invitado no miraban el evento: cualquier frame podía `navigate` la pestaña visible, `click` dentro de la **sesión autenticada del usuario**, `type` en inputs, leer la página (`current`/`map`/`extract`/`deep-read`), `screenshot` al workspace y listar `downloads`. RED 77/78.
+- La suite conduce el **registro real** de guests con un fake que graba cada acceso y cada llamada (Proxy): un rechazo deja el grabador vacío — ni siquiera el `isDestroyed()` que hace el registro al entrar. Eso convierte "no se ejecutó" en una medida, no en una deducción del mensaje de error.
+- Los dos controles que ya existían siguen detrás del guard: `requireHttpUrl` (un `navigate` a `file:///etc/passwd` falla) y la confinación de capturas por `realPathSafe`. Acotan *qué*, no *quién*.
+- Inventario: **473 = 378 + 43 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **147**. De los 43, 20 son B: quedan **23 canales verdict-A**, todos `speech:*`.
+- Evidencia: RED 77/1; GREEN 78/78; M42–M44 detectadas (6 fallos cada una, dos módulos); suite completo **368 archivos + 3 omitidos, 4840 tests + 26 omitidos**; ESLint 0 sobre 1017 ficheros; build 0; audit 40 moderadas.
+
+## Anterior — IPC-HIST-01 · 2026-11-21
 
 Ver [ipc-hist-01-checkpoint-2026-11-21.md](ipc-hist-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `00dc7b6` (IPC-MEM-01).
 

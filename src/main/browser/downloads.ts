@@ -5,6 +5,7 @@ import fs from 'fs'
 import path from 'path'
 import { BROWSER_PARTITION } from '../security'
 import { getWorkspaceRoot } from '../workspace-root'
+import { assertMainWindowFrame } from '../main-window'
 
 /**
  * Downloads from the in-app browser.
@@ -92,7 +93,10 @@ export function safeName(name: string): string {
 export function registerDownloads(getWindow: () => BrowserWindow | null): void {
   const ses = session.fromPartition(BROWSER_PARTITION)
   // The list the browser's Downloads button opens on (it then follows the events).
-  ipcHandle(ipcMain, IPC.BROWSER_DOWNLOADS, () => listDownloads())
+  ipcHandle(ipcMain, IPC.BROWSER_DOWNLOADS, (event) => {
+    assertMainWindowFrame(event)
+    return listDownloads()
+  })
 
   ses.on('will-download', (_event, item: DownloadItem) => {
     const id = `dl-${Date.now().toString(36)}-${++seq}`

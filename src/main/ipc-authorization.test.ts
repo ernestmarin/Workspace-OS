@@ -504,6 +504,26 @@ const MUST_HAVE_GUARD = new Set<string>([
   'history:forget',
   'history:forget-since',
   'history:clear',
+  // Lote IPC-BROWSER-02 — drive del navegador invitado y descargas
+  'browser:back',
+  'browser:clear-consent',
+  'browser:click',
+  'browser:current',
+  'browser:deep-read',
+  'browser:dismiss-cookies',
+  'browser:downloads',
+  'browser:extract',
+  'browser:forward',
+  'browser:map',
+  'browser:navigate',
+  'browser:register-tab',
+  'browser:screenshot',
+  'browser:scroll',
+  'browser:set-active-guest',
+  'browser:thumbnail',
+  'browser:type',
+  'browser:unregister-tab',
+  'browser:wait-for',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -574,25 +594,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
 
   // app surfaces — sin guard hoy, deuda P1 (añadir assertMainFrame en lote N+1b)
   // browser
-  'browser:back',
-  'browser:clear-consent',
-  'browser:click',
-  'browser:current',
-  'browser:deep-read',
-  'browser:dismiss-cookies',
-  'browser:downloads',
-  'browser:extract',
-  'browser:forward',
-  'browser:map',
-  'browser:navigate',
-  'browser:register-tab',
-  'browser:screenshot',
-  'browser:scroll',
-  'browser:set-active-guest',
-  'browser:thumbnail',
-  'browser:type',
-  'browser:unregister-tab',
-  'browser:wait-for',
   // bugs / calendar / cases / chat / checkpoint
   // collections / components / drive (parte)
   'drive:local-name',
@@ -779,6 +780,26 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'history:forget',
   'history:forget-since',
   'history:clear',
+  // Lote IPC-BROWSER-02 — drive del navegador invitado y descargas
+  'browser:back',
+  'browser:clear-consent',
+  'browser:click',
+  'browser:current',
+  'browser:deep-read',
+  'browser:dismiss-cookies',
+  'browser:downloads',
+  'browser:extract',
+  'browser:forward',
+  'browser:map',
+  'browser:navigate',
+  'browser:register-tab',
+  'browser:screenshot',
+  'browser:scroll',
+  'browser:set-active-guest',
+  'browser:thumbnail',
+  'browser:type',
+  'browser:unregister-tab',
+  'browser:wait-for',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
