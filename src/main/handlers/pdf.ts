@@ -11,6 +11,7 @@ import {
   type WriteAnnotation,
 } from '../pdf/annotation-writer'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /**
  * PDF annotation + page-operation IPC.
@@ -61,10 +62,20 @@ async function rewrite(absPath: string, bytes: Uint8Array): Promise<{ ok: true }
   return { ok: true }
 }
 
+/**
+ * IPC-PDF-01 — origin check for the PDF surface.
+ *
+ * Rule 1 above confines every path to the workspace. It says nothing about who
+ * is asking, and these channels rewrite a document in place (reorder, rotate,
+ * form fill, signature stamp), keep its markup, and hand a temporary copy to the
+ * system viewer. So each handler first requires the registered main window's
+ * current main frame.
+ */
 export function registerPdfHandlers(ipcMain: IpcMain): void {
   // Like Office printing, hand the complete PDF to the system viewer. Include
   // current markup in a temporary copy without modifying the source document.
-  ipcHandle(ipcMain, IPC.PDF_PRINT, async (_e, filePath, annotations) => {
+  ipcHandle(ipcMain, IPC.PDF_PRINT, async (event, filePath, annotations) => {
+    assertMainWindowFrame(event)
     const abs = resolveInWorkspace(filePath)
     const annots = assertAnnotations(annotations)
     if (path.extname(abs).toLowerCase() !== '.pdf') throw new IpcValidationError('A PDF file is required')
@@ -82,7 +93,8 @@ export function registerPdfHandlers(ipcMain: IpcMain): void {
   })
 
   // ── Sidecar (non-destructive, while editing) ───────────────────────────────
-  ipcHandle(ipcMain, IPC.PDF_ANNOTATIONS_READ, async (_e, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_ANNOTATIONS_READ, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const abs = resolveInWorkspace(filePath)
@@ -95,7 +107,8 @@ export function registerPdfHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  ipcHandle(ipcMain, IPC.PDF_ANNOTATIONS_WRITE, async (_e, filePath: unknown, doc: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_ANNOTATIONS_WRITE, async (event, filePath: unknown, doc: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('No workspace folder is open')
     const abs = resolveInWorkspace(filePath)
@@ -112,7 +125,8 @@ export function registerPdfHandlers(ipcMain: IpcMain): void {
    * original pristine; `inPlace` rewrites it (trashing the prior version first)
    * for the user who wants the marked-up copy to be the copy.
    */
-  ipcHandle(ipcMain, IPC.PDF_EXPORT, async (_e, filePath: unknown, annotations: unknown, inPlace: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_EXPORT, async (event, filePath: unknown, annotations: unknown, inPlace: unknown) => {
+    assertMainWindowFrame(event)
     const abs = resolveInWorkspace(filePath)
     const annots = assertAnnotations(annotations)
     const bytes = new Uint8Array(await fs.readFile(abs))
@@ -129,14 +143,16 @@ export function registerPdfHandlers(ipcMain: IpcMain): void {
   })
 
   // ── Page operations (destructive → trash first) ────────────────────────────
-  ipcHandle(ipcMain, IPC.PDF_PAGES_REORDER, async (_e, filePath: unknown, order: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_PAGES_REORDER, async (event, filePath: unknown, order: unknown) => {
+    assertMainWindowFrame(event)
     const abs = resolveInWorkspace(filePath)
     if (!Array.isArray(order)) throw new IpcValidationError('A page order is required')
     const bytes = new Uint8Array(await fs.readFile(abs))
     return rewrite(abs, await reorderPages(bytes, order as number[]))
   })
 
-  ipcHandle(ipcMain, IPC.PDF_PAGES_ROTATE, async (_e, filePath: unknown, page: unknown, delta: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_PAGES_ROTATE, async (event, filePath: unknown, page: unknown, delta: unknown) => {
+    assertMainWindowFrame(event)
     const abs = resolveInWorkspace(filePath)
     if (typeof page !== 'number' || typeof delta !== 'number') throw new IpcValidationError('Page and rotation are required')
     const bytes = new Uint8Array(await fs.readFile(abs))
@@ -144,12 +160,14 @@ export function registerPdfHandlers(ipcMain: IpcMain): void {
   })
 
   // ── Forms ─────────────────────────────────────────────────────────────────
-  ipcHandle(ipcMain, IPC.PDF_FORM_READ, async (_e, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_FORM_READ, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     const abs = resolveInWorkspace(filePath)
     return readFormFields(new Uint8Array(await fs.readFile(abs)))
   })
 
-  ipcHandle(ipcMain, IPC.PDF_FORM_FILL, async (_e, filePath: unknown, values: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_FORM_FILL, async (event, filePath: unknown, values: unknown) => {
+    assertMainWindowFrame(event)
     const abs = resolveInWorkspace(filePath)
     if (!values || typeof values !== 'object') throw new IpcValidationError('Field values are required')
     const clean: Record<string, string> = {}
@@ -165,7 +183,8 @@ export function registerPdfHandlers(ipcMain: IpcMain): void {
    * Stamp a PNG signature. This is an APPEARANCE, not a cryptographic signature —
    * no certificate, no trust chain, no timestamp — and the UI says so.
    */
-  ipcHandle(ipcMain, IPC.PDF_SIGN, async (_e, filePath: unknown, pngBase64: unknown, page: unknown, rect: unknown) => {
+  ipcHandle(ipcMain, IPC.PDF_SIGN, async (event, filePath: unknown, pngBase64: unknown, page: unknown, rect: unknown) => {
+    assertMainWindowFrame(event)
     const abs = resolveInWorkspace(filePath)
     if (typeof pngBase64 !== 'string' || pngBase64.length > 8_000_000) throw new IpcValidationError('Invalid signature image')
     const r = rect as { x: number; y: number; w: number; h: number }

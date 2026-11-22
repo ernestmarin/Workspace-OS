@@ -1,6 +1,52 @@
 # Handoff
 
-## Vigente — IPC-WRITERS-01: la lista path-only queda VACÍA · 2026-11-21
+## Vigente — IPC-STORE-01 · 2026-11-21
+
+Ver [ipc-store-01-checkpoint-2026-11-21.md](ipc-store-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `451c97b` (IPC-SESSION-02).
+
+- Veinticinco canales de los stores derivados (metrics, collections, ranges, componentes, wiki) no miraban el evento: borrar métricas/colecciones/rangos/enlaces/componentes, refrescar **todo** de golpe, leer las tablas de enlaces y `wiki:undo`, que **reescribe páginas de la wiki y las reindexa**. RED 100/100 (25 × 4) con los 25 controles en verde.
+- Fixture nuevo con doble aserción por canal: rechazo **sin consultar el store** y admisión del owner **consultándolo**. Un guard que rechazara todo pasaría la primera mitad y fallaría la segunda — el mismo error de `links.test.ts` visto desde el otro lado.
+- Inventario: **473 = 314 + 107 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **83**. `EXPLICITLY_NO_GUARD` 153 → 107; quedan **86 canales verdict-A**.
+- Evidencia: RED 100/25; GREEN 125/125; M27–M29 detectadas; suite completo **363 archivos + 3 omitidos, 4573 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-SESSION-02 · 2026-11-21
+
+Ver [ipc-session-02-checkpoint-2026-11-21.md](ipc-session-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `68396d2` (IPC-DRIVE-02).
+
+- `sessions:load` devuelve **la transcripción entera** de la conversación del workspace, `sessions:save` escribe hasta 40 MB y `chat:upload` escribe los bytes de un archivo soltado en `.workspace-os/uploads/`. Ninguno miraba el evento: un frame ajeno podía leer todas las conversaciones o llenar el disco. RED 12/12; ahora los tres verifican el frame.
+- `sessions:save` ya tenía un control real — sólo acepta una raíz abierta en esta ejecución — pero acota **qué workspace**, no **quién pregunta**. El guard va **antes**, para que un rechazo no se confunda con el `{ ok: false }` de raíz no abierta.
+- Inventario: **473 = 289 + 132 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **58**. `EXPLICITLY_NO_GUARD` 153 → 132; quedan **111 canales verdict-A**.
+- Evidencia: RED 12/2; GREEN 14/14; M26 detectada; suite completo **362 archivos + 3 omitidos, 4448 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-DRIVE-02 · 2026-11-21
+
+Ver [ipc-drive-02-checkpoint-2026-11-21.md](ipc-drive-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `fdf3241` (IPC-WORKSPACE-02).
+
+- Los seis handlers de Drive que faltaban (`connection`, `connect`, `disconnect`, `list`, `search`, `open`) no miraban el evento: podían iniciar el flujo OAuth en el navegador del sistema y guardar un refresh token, cortar la conexión, enumerar el Drive y **descargar un archivo remoto dentro del workspace**. RED 24/24. Ahora los seis verifican el frame, con el guard **fuera** de `guard()` para que un rechazo no se convierta en `{ ok: false }`.
+- **Corrección del triage**: `drive:connection` estaba en B ("si hay cuenta vinculada") pero devuelve el objeto de conexión completo, **email incluido**. Pasa a A y se guarda aquí — el límite declarado del triage, en un caso concreto.
+- Inventario: **473 = 286 + 135 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **55**. `EXPLICITLY_NO_GUARD` 153 → 135; quedan **114 canales verdict-A**.
+- Evidencia: RED 24/2; GREEN 26/26; M24/M25 detectadas; RT-07 (symlink de `drive:save`) sigue verde; suite completo **361 archivos + 3 omitidos, 4434 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-WORKSPACE-02 · 2026-11-21
+
+Ver [ipc-workspace-02-checkpoint-2026-11-21.md](ipc-workspace-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `7ed5297` (IPC-PDF-01).
+
+- `workspace:open-recent` llamaba a `openWorkspacePath(dir)` con un **string del que llama** y sólo comprobaba que fuese un directorio existente, para después fijar `setWorkspaceRoot(dir)` — el valor al que se acotan **todos** los validadores de ruta. Es la misma clase que `fs:open-folder-dialog` (guardado en IPC-WATCH-01), pero con la ruta elegida por el emisor. También `workspace:close` y `workspace:recents`. RED 12/12; ahora los tres verifican el frame.
+- **WORKSPACE-03 (registrado, sin cerrar)**: incluso para el owner, `open-recent` acepta cualquier directorio existente, no sólo los de la lista de recientes. Es una decisión de capacidad, no de autorización; se deja anotada para tomarla a propósito.
+- Inventario: **473 = 280 + 141 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **49**. `EXPLICITLY_NO_GUARD` bajó de 153 a 141; quedan **120 canales verdict-A** del triage.
+- Evidencia: RED 12/3; GREEN 15/15; M23 detectada; suite completo **360 archivos + 3 omitidos, 4408 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-CLASS-01 (triage) + IPC-PDF-01 · 2026-11-21
+
+Ver [ipc-class-01-triage.md](ipc-class-01-triage.md) e [ipc-pdf-01-checkpoint-2026-11-21.md](ipc-pdf-01-checkpoint-2026-11-21.md). Rama `arena/9cd5feee-workspace-os`, base `54189d8` (merge de PR #20). Agente local único, autorrevisión no independiente.
+
+- **La premisa de la auditoría no se sostenía.** Re-derivados desde el código los 153 canales `EXPLICITLY_NO_GUARD`: **123 llegan a contenido del usuario, estado, disco, red, programa externo, modelo o secreto**; sólo **21** son realmente estado de UI. No era un conjunto de decisiones, era un default sin examinar.
+- **IPC-PDF-01**: los nueve handlers de `pdf.ts` reescriben documentos en sitio (reordenar, rotar, rellenar formularios, firmar), guardan el sidecar de anotaciones, exportan copias y entregan un PDF temporal a `shell.openPath`; ninguno miraba el evento. RED 36/36. Ahora los nueve verifican el frame; `MUST_HAVE_ORIGIN_GUARD` = 46; inventario 473 = 277 + 144 + 22 + 30, todo único y sin duplicados.
+- Por qué el inventario los tenía por seguros: validan la ruta **dentro** de `resolveInWorkspace()`, así que la heurística de snippets sólo veía "sin guard". El chequeo de ruta se confundió con el de emisor, a escala.
+- Plan por clusters en la tabla del triage: workspace root (3, `open-recent` reasigna la raíz con un string sin validar), drive (5), sesiones (3), impresión (1), bugs (5), agents (5), stores derivados (25), memory (15), speech (23), history (11), browser (20).
+- Evidencia: RED 36/2; GREEN 38/38; M21/M22 detectadas; suite completo **359 archivos + 3 omitidos, 4393 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-WRITERS-01: la lista path-only queda VACÍA · 2026-11-21
 
 Ver [ipc-writers-01-checkpoint-2026-11-21.md](ipc-writers-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `7fba5b2` (IPC-REFRESH-01). Agente local único, autorrevisión no independiente.
 

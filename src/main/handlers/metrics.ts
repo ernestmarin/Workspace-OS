@@ -152,7 +152,8 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   })
 
   // Refresh EVERY sourced metric ("refresh all"). Literal metrics are skipped.
-  ipcHandle(ipcMain, IPC.METRIC_REFRESHALLFROMSOURCE, async () => {
+  ipcHandle(ipcMain, IPC.METRIC_REFRESHALLFROMSOURCE, async (event) => {
+    assertMainWindowFrame(event)
     const out: RefreshResult[] = []
     for (const m of metrics.list()) {
       if (!isSourced(m)) continue
@@ -185,7 +186,8 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
     return out
   })
 
-  ipcHandle(ipcMain, IPC.METRIC_DELETE, (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.METRIC_DELETE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof id !== 'string' || !/^metric-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid metric id')
     }
@@ -193,7 +195,8 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   })
 
   // ---- transclusion links ----
-  ipcHandle(ipcMain, IPC.TRANSCLUSION_FORFILE, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_FORFILE, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof filePath !== 'string' || !filePath) {
       throw new IpcValidationError('Invalid file path')
     }
@@ -210,7 +213,10 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   })
 
   // Read-only: every link in the store (drives the per-metric link-count badges).
-  ipcHandle(ipcMain, IPC.TRANSCLUSION_ALLLINKS, () => transclusions.allLinks())
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_ALLLINKS, (event) => {
+    assertMainWindowFrame(event)
+    return transclusions.allLinks()
+  })
 
   ipcHandle(ipcMain, IPC.TRANSCLUSION_ADD, (_event, input: unknown) => {
     const i = (input ?? {}) as {
@@ -248,7 +254,8 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
     return transclusions.add({ metricId: i.metricId, filePath: linkFilePath, target, lastValue: i.lastValue })
   })
 
-  ipcHandle(ipcMain, IPC.TRANSCLUSION_REMOVE, (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_REMOVE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof id !== 'string' || !/^link-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid link id')
     }
@@ -260,7 +267,8 @@ export function registerMetricHandlers(ipcMain: IpcMain): void {
   // PREVIEW (no writes): report the impact so the UI can confirm first. The open
   // file is excluded (the engine's live path owns it); unchanged links are shown
   // as such; everything else is a closed-file cell that WOULD change.
-  ipcHandle(ipcMain, IPC.TRANSCLUSION_PREVIEWSYNCALL, (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.TRANSCLUSION_PREVIEWSYNCALL, (event, id: unknown, openFilePath: unknown) => {
+    assertMainWindowFrame(event)
     const { id: metricId, open } = readSyncAllArgs(id, openFilePath)
     const metric = metrics.get(metricId)
     if (!metric) throw new IpcValidationError('Unknown metric')

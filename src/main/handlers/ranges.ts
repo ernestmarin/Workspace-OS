@@ -18,6 +18,7 @@ import { setSlideTableCells } from '../pptx-table-writer'
 import { isValidA1 } from '../transclusions'
 import type { RangeGrid } from '../ranges'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /** Outcome of refreshing one range from its source (fed to the renderer). */
 interface RangeRefreshResult {
@@ -133,7 +134,8 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
   })
 
   // Refresh EVERY sourced range ("refresh all"). Literal ranges are skipped.
-  ipcHandle(ipcMain, IPC.RANGE_REFRESHALLFROMSOURCE, async () => {
+  ipcHandle(ipcMain, IPC.RANGE_REFRESHALLFROMSOURCE, async (event) => {
+    assertMainWindowFrame(event)
     const out: RangeRefreshResult[] = []
     for (const r of ranges.list()) {
       if (!isSourcedRange(r)) continue
@@ -145,7 +147,8 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
 
   // Refresh only ranges sourced FROM a given file (the auto-refresh-on-save
   // hook — cheap: touches nothing sourced from elsewhere). Fail-safe per range.
-  ipcHandle(ipcMain, IPC.RANGE_REFRESHFORFILE, async (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGE_REFRESHFORFILE, async (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     const out: RangeRefreshResult[] = []
     for (const r of ranges.list()) {
@@ -157,12 +160,14 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
     return out
   })
 
-  ipcHandle(ipcMain, IPC.RANGE_DELETE, (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGE_DELETE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     ranges.remove(readRangeId(id))
   })
 
   // ---- range links ----
-  ipcHandle(ipcMain, IPC.RANGELINK_FORFILE, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_FORFILE, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof filePath !== 'string' || !filePath) {
       throw new IpcValidationError('Invalid file path')
     }
@@ -175,7 +180,10 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
   })
 
   // Read-only: every link in the store (drives the per-range link-count badges).
-  ipcHandle(ipcMain, IPC.RANGELINK_ALLLINKS, () => rangeLinks.allLinks())
+  ipcHandle(ipcMain, IPC.RANGELINK_ALLLINKS, (event) => {
+    assertMainWindowFrame(event)
+    return rangeLinks.allLinks()
+  })
 
   ipcHandle(ipcMain, IPC.RANGELINK_ADD, (_event, input: unknown) => {
     const i = (input ?? {}) as { rangeId?: unknown; filePath?: unknown; target?: unknown; lastValues?: unknown }
@@ -204,7 +212,8 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  ipcHandle(ipcMain, IPC.RANGELINK_REMOVE, (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_REMOVE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof id !== 'string' || !/^rlink-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid range link id')
     }
@@ -216,7 +225,8 @@ export function registerRangeHandlers(ipcMain: IpcMain): void {
   // PREVIEW (no writes): report the impact so the UI can confirm first. The open
   // file is excluded (the engine's live path owns it); unchanged links are shown
   // as such; everything else is a closed-file block that WOULD change.
-  ipcHandle(ipcMain, IPC.RANGELINK_PREVIEWSYNCALL, (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.RANGELINK_PREVIEWSYNCALL, (event, id: unknown, openFilePath: unknown) => {
+    assertMainWindowFrame(event)
     const rangeId = readRangeId(id)
     const open = typeof openFilePath === 'string' && openFilePath ? openFilePath : null
     const range = ranges.get(rangeId)
