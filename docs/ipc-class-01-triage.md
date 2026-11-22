@@ -61,7 +61,7 @@ inventory → mutation → gates → checkpoint).
 | 5 | **bug reports** ✅ *done — IPC-BUG-01* | 6 | `bug:status`, `bug:analyze`, `bug:context`, `bug:file`, `bug:list`, `bug:setRepo` | `bug:file` **writes a report into the development repo**; `analyze` calls a model; `setRepo` re-points where reports land; `status`/`context`/`list` return the repo path, the commit, the live context and the main-process error tail |
 | 6 | **agents** ✅ *done — IPC-DIAG-01* | 5 | `agents:build`, `agents:delete`, `agents:list`, `agents:read`, `agents:write` | agent definitions (prompts) are user content; build/write/delete touch the filesystem |
 | 7 | **derived-state stores** ✅ *done — IPC-STORE-01* | 25 | `collection:*` 2, `collectionLink:*` 4, `components:*` 2, `metric:*` 2, `range:*` 3, `rangeLink:*` 4, `transclusion:*` 4, `wiki:*` 4 (`changes`, `check`, `sources`, `undo`) | deletes, bulk refreshes, syncs and `wiki:undo` (**rewrites pages**); the read-only members list user-authored links and paths |
-| 8 | **memory** | 15 | `memory:*` (all but `status`) | the personal memory store: remember / forget / correct / query / propose (model) |
+| 8 | **memory** ✅ *done — IPC-MEM-01* | 15 | `memory:*` (all but `status`) | the personal memory store: remember / forget / correct / query / propose (model) |
 | 9 | **speech** | 23 | `speech:*` (all but four status channels) | `read-clipboard` (**clipboard**), `set-key` (**secret**), `stt-transcribe` (audio to a provider), `kokoro-install` (installs binaries), `speak` |
 | 10 | **history** | 11 | `history:*` | the user's browsing history: recent, search, star, forget, clear |
 | 11 | **browser control** | 20 | `browser:*` | a foreign frame driving the user's guest browser: navigate, click, type, screenshot, deep-read (page content), downloads |
@@ -101,6 +101,7 @@ two commits (metrics/collections + wiki).
 | IPC-STORE-01 | derived-state stores | 25 | [ipc-store-01-checkpoint-2026-11-21.md](ipc-store-01-checkpoint-2026-11-21.md) |
 | IPC-DIAG-01 | printing, agents, checkpoints & snapshots | 12 | [ipc-diag-01-checkpoint-2026-11-21.md](ipc-diag-01-checkpoint-2026-11-21.md) |
 | IPC-BUG-01 | bug reports | 6 | [ipc-bug-01-checkpoint-2026-11-21.md](ipc-bug-01-checkpoint-2026-11-21.md) |
+| IPC-MEM-01 | memory | 15 | [ipc-mem-01-checkpoint-2026-11-21.md](ipc-mem-01-checkpoint-2026-11-21.md) |
 
 **Corrections made while doing it:** `drive:connection` had been triaged B ("whether
 an account is linked"). It returns the whole connection object, **email included**.
@@ -110,4 +111,4 @@ content"); it returns the absolute repository path, the log path and the number 
 filed reports, so it moved to A and was guarded in IPC-BUG-01. The B table's
 "no user content" reason is the one to distrust.
 
-**Remaining: 69 verdict-A channels** (`memory:*` 15, `speech:*` 23, `history:*` 11, `browser:*` 20).
+**Remaining: 54 verdict-A channels** (`speech:*` 23, `browser:*` 20, `history:*` 11).

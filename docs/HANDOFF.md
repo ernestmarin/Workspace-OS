@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-BUG-01 · 2026-11-21
+## Vigente — IPC-MEM-01 · 2026-11-21
+
+Ver [ipc-mem-01-checkpoint-2026-11-21.md](ipc-mem-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `efc1118` (IPC-BUG-01).
+
+- Quince de los dieciséis canales `memory:*` no miraban el evento. El lado de escritura (`remember`, `correct`, `confirm`, `forget`) **muta el store de memoria personal** — `forget` borra sin deshacer y `correct` guarda la versión anterior como historial; el lado de lectura devuelve todo lo que la app sabe del usuario (incluido el DB de insights Pulse del workspace); y `propose` **lee un digest de sesión y llama al modelo de la persona**. RED 60/62 (15 × 4).
+- El store ya estaba **acotado al workspace activo** (derivado en main, nunca nombrado por el llamador): eso responde *qué* es alcanzable, no *quién* puede alcanzarlo. El mock registra **qué** operación se toca, así que "protegido" no se confunde con "devolvió `[]` porque el workspace estaba vacío".
+- `memory:status` sigue en `EXPLICITLY_NO_GUARD` (verdict B, estado del DB Pulse) y el test de inventario **sigue exigiendo que no tenga guard**: la decisión B queda visible, no supuesta.
+- Inventario: **473 = 347 + 74 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **116**. De los 74, 20 son B: quedan **54 canales verdict-A** (`speech:*` 23, `browser:*` 20, `history:*` 11).
+- Evidencia: RED 60/2; GREEN 62/62; M36–M38 detectadas (6 fallos cada una); suite completo **366 archivos + 3 omitidos, 4711 tests + 26 omitidos**; ESLint 0 sobre 1015 ficheros; build 0.
+
+## Anterior — IPC-BUG-01 · 2026-11-21
 
 Ver [ipc-bug-01-checkpoint-2026-11-21.md](ipc-bug-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `86f3c2f` (IPC-DIAG-01).
 

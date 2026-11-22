@@ -459,6 +459,22 @@ const MUST_HAVE_GUARD = new Set<string>([
   'bug:list',
   'bug:setRepo',
   'bug:status',
+  // Lote IPC-MEM-01 — el store de memoria personal del workspace
+  'memory:confirm',
+  'memory:correct',
+  'memory:forget',
+  'memory:history',
+  'memory:lastTidy',
+  'memory:list',
+  'memory:meaning',
+  'memory:propose',
+  'memory:query',
+  'memory:recent',
+  'memory:remember',
+  'memory:search',
+  'memory:similar',
+  'memory:stats',
+  'memory:tidy',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -567,22 +583,7 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'history:unstar',
   // mail — más de 50 canales, todos sin guard hoy (deuda P0, lote N+1b)
   // memory / menu / metric (parte) / office / pdf / projects / range / search...
-  'memory:confirm',
-  'memory:correct',
-  'memory:forget',
-  'memory:history',
-  'memory:lastTidy',
-  'memory:list',
-  'memory:meaning',
-  'memory:propose',
-  'memory:query',
-  'memory:recent',
-  'memory:remember',
-  'memory:search',
-  'memory:similar',
-  'memory:stats',
   'memory:status',
-  'memory:tidy',
   'menu:office-commands',
   'menu:run-action',
   'menu:set-actions',
@@ -732,6 +733,22 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'bug:list',
   'bug:setRepo',
   'bug:status',
+  // Lote IPC-MEM-01 — el store de memoria personal del workspace
+  'memory:confirm',
+  'memory:correct',
+  'memory:forget',
+  'memory:history',
+  'memory:lastTidy',
+  'memory:list',
+  'memory:meaning',
+  'memory:propose',
+  'memory:query',
+  'memory:recent',
+  'memory:remember',
+  'memory:search',
+  'memory:similar',
+  'memory:stats',
+  'memory:tidy',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
