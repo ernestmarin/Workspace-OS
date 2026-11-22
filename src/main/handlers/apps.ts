@@ -7,7 +7,7 @@ import { IpcValidationError } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import * as apps from '../apps/apps-store'
 import { BRIEF_FILE, imageFromDataUrl, IMAGE_LIMITS, reviewApp, runSeeing, writeBrief } from '../apps/app-harness'
-import { mainWindow } from '../main-window'
+import { dialogParent, mainWindow } from '../main-window'
 import { readPlan, writeTests } from '../apps/app-tests'
 import { runPlan, testing, type TestMode } from '../apps/app-driver'
 import { unzipSync, zipSync } from 'fflate'
@@ -140,8 +140,12 @@ async function saveFile(root: string, a: Record<string, unknown>): Promise<strin
   const name = (typeof a.name === 'string' ? a.name : 'export').replace(/[/\\:*?"<>|\u0000-\u001f]/g, ' ').trim().slice(0, 120) || 'export'
   const data = typeof a.data === 'string' ? a.data : ''
   if (data.length > 40 * 1024 * 1024) throw new Error('That file is too large')
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-  const r = await dialog.showSaveDialog(win, { defaultPath: path.join(root, name) })
+  // One rule for every native dialog in main: the live window (or none).
+  const parent = dialogParent()
+  const saveOptions = { defaultPath: path.join(root, name) }
+  const r = parent
+    ? await dialog.showSaveDialog(parent, saveOptions)
+    : await dialog.showSaveDialog(saveOptions)
   if (r.canceled || !r.filePath) return null
   fs.writeFileSync(r.filePath, a.encoding === 'base64' ? Buffer.from(data, 'base64') : data)
   return path.basename(r.filePath)
@@ -149,8 +153,15 @@ async function saveFile(root: string, a: Record<string, unknown>): Promise<strin
 
 async function openFile(root: string, a: Record<string, unknown>): Promise<{ name: string; data: string } | null> {
   const exts = (Array.isArray(a.accept) ? a.accept : []).filter((x): x is string => typeof x === 'string').map((x) => x.replace(/^\./, '')).filter((x) => /^\w{1,8}$/.test(x))
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-  const r = await dialog.showOpenDialog(win, { defaultPath: root, properties: ['openFile'], ...(exts.length ? { filters: [{ name: 'Files', extensions: exts }] } : {}) })
+  const parent = dialogParent()
+  const openOptions = {
+    defaultPath: root,
+    properties: ['openFile' as const],
+    ...(exts.length ? { filters: [{ name: 'Files', extensions: exts }] } : {}),
+  }
+  const r = parent
+    ? await dialog.showOpenDialog(parent, openOptions)
+    : await dialog.showOpenDialog(openOptions)
   const f = r.filePaths[0]
   if (r.canceled || !f) return null
   if (fs.statSync(f).size > 25 * 1024 * 1024) throw new Error('That file is larger than 25 MB')
@@ -288,8 +299,14 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
     const s = requireSlug(slug)
     const m = apps.readManifest(root, s)
     if (!m) throw new IpcValidationError('No such app')
-    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('documents'), `${m.name.replace(/[/\\:*?"<>|]/g, ' ').trim() || s}.wosapp`), filters: [{ name: 'Workspace OS app', extensions: ['wosapp'] }] })
+    const parent = dialogParent()
+    const saveOptions = {
+      defaultPath: path.join(app.getPath('documents'), `${m.name.replace(/[/\\:*?"<>|]/g, ' ').trim() || s}.wosapp`),
+      filters: [{ name: 'Workspace OS app', extensions: ['wosapp'] }],
+    }
+    const r = parent
+      ? await dialog.showSaveDialog(parent, saveOptions)
+      : await dialog.showSaveDialog(saveOptions)
     if (r.canceled || !r.filePath) return null
     fs.writeFileSync(r.filePath, zipSync(apps.packageFiles(root, s), { level: 6 }))
     return path.basename(r.filePath)
@@ -300,8 +317,14 @@ export function registerAppsHandlers(ipcMain: IpcMain): void {
   ipcHandle(ipcMain, IPC.APPS_IMPORTPICK, async (event) => {
     assertMainFrame(event)
     requireRoot()
-    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Workspace OS app', extensions: ['wosapp', 'zip'] }] })
+    const parent = dialogParent()
+    const pickOptions = {
+      properties: ['openFile' as const],
+      filters: [{ name: 'Workspace OS app', extensions: ['wosapp', 'zip'] }],
+    }
+    const r = parent
+      ? await dialog.showOpenDialog(parent, pickOptions)
+      : await dialog.showOpenDialog(pickOptions)
     const f = r.filePaths[0]
     if (r.canceled || !f) return null
     if (fs.statSync(f).size > apps.PACKAGE_LIMITS.totalBytes * 2) throw new IpcValidationError('That file is too large for an app')

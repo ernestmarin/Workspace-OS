@@ -6,7 +6,7 @@ import { ipcHandle } from '../ipc-registry'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../workspace-root'
 import { appStateDir, contentRoot, contentRootRel } from '../host-profile'
 import { IpcValidationError, validateFilePath } from '../ipc-validator'
-import { assertMainWindowFrame, sendToWindow, setMainWindow } from '../main-window'
+import { assertMainWindowFrame, dialogParent, sendToWindow, setMainWindow } from '../main-window'
 import { rebuildMenu } from '../menu'
 import { watchTree, type TreeWatcher } from '../fs/treeWatcher'
 
@@ -27,6 +27,9 @@ let watcher: TreeWatcher | null = null
  * use without removing a capability.
  */
 export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): void {
+  // `win` becomes the registered owner here (authorization needs an explicit
+  // one). It is never used to parent a dialog: those resolve the live window at
+  // call time (IPC-DIALOG-PARENT-01).
   setMainWindow(win)
   ipcHandle(ipcMain, IPC.FS_WATCH_START, async (event) => {
     assertMainWindowFrame(event)
@@ -59,7 +62,10 @@ export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): v
   // workspace root that every file-system validator scopes to.
   ipcHandle(ipcMain, IPC.FS_OPEN_FOLDER_DIALOG, async (event) => {
     assertMainWindowFrame(event)
-    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+    const parent = dialogParent()
+    const result = parent
+      ? await dialog.showOpenDialog(parent, { properties: ['openDirectory'] })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
     const dir = result.filePaths[0]
     if (!dir) return null
     const root = setWorkspaceRoot(dir)
@@ -116,9 +122,11 @@ export function registerWatcherHandlers(ipcMain: IpcMain, win: BrowserWindow): v
     const dot = base.lastIndexOf('.')
     const suggested = dot > 0 ? `${base.slice(0, dot)} copy${base.slice(dot)}` : `${base} copy`
 
-    const result = await dialog.showSaveDialog(win, {
-      defaultPath: path.join(path.dirname(src), suggested),
-    })
+    const parent = dialogParent()
+    const saveOptions = { defaultPath: path.join(path.dirname(src), suggested) }
+    const result = parent
+      ? await dialog.showSaveDialog(parent, saveOptions)
+      : await dialog.showSaveDialog(saveOptions)
     if (result.canceled || !result.filePath) return null
     await fs.copyFile(src, result.filePath)
     return result.filePath

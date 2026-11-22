@@ -8,7 +8,7 @@ import { IpcValidationError, validateFilePath, validateOpenPath } from '../ipc-v
 import { getWorkspaceRoot } from '../workspace-root'
 import { coerceGrid, encodeGridPayload, encodeTablePayload } from '../ranges'
 import { isValidA1 } from '../transclusions'
-import { sendToWindow, setMainWindow, isMainWindowSender } from '../main-window'
+import { dialogParent, sendToWindow, setMainWindow, isMainWindowSender } from '../main-window'
 import {
   lokAvailable,
   lokOpen,
@@ -108,6 +108,19 @@ interface TileArgs {
  * Native office rendering via the LibreOfficeKit sidecar (Phase 3a M2). The
  * renderer drives open → tile → close; tiles come back as BGRA buffers.
  */
+/**
+ * Native picker parented to whatever window is live *now*.
+ *
+ * `registerLokHandlers(ipcMain, win)` keeps that window for authorization, but
+ * parented dialogs to it forever: after `createWindow()` replaces the window,
+ * Electron throws "Object has been destroyed" and the picker the user asked for
+ * never opens. Same lifecycle bug as WATCH-02 / OFFICE-02 (IPC-DIALOG-PARENT-01).
+ */
+function openWithLiveParent(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
+  const parent = dialogParent()
+  return parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options)
+}
+
 export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void {
   setMainWindow(win)
   // Forward the engine's callback stream (cursor/selection/invalidate) to the renderer.
@@ -529,7 +542,7 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // the image into the document) and embedded, not linked.
   ipcHandle(ipcMain, IPC.LOK_INSERTIMAGE, async (event) => {
     assertLokSender(event)
-    const result = await dialog.showOpenDialog(win, {
+    const result = await openWithLiveParent({
       title: 'Insert image',
       properties: ['openFile'],
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'svg'] }],
@@ -545,7 +558,7 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // dispatch path above doesn't place a graphic on a slide headlessly.
   ipcHandle(ipcMain, IPC.LOK_IMAGESHAPE, async (event) => {
     assertLokSender(event)
-    const result = await dialog.showOpenDialog(win, {
+    const result = await openWithLiveParent({
       title: 'Insert image',
       properties: ['openFile'],
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'svg'] }],
@@ -603,7 +616,7 @@ export function registerLokHandlers(ipcMain: IpcMain, win: BrowserWindow): void 
   // Pick an image file and return its path (no insert) — for component authoring.
   ipcHandle(ipcMain, IPC.LOK_PICKIMAGE, async (event) => {
     assertLokSender(event)
-    const result = await dialog.showOpenDialog(win, {
+    const result = await openWithLiveParent({
       title: 'Choose image',
       properties: ['openFile'],
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'svg'] }],
