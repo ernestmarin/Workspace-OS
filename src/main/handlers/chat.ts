@@ -23,6 +23,20 @@ import { assertMainWindowFrame } from '../main-window'
  */
 
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+/**
+ * What the uploads folder may hold in total.
+ *
+ * The per-file cap alone is not a budget: 25 MB refused is a drop refused, but
+ * a hundred accepted drops are 2.5 GB inside a workspace the person is working
+ * in. A chat surface receives whatever is dropped or pasted, which is precisely
+ * where a repeated paste or a stuck loop lands, so the folder needs a bound of
+ * its own.
+ *
+ * Overridable through `WOS_MAX_UPLOADS_BYTES` (the same shape as the other
+ * workspace toggles) so the limit can be exercised without writing half a
+ * gigabyte; nonsense values fall back to this default.
+ */
+export const MAX_UPLOADS_BYTES = 512 * 1024 * 1024
 const MAX_SESSIONS_BYTES = 40 * 1024 * 1024
 
 const appDir = (root: string): string => appStateDir(root)
@@ -49,10 +63,57 @@ function freePath(dir: string, name: string): string {
   return p
 }
 
+/** The budget in force: `WOS_MAX_UPLOADS_BYTES` when it is a usable number. */
+export function uploadsBudgetBytes(): number {
+  const raw = process.env['WOS_MAX_UPLOADS_BYTES']
+  if (raw === undefined || raw === '') return MAX_UPLOADS_BYTES
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : MAX_UPLOADS_BYTES
+}
+
+/**
+ * Bytes already stored under `dir`, counting every day folder.
+ *
+ * Symlinks are counted as zero and never followed: the budget is about what this
+ * folder stores, and a link inside it must not make the number depend on a file
+ * outside it (or make the walk escape the workspace).
+ */
+export function uploadsBytes(dir: string): number {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return 0
+  }
+  let total = 0
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) total += uploadsBytes(full)
+    else if (entry.isFile()) {
+      try {
+        total += fs.statSync(full).size
+      } catch {
+        /* vanished between readdir and stat: it cannot be using space */
+      }
+    }
+  }
+  return total
+}
+
 export function writeUpload(root: string, name: string, bytes: Uint8Array, now = new Date()): string {
   if (bytes.byteLength > MAX_UPLOAD_BYTES) throw new IpcValidationError(`That file is larger than ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`)
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  const dir = path.join(appDir(root), 'uploads', day)
+  const uploads = path.join(appDir(root), 'uploads')
+  // Checked before the write, so a refusal leaves nothing behind — not even the
+  // day folder the write would have created.
+  const budget = uploadsBudgetBytes()
+  const used = uploadsBytes(uploads)
+  if (used + bytes.byteLength > budget) {
+    throw new IpcValidationError(
+      `The uploads folder is full (${Math.floor(budget / 1024 / 1024)} MB). Delete some uploads before adding more.`,
+    )
+  }
+  const dir = path.join(uploads, day)
   fs.mkdirSync(dir, { recursive: true })
   const file = freePath(dir, safeUploadName(name))
   fs.writeFileSync(file, bytes)
