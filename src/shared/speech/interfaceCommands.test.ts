@@ -46,6 +46,18 @@ describe('review-only interface command proposals (not an executor)', () => {
       expect(proposeInterfaceCommand('commands', stale, final('show files'), 'en')).toBeNull()
     }
   })
+  it('never proposes a command the calling surface did not bind an action to (VOX-REACH-02)', () => {
+    const bound = ['focus-agent-input', 'show-agent', 'show-files', 'show-browser'] as const
+    // Bound commands still propose, in both locales.
+    expect(proposeInterfaceCommand('commands', context(), final('muestra archivos'), 'es', bound)?.command).toBe('show-files')
+    expect(proposeInterfaceCommand('commands', context(), final('open browser'), 'en', bound)?.command).toBe('show-browser')
+    // The grammar knows it; this surface cannot perform it, so it is not offered.
+    expect(proposeInterfaceCommand('commands', context(), final('open voice settings'), 'en', bound)).toBeNull()
+    expect(proposeInterfaceCommand('commands', context(), final('abre ajustes de voz'), 'es', bound)).toBeNull()
+    // An empty allow-list offers nothing; omitting the argument keeps the full vocabulary.
+    expect(proposeInterfaceCommand('commands', context(), final('show files'), 'en', [])).toBeNull()
+    expect(proposeInterfaceCommand('commands', context(), final('show files'), 'en')?.command).toBe('show-files')
+  })
   it('returns an inert snapshot, not a permission grant or an agent prompt', () => {
     const active = context(), transcript = final('  Show  files.  ')
     const proposal = proposeInterfaceCommand('commands', active, transcript, 'en')

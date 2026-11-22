@@ -1,11 +1,24 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { agentActionsHint } from './surfaceActions'
 import { RunTrace } from '../AgentTerminal/RunTrace'
+import { VoiceDictation, type FinalVoiceCommandCapture } from '../AgentTerminal/VoiceDictation'
+import { InterfaceCommandController, type PendingInterfaceCommand } from '../AgentTerminal/interfaceCommandController'
 import { PromptBar } from '../PromptBar/PromptBar'
+import { openRail } from '../Landscape/agentActions'
 import { sessionStore } from '../../lib/sessions/sessionStore'
 import { useSessions } from '../Landscape/session/SessionPane'
+import type { InterfaceCommandId } from '../../../../shared/speech/interfaceCommands'
 import styles from './TerminalDock.module.css'
 import { basename as pathBase } from '../../lib/paths'
+
+/**
+ * VOX-REACH-01 — what this surface can actually do with a voice command.
+ *
+ * `show-voice-settings` is deliberately absent: the dock has no path to the
+ * Settings panel, and proposing it would put a Confirm button on screen whose
+ * click does nothing. An unbindable command is never proposed.
+ */
+const VOICE_COMMANDS: readonly InterfaceCommandId[] = ['focus-agent-input', 'show-agent', 'show-files', 'show-browser']
 
 interface HarnessContext {
   root: string | null
@@ -19,6 +32,11 @@ interface Props {
   context: HarnessContext
   /** The persona this tab runs as (passed into agent.run's agentName slot). */
   agentName?: string
+  /**
+   * Whether this is the dock's visible tab. A hidden tab must not hold a
+   * microphone, a pending voice command or a proposed action.
+   */
+  active?: boolean
   /** Opens a run deliverable in the editor (a trace file chip was clicked). */
   onOpenFile?: (path: string) => void
 }
@@ -48,7 +66,7 @@ export const dockSessionId = (tabId: string): string => `dock${tabId.replace(/[^
  * case and continued from its card. Injects the live harness so the agent
  * knows where the person is.
  */
-export function TerminalAgentPane({ sessionId, context, agentName, onOpenFile }: Props): JSX.Element {
+export function TerminalAgentPane({ sessionId, context, agentName, active = true, onOpenFile }: Props): JSX.Element {
   const id = dockSessionId(sessionId)
   useSessions()
   useEffect(() => {
@@ -67,6 +85,69 @@ export function TerminalAgentPane({ sessionId, context, agentName, onOpenFile }:
   const logRef = useRef<HTMLDivElement>(null)
   const ctxRef = useRef(context)
   ctxRef.current = context
+
+  /*
+   * VOX-REACH-01 — the voice conversation, mounted where the agent is actually
+   * reached. Dictation lands in the composer for review (it never submits); an
+   * exact es/en phrase in command mode produces one visual confirmation card
+   * that performs a single reversible navigation/focus action on an explicit
+   * click. Recognition is never an action, a prompt, a grant or an approval.
+   */
+  const [dictatedText, setDictatedText] = useState<string | null>(null)
+  const consumeDictation = useCallback(() => setDictatedText(null), [])
+  const acceptDictation = useCallback((text: string) => setDictatedText(text), [])
+  const [focusSignal, setFocusSignal] = useState(0)
+  const [pendingVoiceCommand, setPendingVoiceCommand] = useState<PendingInterfaceCommand | null>(null)
+  const commandControllerRef = useRef<InterfaceCommandController | null>(null)
+  if (!commandControllerRef.current) commandControllerRef.current = new InterfaceCommandController({ available: VOICE_COMMANDS })
+  const commandEpochRef = useRef(1)
+  const invalidateVoiceCommands = useCallback(() => {
+    commandEpochRef.current += 1
+    commandControllerRef.current?.invalidate()
+    setPendingVoiceCommand(null)
+  }, [])
+
+  // Switching dock tabs or hiding the window revokes a proposal the person can
+  // no longer see; it never touches a running agent.
+  useEffect(() => { if (!active) invalidateVoiceCommands() }, [active, invalidateVoiceCommands])
+  useEffect(() => {
+    const onVisibility = (): void => { if (document.hidden) invalidateVoiceCommands() }
+    window.addEventListener('pagehide', invalidateVoiceCommands)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', invalidateVoiceCommands)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [invalidateVoiceCommands])
+
+  const voiceCommandContext = useCallback(
+    () => ({ documentId: 'workspace-main', tabId: id, epoch: commandEpochRef.current }),
+    [id],
+  )
+  const handleFinalVoiceCommand = useCallback((capture: FinalVoiceCommandCapture) => {
+    const ctx = voiceCommandContext()
+    setPendingVoiceCommand(commandControllerRef.current!.ingestFinalTranscript(
+      'commands',
+      ctx,
+      { type: 'final', id: capture.transcriptId, context: ctx, text: capture.text },
+      capture.language,
+    ))
+  }, [voiceCommandContext])
+  const confirmVoiceCommand = useCallback(() => {
+    const entry = pendingVoiceCommand
+    if (!entry) return
+    commandControllerRef.current!.confirm(entry.proposalId, voiceCommandContext(), {
+      'focus-agent-input': () => setFocusSignal((n) => n + 1),
+      'show-agent': () => openRail('agents'),
+      'show-files': () => openRail('files'),
+      'show-browser': () => openRail('browser'),
+    })
+    setPendingVoiceCommand(null)
+  }, [pendingVoiceCommand, voiceCommandContext])
+  const dismissVoiceCommand = useCallback(() => {
+    commandControllerRef.current?.invalidate()
+    setPendingVoiceCommand(null)
+  }, [])
 
   // Named: a complex expression in the dep array cannot be statically checked,
   // and "the last message grew" is the actual trigger (streaming text).
@@ -114,11 +195,29 @@ export function TerminalAgentPane({ sessionId, context, agentName, onOpenFile }:
       </div>
       <RunTrace steps={live.steps} busy={busy} files={files} onOpenFile={onOpenFile} />
       <div className={styles.composer}>
+        {pendingVoiceCommand && (
+          <div role="region" aria-label="Voice command confirmation" className={styles.msgSystem}>
+            <span>
+              {pendingVoiceCommand.proposal.language === 'es' ? 'Comando propuesto:' : 'Proposed command:'}{' '}
+              <strong>{pendingVoiceCommand.proposal.label}</strong> («{pendingVoiceCommand.proposal.heardText}»)
+            </span>{' '}
+            <button type="button" onClick={confirmVoiceCommand}>
+              {pendingVoiceCommand.proposal.language === 'es' ? 'Confirmar comando' : 'Confirm command'}
+            </button>{' '}
+            <button type="button" onClick={dismissVoiceCommand}>
+              {pendingVoiceCommand.proposal.language === 'es' ? 'Descartar' : 'Dismiss'}
+            </button>
+          </div>
+        )}
+        <VoiceDictation active={active} onTranscript={acceptDictation} onFinalCommand={handleFinalVoiceCommand} />
         <PromptBar
           placeholder="Ask the agent — @ file, / skill…"
           disabled={busy}
           commands={skills.map((k) => ({ name: k.name, hint: k.description }))}
           onSubmit={submit}
+          dictatedText={dictatedText}
+          onDictationConsumed={consumeDictation}
+          focusSignal={focusSignal}
         />
       </div>
     </div>

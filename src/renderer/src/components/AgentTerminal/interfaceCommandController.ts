@@ -26,12 +26,19 @@ export interface PendingInterfaceCommand {
 
 export class InterfaceCommandController {
   private readonly ttlMs: number
+  /**
+   * Command ids this surface really binds an action to. A command outside it is
+   * never proposed, so the confirmation card can never offer a button whose
+   * click is a silent no-op. `undefined` keeps the grammar's full vocabulary.
+   */
+  private readonly available: readonly InterfaceCommandId[] | undefined
   private pending: PendingInterfaceCommand | null = null
   private consumedProposalIds = new Set<string>()
   private seq = 0
 
-  constructor(options?: { ttlMs?: number }) {
+  constructor(options?: { ttlMs?: number; available?: readonly InterfaceCommandId[] }) {
     this.ttlMs = Math.max(1_000, Math.min(options?.ttlMs ?? 15_000, 60_000))
+    this.available = options?.available
   }
 
   ingestFinalTranscript(
@@ -42,7 +49,7 @@ export class InterfaceCommandController {
     now = Date.now(),
   ): PendingInterfaceCommand | null {
     this.pending = null
-    const proposal = proposeInterfaceCommand(mode, activeContext, transcript, language)
+    const proposal = proposeInterfaceCommand(mode, activeContext, transcript, language, this.available)
     if (!proposal) return null
     const proposalId = `icmd-${now}-${++this.seq}`
     const entry: PendingInterfaceCommand = {
