@@ -28,7 +28,7 @@ had been examined" was wrong, and the triage inherited it.
 | --- | --- |
 | `src/main/speech/handlers.ts` | **No production change.** Twenty-seven handlers already call `assertOwner` first. |
 | `src/main/speech/handlers.authorization.test.ts` | **new**: 137 tests — 27 channels × 4 unauthorized callers (missing frame, child frame, foreign sender, foreign top-level frame), 27 owner controls asserting the store/engine was reached and the advertised result, plus three source-level invariant tests (the wrapper definition, `assertWorkspace`'s body, and that all 27 handlers call it). |
-| `src/main/ipc-authorization.test.ts` | `assertOwner(` recognised as an origin guard **with the pinning test named in a comment**; registry regex generalised to any parameter name; the scanner test extended to assert `speech/handlers.ts` is scanned. 27 channels moved from `EXPLICITLY_NO_GUARD` to `MUST_HAVE_GUARD`; `MUST_HAVE_ORIGIN_GUARD` extended to **174**. |
+| `src/main/ipc-authorization.test.ts` | `assertOwner(` recognised as an origin guard **with the pinning test named in a comment**; registry regex generalised to any parameter name; the scanner test extended to assert `speech/handlers.ts` is scanned; and a **mechanical sweep** added — the set of declared channels the scanner cannot see must be *exactly* `PUSH_CHANNELS`, so any future registration form opens the gap as a failure instead of as silent debt. 27 channels moved from `EXPLICITLY_NO_GUARD` to `MUST_HAVE_GUARD`; `MUST_HAVE_ORIGIN_GUARD` extended to **174**. |
 
 The suite is behavioural first: the four refusal rows are the *measurement*, and
 the source-level tests exist to keep the name `assertOwner` honest.
@@ -40,10 +40,11 @@ the source-level tests exist to keep the name `assertOwner` honest.
 | S1 | `vitest run … speech/handlers.authorization.test.ts` (first draft, guard family unchecked) | draft | 1 | 135 failed — the fixture's own faults, recorded below |
 | S2 | same | final | 0 | **GREEN**: 137/137, including 27 refusal rows × 4 and 27 controls |
 | S3 | mutation M45 (remove `assertOwner` from `speech:set-key`) | mutated | 1 | **7 failures**: 4 refusals + the source invariant + the two inventory tests |
+| S3b | mutation M47 (narrow the registry pattern to the speech-only shape) | mutated | 1 | **4 failures** — including the new mechanical sweep, which names every channel that no longer resolves to a registration |
 | S4 | mutation M46 (revert the registry regex to a literal `ipcMain`) | mutated | 1 | **3 failures** — the inventory can no longer see twenty-seven channels |
 | S5 | `tsc --noEmit -p tsconfig.node.json` | final | 0 | no diagnostics |
 | S6 | full ESLint JSON over `src` | final | 0 | 1018 files, 0 errors / 0 warnings |
-| S7 | full suite (`--maxWorkers=2`) | final | 0 | **369 files pass + 3 skipped; 4977 tests pass + 26 skipped; 0 failed** (+137, the new suite; the two scanner assertions live inside existing tests) |
+| S7 | full suite (`--maxWorkers=2`) | final | 0 | **369 files pass + 3 skipped; 4978 tests pass + 26 skipped; 0 failed** (+138: the new suite plus the mechanical sweep below) |
 | S8 | `npm run build` | final | 0 | clean (generated `resources/wos-*` files reverted afterwards) |
 
 **Own mistakes, recorded (three, all in the fixture):** the first registration
@@ -120,10 +121,12 @@ absence.
 
 ## 8. Next steps (not a batch)
 
-1. **Full-series re-audit of the scanner** — the two blind spots were found by
-   hand. A mechanical sweep (every `ipc*.handle`/registry call shape in `src/main`,
-   compared against the scanned set) would turn "we think we see everything" into
-   a check.
+1. ~~Full-series re-audit of the scanner~~ — **done in this batch**: the sweep
+   asserts that the channels the scanner cannot see are exactly `PUSH_CHANNELS`,
+   and M47 (narrowing the pattern) fails four tests. What remains is the human
+   question the sweep cannot answer: whether a *recognised* guard name is a real
+   guard — which is why `assertOwner(` ships with a pinning test and no other
+   alias should be trusted without one.
 2. **An independent review** of the twelve batches, starting with the three
    batches whose findings *changed* the triage (`drive:connection`,
    `bug:status`, `speech`).

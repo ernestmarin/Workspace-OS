@@ -911,6 +911,18 @@ describe('N+1 IPC authorization — exhaustividad y guard', () => {
     for (const ch of PUSH_CHANNELS) expect(channelGuard.get(ch)).toBe(false)
   })
 
+  it('ningún canal declarado escapa al escáner (barrido mecánico)', () => {
+    // The two blind spots (HIST-02, SPEECH-02) were found by hand. This is the
+    // mechanical version: a declared channel is either seen by the scanner or is
+    // a push channel (main → renderer, never invokable). Any third outcome is a
+    // registration form the inventory does not understand — exactly the shape of
+    // both historical blind spots.
+    const invisible = [...declared.keys()].filter((c) => !channelFiles.has(c))
+    expect(invisible.sort(), `sin snippet: ${invisible.join(', ')}`).toEqual([...PUSH_CHANNELS].sort())
+    const unknown = invisible.filter((c) => !PUSH_CHANNELS.has(c))
+    expect(unknown, `canales en ninguna forma conocida: ${unknown.join(', ')}`).toEqual([])
+  })
+
   it('el escáner ve las dos formas de registro de ipcMain', () => {
     // IPC-HIST-01: `handlers/history.ts` registers with `ipcMain.handle(IPC.X, …)`
     // instead of the `ipcHandle` registry. Until the scanner knew that form, its

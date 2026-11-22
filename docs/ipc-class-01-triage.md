@@ -128,7 +128,9 @@ named `ipcMain` — `speech/handlers.ts` uses `ipcHandle(ipc, …)` and had no s
 at all. Two blind spots, one number: the remaining-A count was never 23, it was 0.
 The scanner now accepts any parameter name, accepts `assertOwner(` **only with a
 test that pins its definition**, and asserts positively that each registration
-file is visible. The sixteen channels left in `EXPLICITLY_NO_GUARD` are the
+file is visible — plus a mechanical sweep that the channels the scanner cannot see
+are *exactly* `PUSH_CHANNELS`, so a future form fails loudly instead of becoming
+silent debt. The sixteen channels left in `EXPLICITLY_NO_GUARD` are the
 verdict-B list.
 
 **Tooling repair made while doing it (HIST-02):** `handlers/history.ts` registers

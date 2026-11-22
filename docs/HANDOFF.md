@@ -7,8 +7,9 @@ Ver [ipc-speech-02-checkpoint-2026-11-21.md](ipc-speech-02-checkpoint-2026-11-21
 - **El hallazgo del lote es que no había nada que arreglar:** los veintisiete handlers `speech:*` ya verificaban el emisor con el `assertOwner(event)` del propio módulo, que es `documentFor(assertWorkspace(event))` y, por dentro, `assertMainFrame` + identidad de sender y frame con `mainWindow()`. El triage los daba como verdict A porque el inventario conocía `assertWorkspace(` pero no el nombre del wrapper, y porque su patrón exigía que el parámetro se llamara `ipcMain` — `speech/handlers.ts` registra con `ipcHandle(ipc, …)` y no tenía snippet. **Dos puntos ciegos, un número: los verdict-A restantes nunca fueron 23, eran 0.**
 - Lo que sí faltaba era la **evidencia**: 137 tests nuevos (27 × 4 formas de llamador no autorizado, 27 controles del owner, y tres invariantes de fuente que fijan que `assertOwner` es de verdad el mecanismo y no un nombre). M45 (quitar `assertOwner` de `speech:set-key`) rompe 7 tests; M46 (volver al `ipcMain` literal) rompe 3.
 - Inventario: **473 = 405 + 16 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **174**. Los 16 que quedan en `EXPLICITLY_NO_GUARD` son la lista B.
-- Evidencia: GREEN 137/137; M45/M46 detectadas; suite completo **369 archivos + 3 omitidos, 4977 tests + 26 omitidos**; ESLint 0 sobre 1018 ficheros; build 0.
-- Pendiente, por orden: barrido mecánico del escáner (los dos puntos ciegos se encontraron a mano), **revisión independiente** de la serie, y **NIVEL 3** — el hueco honesto más grande: doce lotes aceptados en NIVEL 2, ninguno con Electron real, micrófono real, LibreOffice real ni una cuenta de Drive real.
+- Barrido mecánico añadido: los canales que el escáner no ve tienen que ser **exactamente** `PUSH_CHANNELS`; M47 (estrechar el patrón) rompe 4 tests. Ya no hace falta descubrir el siguiente punto ciego a mano.
+- Evidencia: GREEN 137/137; M45/M46/M47 detectadas; suite completo **369 archivos + 3 omitidos, 4978 tests + 26 omitidos**; ESLint 0 sobre 1018 ficheros; build 0.
+- Pendiente, por orden: **revisión independiente** de la serie, y **NIVEL 3** — el hueco honesto más grande: doce lotes aceptados en NIVEL 2, ninguno con Electron real, micrófono real, LibreOffice real ni una cuenta de Drive real.
 
 ## Anterior — IPC-BROWSER-02 · 2026-11-21
 
