@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
+import { assertMainWindowFrame } from '../main-window'
 import { logPath } from '../crash-reporter'
 import { getContext } from '../context/workspaceContext'
 import {
@@ -164,7 +165,8 @@ function str(v: unknown, field: string): string {
 
 export function registerBugHandlers(ipcMain: IpcMain): void {
   /** Where reports will land, and whether analysis can see the source. */
-  ipcHandle(ipcMain, IPC.BUG_STATUS, () => {
+  ipcHandle(ipcMain, IPC.BUG_STATUS, (event) => {
+    assertMainWindowFrame(event)
     const repoRoot = resolveRepoRoot()
     return {
       repoRoot,
@@ -174,7 +176,8 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
   })
 
   /** Point the reporter at the development repo (validated). */
-  ipcHandle(ipcMain, IPC.BUG_SETREPO, (_e, dir: unknown) => {
+  ipcHandle(ipcMain, IPC.BUG_SETREPO, (event, dir: unknown) => {
+    assertMainWindowFrame(event)
     const d = str(dir, 'repo path')
     if (!isWorkspaceOsRepo(d)) {
       throw new IpcValidationError('That folder is not the Workspace-OS repository')
@@ -184,18 +187,20 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
   })
 
   /** Everything the app knows about right now — shown to the user before filing. */
-  ipcHandle(ipcMain, IPC.BUG_CONTEXT, (_e, surface: unknown, openFile: unknown) =>
-    gatherContext(
+  ipcHandle(ipcMain, IPC.BUG_CONTEXT, (event, surface: unknown, openFile: unknown) => {
+    assertMainWindowFrame(event)
+    return gatherContext(
       typeof surface === 'string' ? surface : null,
       typeof openFile === 'string' ? openFile : null,
-    ),
-  )
+    )
+  })
 
   /**
    * Analyze — read-only, and returns a PROPOSAL. Nothing is written here; the
    * user reviews and corrects it first.
    */
-  ipcHandle(ipcMain, IPC.BUG_ANALYZE, async (_e, text: unknown, surface: unknown, openFile: unknown, kind: unknown) => {
+  ipcHandle(ipcMain, IPC.BUG_ANALYZE, async (event, text: unknown, surface: unknown, openFile: unknown, kind: unknown) => {
+    assertMainWindowFrame(event)
     const body = str(text, 'report')
     const repoRoot = resolveRepoRoot()
     const k: ReportKind = kind === 'idea' ? 'idea' : 'bug'
@@ -213,7 +218,8 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
    * File it. Accepts the (possibly user-edited) analysis, or none at all — a
    * failed analysis must never cost the user their report.
    */
-  ipcHandle(ipcMain, IPC.BUG_FILE, (_e, text: unknown, analysis: unknown, context: unknown, kind: unknown) => {
+  ipcHandle(ipcMain, IPC.BUG_FILE, (event, text: unknown, analysis: unknown, context: unknown, kind: unknown) => {
+    assertMainWindowFrame(event)
     const body = str(text, 'report')
     const repoRoot = resolveRepoRoot()
     if (!repoRoot) {
@@ -240,7 +246,8 @@ export function registerBugHandlers(ipcMain: IpcMain): void {
   })
 
   /** The current log, for an in-app list of what's outstanding. */
-  ipcHandle(ipcMain, IPC.BUG_LIST, () => {
+  ipcHandle(ipcMain, IPC.BUG_LIST, (event) => {
+    assertMainWindowFrame(event)
     const repoRoot = resolveRepoRoot()
     return repoRoot ? parseBugs(readBugLog(repoRoot)) : []
   })

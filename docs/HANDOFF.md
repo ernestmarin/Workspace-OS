@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-DIAG-01 · 2026-11-21
+## Vigente — IPC-BUG-01 · 2026-11-21
+
+Ver [ipc-bug-01-checkpoint-2026-11-21.md](ipc-bug-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `86f3c2f` (IPC-DIAG-01).
+
+- Los seis canales del bug reporter no miraban el evento: `bug:file` **añade un informe a `docs/BUGS.md` del repo de desarrollo**, `bug:analyze` gasta una llamada al modelo y manda el contexto vivo y la cola de errores, `bug:setRepo` **re-apunta dónde caen los informes** y `status`/`context`/`list` devuelven la ruta absoluta del repo, el commit, el contexto vivo y los últimos errores del log. RED 24/26 (6 × 4).
+- **`bug:status` estaba triado B** (“poller status, no user content”) y devuelve ruta + log + número de informes: pasa a A, como `drive:connection`. Verdict A 123 → **124**, B 21 → **20**.
+- `bug:setRepo` ya validaba que el destino fuera este repo (`package.json` con `name: workspace-os`): acota **dónde**, no **quién**. El guard va delante y la validación se queda; el test la ejerce con una carpeta que no es el repo.
+- Inventario: **473 = 332 + 89 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **101**. De los 89, 20 son B: quedan **69 canales verdict-A** (`memory:*` 15, `speech:*` 23, `history:*` 11, `browser:*` 20).
+- Evidencia: RED 24/2; GREEN 26/26; M34/M35 detectadas (6 fallos cada una); suite completo **365 archivos + 3 omitidos, 4649 tests + 26 omitidos**; ESLint 0 sobre 1014 ficheros; build 0.
+
+## Anterior — IPC-DIAG-01 · 2026-11-21
 
 Ver [ipc-diag-01-checkpoint-2026-11-21.md](ipc-diag-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `c6c75af` (merge de IPC-STORE-01).
 

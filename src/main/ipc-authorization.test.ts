@@ -452,6 +452,13 @@ const MUST_HAVE_GUARD = new Set<string>([
   'snapshot:delete',
   'snapshot:list',
   'snapshot:save',
+  // Lote IPC-BUG-01 — el reporter de bugs lee y escribe el repo de desarrollo
+  'bug:analyze',
+  'bug:context',
+  'bug:file',
+  'bug:list',
+  'bug:setRepo',
+  'bug:status',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -543,12 +550,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'browser:unregister-tab',
   'browser:wait-for',
   // bugs / calendar / cases / chat / checkpoint
-  'bug:analyze',
-  'bug:context',
-  'bug:file',
-  'bug:list',
-  'bug:setRepo',
-  'bug:status',
   // collections / components / drive (parte)
   'drive:local-name',
   // fs (parte no sensible hoy: list/reveal/watch)
@@ -724,6 +725,13 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'snapshot:delete',
   'snapshot:list',
   'snapshot:save',
+  // Lote IPC-BUG-01 — el reporter de bugs lee y escribe el repo de desarrollo
+  'bug:analyze',
+  'bug:context',
+  'bug:file',
+  'bug:list',
+  'bug:setRepo',
+  'bug:status',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
