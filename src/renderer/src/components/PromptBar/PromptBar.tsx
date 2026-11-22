@@ -27,6 +27,15 @@ interface Props {
   compact?: boolean
   /** `#` mentions a case. Optional third arg carries the tagged case ids. */
   onSubmit: (text: string, mentions: string[], caseIds?: string[]) => void
+  /**
+   * Dictated text to append to the draft. It lands in the composer for review
+   * and is never sent by itself — Enter/Send stays the only submission.
+   */
+  dictatedText?: string | null
+  /** Called once the dictated text has been merged, so it cannot merge twice. */
+  onDictationConsumed?: () => void
+  /** Bumped to ask for the composer's attention (a confirmed voice command). */
+  focusSignal?: number
 }
 
 interface PopoverState {
@@ -37,7 +46,7 @@ interface PopoverState {
   sel: number
 }
 
-export function PromptBar({ placeholder, disabled, commands, popover = 'up', compact, onSubmit }: Props): JSX.Element {
+export function PromptBar({ placeholder, disabled, commands, popover = 'up', compact, onSubmit, dictatedText, onDictationConsumed, focusSignal }: Props): JSX.Element {
   const [text, setText] = useState('')
   const [mentions, setMentions] = useState<string[]>([])
   const [caseMentions, setCaseMentions] = useState<CaseRef[]>([])
@@ -176,6 +185,28 @@ export function PromptBar({ placeholder, disabled, commands, popover = 'up', com
   }
 
   useEffect(() => () => setPop(null), [])
+
+  /*
+   * Dictation is input, not a submission: the transcript is appended to the
+   * draft and the composer takes focus, so the person reads what was heard and
+   * presses Send. Consuming it immediately is what makes the same transcript
+   * impossible to merge twice if this effect re-runs.
+   */
+  useEffect(() => {
+    if (!dictatedText) return
+    setText((existing) => (existing.trim() ? `${existing.replace(/\s+$/, '')} ${dictatedText}` : dictatedText))
+    onDictationConsumed?.()
+    inputRef.current?.focus()
+  }, [dictatedText, onDictationConsumed])
+
+  // A confirmed voice command asks for the composer; only a change asks.
+  const lastFocusSignal = useRef(focusSignal ?? 0)
+  useEffect(() => {
+    const next = focusSignal ?? 0
+    if (next === lastFocusSignal.current) return
+    lastFocusSignal.current = next
+    inputRef.current?.focus()
+  }, [focusSignal])
 
   // Auto-grow with the draft: measure, clamp to the CSS max-height (~6 lines),
   // scroll beyond it. Layout effect so the height never flashes a frame behind.

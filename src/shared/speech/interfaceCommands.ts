@@ -37,8 +37,15 @@ function context(value: unknown): value is InterfaceCommandContext {
  * snapshot. Exact final speech can only propose a reversible navigation/focus
  * action. U2 must still revalidate context and require visual confirmation.
  * These identities prevent lifecycle mistakes in a trusted renderer, not malicious code.
+ *
+ * `available` is the set of command ids the calling surface actually binds an
+ * action to. Without it the grammar proposes commands the surface cannot
+ * perform: the confirmation card then offers a button whose click is silently
+ * swallowed by `InterfaceCommandController.confirm`, which is indistinguishable
+ * from a working command that failed. An unbindable command is not proposed at
+ * all. Omitting the argument keeps the previous "grammar decides" behaviour.
  */
-export function proposeInterfaceCommand(mode: unknown, active: unknown, transcript: unknown, language: unknown): InterfaceCommandProposal | null {
+export function proposeInterfaceCommand(mode: unknown, active: unknown, transcript: unknown, language: unknown, available?: readonly InterfaceCommandId[]): InterfaceCommandProposal | null {
   if (mode !== 'commands' || (language !== 'en' && language !== 'es') || !context(active)) return null
   if (!record(transcript, ['type', 'id', 'context', 'text']) || transcript.type !== 'final' || !identity(transcript.id) || !context(transcript.context)) return null
   const origin = transcript.context
@@ -50,5 +57,6 @@ export function proposeInterfaceCommand(mode: unknown, active: unknown, transcri
   const phrase = text.normalize('NFC').trim().toLowerCase().replace(/ +/g, ' ').replace(/\.$/, '')
   const command = commands.find((entry) => entry[language].includes(phrase))
   if (!command) return null
+  if (available && !available.includes(command.id)) return null
   return { kind: 'interface-command-proposal', command: command.id, language, label: command.labels[language], context: { ...active }, transcriptId: transcript.id, heardText: text, requiresVisualReview: true }
 }

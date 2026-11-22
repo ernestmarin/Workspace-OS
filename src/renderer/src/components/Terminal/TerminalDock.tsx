@@ -344,7 +344,13 @@ export function TerminalDock({ context, resizeSignal, launchAgent, onAgentLaunch
                   context={context}
                 />
               ) : (
-                <TerminalAgentPane sessionId={t.id} context={context} agentName={t.agentName} onOpenFile={onOpenFile} />
+                <TerminalAgentPane
+                  sessionId={t.id}
+                  context={context}
+                  agentName={t.agentName}
+                  active={active === t.id}
+                  onOpenFile={onOpenFile}
+                />
               )}
             </div>
           ))

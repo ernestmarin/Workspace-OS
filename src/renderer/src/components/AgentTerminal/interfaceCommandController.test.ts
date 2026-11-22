@@ -71,4 +71,19 @@ describe('InterfaceCommandController one-shot visual confirmation (VOX-U2 & VOX-
     expect(ctrl.confirm(p2.proposalId, ctx, callbacks, 7_600)).toBe(false)
     expect(callbacks['focus-agent-input']).not.toHaveBeenCalled()
   })
+  it('only proposes commands the surface binds, so Confirm can never be a silent no-op (VOX-REACH-02)', () => {
+    const callbacks = { 'show-files': vi.fn(), 'show-browser': vi.fn() }
+    const ctrl = new InterfaceCommandController({ ttlMs: 15_000, available: ['show-files'] })
+
+    // In the grammar, but this surface has no action for it: never proposed.
+    expect(ctrl.ingestFinalTranscript('commands', ctx, { type: 'final', id: 'tr-9', context: ctx, text: 'open browser' }, 'en', 1_000)).toBeNull()
+    expect(ctrl.current(1_000)).toBeNull()
+
+    // A bound command still proposes and still needs the explicit click.
+    const pending = ctrl.ingestFinalTranscript('commands', ctx, { type: 'final', id: 'tr-10', context: ctx, text: 'abre archivos' }, 'es', 2_000)!
+    expect(pending.proposal.command).toBe('show-files')
+    expect(callbacks['show-files']).not.toHaveBeenCalled()
+    expect(ctrl.confirm(pending.proposalId, ctx, callbacks, 2_500)).toBe(true)
+    expect(callbacks['show-files']).toHaveBeenCalledTimes(1)
+  })
 })
