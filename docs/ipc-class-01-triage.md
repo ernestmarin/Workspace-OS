@@ -55,14 +55,15 @@ inventory → mutation → gates → checkpoint).
 | 1 | **workspace root** ✅ *done — IPC-WORKSPACE-02* | 3 | `workspace:open-recent`, `workspace:close`, `workspace:recents` | `open-recent` calls `openWorkspacePath(dir)` with an **unvalidated string** — it reassigns the authoritative workspace root, exactly what `fs:open-folder-dialog` does and what IPC-WATCH-01 guarded. `recents` returns the user's recent folder paths. |
 | 2 | **drive** ✅ *done — IPC-DRIVE-02* | 6 | `drive:connect`, `drive:disconnect`, `drive:list`, `drive:open`, `drive:search`, **`drive:connection`** | network + OAuth secrets + `drive:open` writes a remote file into the workspace |
 | 3 | **chat sessions** ✅ *done — IPC-SESSION-02* | 3 | `sessions:load`, `sessions:save`, `chat:upload` | conversation transcripts and uploaded attachments on disk |
-| 4 | **printing** | 1 | `print:document` | builds a hidden window and prints; `event.sender` is used only for re-entrancy, not authorization |
+| 4 | **printing** ✅ *done — IPC-DIAG-01* | 1 | `print:document` | builds a hidden window and prints; `event.sender` is used only for re-entrancy, not authorization |
 | 5 | **bug reports** | 5 | `bug:analyze`, `bug:context`, `bug:file`, `bug:list`, `bug:setRepo` | `bug:file` writes a report to disk; `analyze` calls a model; `context`/`list` read repo state |
-| 6 | **agents** | 5 | `agents:build`, `agents:delete`, `agents:list`, `agents:read`, `agents:write` | agent definitions (prompts) are user content; build/write/delete touch the filesystem |
+| 6 | **agents** ✅ *done — IPC-DIAG-01* | 5 | `agents:build`, `agents:delete`, `agents:list`, `agents:read`, `agents:write` | agent definitions (prompts) are user content; build/write/delete touch the filesystem |
 | 7 | **derived-state stores** ✅ *done — IPC-STORE-01* | 25 | `collection:*` 2, `collectionLink:*` 4, `components:*` 2, `metric:*` 2, `range:*` 3, `rangeLink:*` 4, `transclusion:*` 4, `wiki:*` 4 (`changes`, `check`, `sources`, `undo`) | deletes, bulk refreshes, syncs and `wiki:undo` (**rewrites pages**); the read-only members list user-authored links and paths |
 | 8 | **memory** | 15 | `memory:*` (all but `status`) | the personal memory store: remember / forget / correct / query / propose (model) |
 | 9 | **speech** | 23 | `speech:*` (all but four status channels) | `read-clipboard` (**clipboard**), `set-key` (**secret**), `stt-transcribe` (audio to a provider), `kokoro-install` (installs binaries), `speak` |
 | 10 | **history** | 11 | `history:*` | the user's browsing history: recent, search, star, forget, clear |
 | 11 | **browser control** | 20 | `browser:*` | a foreign frame driving the user's guest browser: navigate, click, type, screenshot, deep-read (page content), downloads |
+| 12 | **checkpoints & snapshots** ✅ *done — IPC-DIAG-01* | 6 | `checkpoint:list`, `checkpoint:diff`, `checkpoint:rollback`, `snapshot:list`, `snapshot:save`, `snapshot:delete` | `rollback` **restores files** from git history; snapshots persist and delete saved workspace state. *Added to this table late: these six were counted in the 123 verdict-A total but had no cluster row (see IPC-DIAG-01, finding DIAG-02).* |
 
 ## 3. Method and its limits
 
@@ -96,10 +97,11 @@ two commits (metrics/collections + wiki).
 | IPC-DRIVE-02 | drive | 6 | [ipc-drive-02-checkpoint-2026-11-21.md](ipc-drive-02-checkpoint-2026-11-21.md) |
 | IPC-SESSION-02 | chat sessions | 3 | [ipc-session-02-checkpoint-2026-11-21.md](ipc-session-02-checkpoint-2026-11-21.md) |
 | IPC-STORE-01 | derived-state stores | 25 | [ipc-store-01-checkpoint-2026-11-21.md](ipc-store-01-checkpoint-2026-11-21.md) |
+| IPC-DIAG-01 | printing, agents, checkpoints & snapshots | 12 | [ipc-diag-01-checkpoint-2026-11-21.md](ipc-diag-01-checkpoint-2026-11-21.md) |
 
 **Correction made while doing it:** `drive:connection` had been triaged B ("whether
 an account is linked"). It returns the whole connection object, **email included**.
 Moved to A and guarded in IPC-DRIVE-02 — the triage's stated limit, in one
 concrete instance.
 
-**Remaining: 86 verdict-A channels.**
+**Remaining: 74 verdict-A channels.**

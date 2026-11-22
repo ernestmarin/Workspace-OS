@@ -3,6 +3,7 @@ import { ipcHandle } from '../ipc-registry'
 import { snapshots } from '../snapshots'
 import { getWorkspaceRoot } from '../workspace-root'
 import { IpcValidationError } from '../ipc-validator'
+import { assertMainWindowFrame } from '../main-window'
 import { rebuildMenu } from '../menu'
 import { IPC } from '../ipc-channels'
 
@@ -13,9 +14,13 @@ import { IPC } from '../ipc-channels'
  */
 export function registerSnapshotHandlers(ipcMain: IpcMain): void {
   // Scoped to the current workspace — a snapshot only makes sense in its root.
-  ipcHandle(ipcMain, IPC.SNAPSHOT_LIST, () => snapshots.list(getWorkspaceRoot()))
+  ipcHandle(ipcMain, IPC.SNAPSHOT_LIST, (event) => {
+    assertMainWindowFrame(event)
+    return snapshots.list(getWorkspaceRoot())
+  })
 
-  ipcHandle(ipcMain, IPC.SNAPSHOT_SAVE, (_event, name: unknown, state: unknown) => {
+  ipcHandle(ipcMain, IPC.SNAPSHOT_SAVE, (event, name: unknown, state: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof name !== 'string' || !name.trim()) {
       throw new IpcValidationError('Snapshot name must be a non-empty string')
     }
@@ -26,7 +31,8 @@ export function registerSnapshotHandlers(ipcMain: IpcMain): void {
     return snap
   })
 
-  ipcHandle(ipcMain, IPC.SNAPSHOT_DELETE, (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.SNAPSHOT_DELETE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof id !== 'string' || !/^snap-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid snapshot id')
     }

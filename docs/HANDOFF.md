@@ -1,6 +1,17 @@
 # Handoff
 
-## Vigente — IPC-STORE-01 · 2026-11-21
+## Vigente — IPC-DIAG-01 · 2026-11-21
+
+Ver [ipc-diag-01-checkpoint-2026-11-21.md](ipc-diag-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `c6c75af` (merge de IPC-STORE-01).
+
+- Doce canales de cuatro subsistemas no miraban el evento: `print:document` **abre una ventana oculta e imprime**, `agents:write/delete` **escriben y borran los ficheros de definición de agentes** (los prompts que ejecuta el runtime) en workspace y en el state dir, `checkpoint:rollback` **restaura ficheros desde el historial de git**, `snapshot:save/delete` escribe y borra snapshots del workspace y `agents:build` gasta una llamada al modelo. RED 48/50 (12 × 4).
+- La aserción de rechazo mira tres cosas: las llamadas al store (`new-window`, `loadURL`, `snapshots.create`, `checkpoints.rollbackTo`), el callback de impresión y los dos directorios temporales — **ningún fichero escrito**.
+- `print:document` ya usaba `event.sender.id` para **suprimir re-entradas**; eso no es autorización y no se confunde: el guard va antes y el test comprueba que `print` no llegó a ejecutarse.
+- Hueco del triage corregido (**DIAG-02**): la tabla de clusters sumaba 117 de los 123 verdict-A; **`checkpoint:*` y `snapshot:*` (6) no tenían fila**. Ahora son el cluster 12.
+- Inventario: **473 = 326 + 95 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **95**. `EXPLICITLY_NO_GUARD` 107 → 95; quedan **74 canales verdict-A**.
+- Evidencia: RED 48/2; GREEN 50/50; M30–M33 detectadas (6 fallos cada una: 4 conductuales + 2 de inventario); suite completo **364 archivos + 3 omitidos, 4623 tests + 26 omitidos**; ESLint 0 sobre 1013 ficheros; build 0; audit 40 moderadas, 0 altas.
+
+## Anterior — IPC-STORE-01 · 2026-11-21
 
 Ver [ipc-store-01-checkpoint-2026-11-21.md](ipc-store-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `451c97b` (IPC-SESSION-02).
 

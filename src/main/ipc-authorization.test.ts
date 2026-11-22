@@ -439,6 +439,19 @@ const MUST_HAVE_GUARD = new Set<string>([
   'wiki:check',
   'wiki:sources',
   'wiki:undo',
+  // Lote IPC-DIAG-01 — impresión, agentes, checkpoints y snapshots
+  'print:document',
+  'agents:build',
+  'agents:delete',
+  'agents:list',
+  'agents:read',
+  'agents:write',
+  'checkpoint:diff',
+  'checkpoint:list',
+  'checkpoint:rollback',
+  'snapshot:delete',
+  'snapshot:list',
+  'snapshot:save',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -536,9 +549,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'bug:list',
   'bug:setRepo',
   'bug:status',
-  'checkpoint:diff',
-  'checkpoint:list',
-  'checkpoint:rollback',
   // collections / components / drive (parte)
   'drive:local-name',
   // fs (parte no sensible hoy: list/reveal/watch)
@@ -579,11 +589,7 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'menu:set-browser-context',
   'menu:set-office-context',
   'menu:set-office-state',
-  'print:document',
   'skills:list',
-  'snapshot:delete',
-  'snapshot:list',
-  'snapshot:save',
   'speech:cancel-reading',
   'speech:config',
   'speech:key-status',
@@ -617,12 +623,7 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'window:maximize',
   'window:minimize',
   // agents / misc
-  'agents:build',
   'agents:capabilities',
-  'agents:delete',
-  'agents:list',
-  'agents:read',
-  'agents:write',
 ])
 
 // IPC-FS-01 — the workspace filesystem surface (src/main/handlers/fs.ts).
@@ -710,6 +711,19 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'workspace:content-root',
   'workspace:get-root',
   'workspace:write-agent-note',
+  // Lote IPC-DIAG-01 — impresión, agentes, checkpoints y snapshots
+  'print:document',
+  'agents:build',
+  'agents:delete',
+  'agents:list',
+  'agents:read',
+  'agents:write',
+  'checkpoint:diff',
+  'checkpoint:list',
+  'checkpoint:rollback',
+  'snapshot:delete',
+  'snapshot:list',
+  'snapshot:save',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
