@@ -112,8 +112,12 @@ Classification legend:
 > `TerminalAgentPane.tsx`, an unperformable command is never proposed, and
 > `src/voice-reachability.test.ts` fails if a voice surface is orphaned again.
 > See [voice-reach-01-checkpoint-2026-11-22.md](voice-reach-01-checkpoint-2026-11-22.md).
-> The agent → user reply reader (`OwnedReplies`) is **still** only reachable from
-> the orphaned `TerminalSession`.
+>
+> **Correction 2026-11-22 (VOX-REACH-04).** The last line above no longer holds:
+> the agent → user reply reader is now mounted in the shipped pane, bound to the
+> `lib/sessions` run lifecycle, opt-in per tab. The reader modules are covered by
+> the reachability walker too. `AgentTerminal.tsx` itself is still orphaned.
+> See [voice-reach-04-checkpoint-2026-11-22.md](voice-reach-04-checkpoint-2026-11-22.md).
 | **VOX-A5–A9** | Continuous Conversation Roadmap | **Medium / P3** — Auto-submit turn machine, AudioWorklet + trained VAD, streaming PCM/AEC barge-in, CopySpeech UX surfaces, multi-OS device E2E | `docs/voice-conversation-plan.md`, `docs/voice-integration-checklist.md` | Tracked with explicit atomic exit gates in `docs/voice-conversation-plan.md`; not prematurely enabled or overclaimed. | Requires `A5`–`A9` implementation + real audio/Electron hardware validation. | **OPEN ROADMAP** |
 
 ### 3.4 Addendum — datos y recursos, tras el cierre de la serie de emisores (2026-11-21)

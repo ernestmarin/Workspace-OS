@@ -42,6 +42,8 @@ vi.mock('../../lib/sessions/sessionStore', () => ({
     live: () => ({ running: false, steps: [] }),
     create: vi.fn(),
     send: mock.send,
+    // Reply lifecycle (VOX-REACH-04): this suite never opts in, so no events.
+    onReplyEvents: () => () => {},
   },
 }))
 import { TerminalAgentPane } from './TerminalAgentPane'
