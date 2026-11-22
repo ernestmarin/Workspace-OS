@@ -1,6 +1,16 @@
 # Handoff
 
-## Vigente — IPC-WRITERS-01: la lista path-only queda VACÍA · 2026-11-21
+## Vigente — IPC-CLASS-01 (triage) + IPC-PDF-01 · 2026-11-21
+
+Ver [ipc-class-01-triage.md](ipc-class-01-triage.md) e [ipc-pdf-01-checkpoint-2026-11-21.md](ipc-pdf-01-checkpoint-2026-11-21.md). Rama `arena/9cd5feee-workspace-os`, base `54189d8` (merge de PR #20). Agente local único, autorrevisión no independiente.
+
+- **La premisa de la auditoría no se sostenía.** Re-derivados desde el código los 153 canales `EXPLICITLY_NO_GUARD`: **123 llegan a contenido del usuario, estado, disco, red, programa externo, modelo o secreto**; sólo **21** son realmente estado de UI. No era un conjunto de decisiones, era un default sin examinar.
+- **IPC-PDF-01**: los nueve handlers de `pdf.ts` reescriben documentos en sitio (reordenar, rotar, rellenar formularios, firmar), guardan el sidecar de anotaciones, exportan copias y entregan un PDF temporal a `shell.openPath`; ninguno miraba el evento. RED 36/36. Ahora los nueve verifican el frame; `MUST_HAVE_ORIGIN_GUARD` = 46; inventario 473 = 277 + 144 + 22 + 30, todo único y sin duplicados.
+- Por qué el inventario los tenía por seguros: validan la ruta **dentro** de `resolveInWorkspace()`, así que la heurística de snippets sólo veía "sin guard". El chequeo de ruta se confundió con el de emisor, a escala.
+- Plan por clusters en la tabla del triage: workspace root (3, `open-recent` reasigna la raíz con un string sin validar), drive (5), sesiones (3), impresión (1), bugs (5), agents (5), stores derivados (25), memory (15), speech (23), history (11), browser (20).
+- Evidencia: RED 36/2; GREEN 38/38; M21/M22 detectadas; suite completo **359 archivos + 3 omitidos, 4393 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-WRITERS-01: la lista path-only queda VACÍA · 2026-11-21
 
 Ver [ipc-writers-01-checkpoint-2026-11-21.md](ipc-writers-01-checkpoint-2026-11-21.md). Rama `arena/e28c7316-workspace-os`, base `7fba5b2` (IPC-REFRESH-01). Agente local único, autorrevisión no independiente.
 
