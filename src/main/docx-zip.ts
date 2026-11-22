@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import type { FileIdentity } from './doc-identity'
+import { readZipDirectory } from './zip-directory'
 import JSZip from 'jszip'
 
 /**
@@ -230,6 +231,14 @@ export async function loadValidatedXlsx(filePath: string): Promise<XlsxSnapshotR
   } finally {
     if (fd !== undefined) fs.closeSync(fd)
   }
+  // The declared entry count, read from the End Of Central Directory record
+  // BEFORE the library builds one object per record (IPC-ZIP-INDEX-01). Checking
+  // `entries.length` after `loadAsync` spent exactly the memory the budget exists
+  // to protect. A record that lies only makes this weaker, never wrong: every
+  // later bound still runs.
+  const directory = readZipDirectory(buffer)
+  if (!directory.ok) return { ok: false, reason: 'not-valid-xlsx' }
+  if (directory.entries > MAX_XLSX_ENTRIES) return { ok: false, reason: 'sheet-too-large' }
   try {
     const zip = await JSZip.loadAsync(buffer)
     const entries = Object.values(zip.files)
