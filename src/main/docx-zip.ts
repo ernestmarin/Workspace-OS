@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import type { FileIdentity } from './doc-identity'
 import JSZip from 'jszip'
 
 /**
@@ -200,12 +201,13 @@ export async function loadArchive(filePath: string): Promise<JSZip | null> {
 export const MAX_XLSX_ENTRIES = 2048
 export const MAX_XLSX_TOTAL_BYTES = 64 * 1024 * 1024
 export type XlsxSnapshotResult =
-  | { ok: true; buffer: Buffer }
+  | { ok: true; buffer: Buffer; identity: FileIdentity }
   | { ok: false; reason: 'invalid-xml-shape' | 'sheet-too-large' | 'not-valid-xlsx' }
 
 /** Read once from an open descriptor, bounded even if the path grows/replaces. */
 export async function loadValidatedXlsx(filePath: string): Promise<XlsxSnapshotResult> {
   let buffer: Buffer
+  let identity: FileIdentity | undefined
   let fd: number | undefined
   try {
     fd = fs.openSync(filePath, 'r')
@@ -220,6 +222,9 @@ export async function loadValidatedXlsx(filePath: string): Promise<XlsxSnapshotR
     }
     if (total > stat.size) return { ok: false, reason: 'sheet-too-large' }
     buffer = storage.subarray(0, total)
+    // Identity of the bytes just read, from the descriptor that read them: the
+    // writers re-check it before replacing the file (IPC-DOC-WRITE-01).
+    identity = { dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs }
   } catch {
     return { ok: false, reason: 'not-valid-xlsx' }
   } finally {
@@ -239,7 +244,8 @@ export async function loadValidatedXlsx(filePath: string): Promise<XlsxSnapshotR
       if (!read.ok) return { ok: false, reason: read.reason === 'invalid-shape' ? 'invalid-xml-shape' : read.reason === 'too-large' ? 'sheet-too-large' : 'not-valid-xlsx' }
       total += read.bytes
     }
-    return { ok: true, buffer }
+    if (!identity) return { ok: false, reason: 'not-valid-xlsx' }
+    return { ok: true, buffer, identity }
   } catch {
     return { ok: false, reason: 'not-valid-xlsx' }
   }

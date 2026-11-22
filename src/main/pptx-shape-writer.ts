@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import JSZip from 'jszip'
 import { archiveWithinBudget, readEntryBounded } from './docx-zip'
+import { commitTemp, readWithIdentity, type FileIdentity } from './doc-identity'
 
 /**
  * Engine-free .pptx shape-text writer — the "closed-file" half of PowerPoint
@@ -144,10 +145,16 @@ export async function setShapeText(
   if (!stat.isFile()) return skip('not-a-file')
   if (!archiveWithinBudget(filePath)) return skip('slide-too-large')
 
+  let identity: FileIdentity
   let zip: JSZip
   let slides: { name: string; xml: string }[] = []
   try {
-    const buf = fs.readFileSync(filePath)
+    // Bytes and identity from the same descriptor: the identity must belong to
+    // the bytes we parse, and it is what `commitTemp` re-checks later.
+    const loaded = readWithIdentity(filePath)
+    if (!loaded) return skip('not-valid-pptx')
+    identity = loaded.identity
+    const buf = loaded.bytes
     zip = await JSZip.loadAsync(buf)
     const parts = Object.keys(zip.files).filter(isSlidePart)
     for (const name of parts) {
@@ -192,7 +199,10 @@ export async function setShapeText(
     if (!vXml.includes(`name="${tag}"`) || !vXml.includes(`<a:t>${escapeXml(String(value))}</a:t>`)) {
       throw new Error('verify: value not present')
     }
-    fs.renameSync(tmp, filePath) // atomic within the same filesystem
+    // Refuses when the file changed under us, and cleans the temp file either
+    // way — the single primitive every engine-free writer uses (IPC-DOC-WRITE-02).
+    const commit = commitTemp(tmp, filePath, identity)
+    if (!commit.ok) return skip(commit.reason) // atomic within the same filesystem
     return { ok: true }
   } catch {
     try {

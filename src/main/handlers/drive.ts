@@ -22,6 +22,9 @@ import {
 } from '../drive/drive-client'
 import { IPC } from '../ipc-channels'
 import { assertMainWindowFrame } from '../main-window'
+import { appStateDir } from '../host-profile'
+import { uniquePath } from '../util/unique-path'
+import { DriveCopyIndex } from '../drive/drive-copies'
 
 /**
  * Google Drive, connected the way Google asks for it.
@@ -230,9 +233,20 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
       await fs.mkdir(dir, { recursive: true })
       // basename: the name comes from Drive, so it is somebody else's string and
       // must never be able to climb out of the folder it was meant for.
-      const target = path.join(dir, path.basename(filename))
+      const name = path.basename(filename)
+      const copies = new DriveCopyIndex(path.join(appStateDir(root), 'drive-copies.json'))
+      const mapped = copies.get(meta.id)
+      // The recorded copy is reused only when it still lives in THIS Drive folder:
+      // a moved workspace, or an index written by something else, must not be able
+      // to point the write at an arbitrary path.
+      const reusable = mapped !== null && path.dirname(path.resolve(mapped)) === path.resolve(dir)
+      const target = reusable ? mapped : uniquePath(dir, name)
+      // Recorded before the write so two concurrent opens of same-named files
+      // cannot both allocate the same path; a failed write only leaves a mapping
+      // to a file that is not there, which the next open simply rewrites.
+      copies.set(meta.id, target)
       await fs.writeFile(target, bytes)
-      return { path: target, name: path.basename(filename), fileId: meta.id, wasExported: meta.isGoogleDoc }
+      return { path: target, name: path.basename(target), fileId: meta.id, wasExported: meta.isGoogleDoc }
     })
   })
 

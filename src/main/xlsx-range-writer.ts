@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs'
 import { parseA1 } from './transclusions'
 import { coerceGrid, RANGE_MAX_COLS, RANGE_MAX_ROWS, type RangeGrid } from './ranges'
 import { loadValidatedXlsx } from './docx-zip'
+import { commitTemp } from './doc-identity'
 
 /**
  * Engine-free .xlsx BLOCK writer — the "closed-file" half of range sync-all
@@ -109,7 +110,11 @@ export async function setRangeValues(
     // Verify the temp re-opens as a valid workbook BEFORE we replace the real one.
     const verify = new ExcelJS.Workbook()
     await verify.xlsx.readFile(tmp)
-    fs.renameSync(tmp, filePath) // atomic within the same filesystem
+    // Anything that wrote to this path since we read it would be destroyed by
+    // the rename — `commitTemp` refuses instead (IPC-DOC-WRITE-01). The window
+    // is the check-to-rename gap, not the whole exceljs round-trip.
+    const commit = commitTemp(tmp, filePath, snapshot.identity)
+    if (!commit.ok) return skip(commit.reason)
     return { ok: true }
   } catch {
     try {

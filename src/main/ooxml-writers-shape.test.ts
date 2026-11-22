@@ -95,7 +95,7 @@ describe('N+2c snapshot identity and cumulative inflation', () => {
   })
 
   for (const writer of writers.filter((w) => w.ext === 'xlsx')) {
-    it(`${writer.name}: parses validated snapshot when pathname is replaced`, async () => {
+    it(`${writer.name}: parses the validated snapshot and refuses a pathname replaced under it`, async () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-xlsx-snapshot-'))
       const file = path.join(dir, 'test.xlsx')
       const load = JSZip.loadAsync.bind(JSZip)
@@ -115,12 +115,18 @@ describe('N+2c snapshot identity and cumulative inflation', () => {
           return zip
         })
         try {
-          expect(await writer.write(file)).toEqual({ ok: true })
+          // IPC-DOC-WRITE-01 tightened this expectation on purpose. The old
+          // one asserted `{ ok: true }` — i.e. the writer replaced a path that
+          // changed under it, which is the data loss the guard now prevents.
+          // The N+2c property survives and gets stronger: reaching the
+          // identity check at all proves the workbook was parsed from the
+          // validated snapshot, because re-reading the path would have failed
+          // earlier with `not-valid-xlsx` (the replacement is not a ZIP).
+          expect(await writer.write(file)).toEqual({ ok: false, reason: 'changed-on-disk' })
           expect(replaced).toBe(true)
         } finally { spy.mockRestore() }
-        const verify = new ExcelJS.Workbook()
-        await verify.xlsx.readFile(file)
-        expect(verify.getWorksheet('Sheet1')!.getCell('A1').value).toBe(42)
+        // The replacement is still there, byte for byte: refused, not overwritten.
+        expect(fs.readFileSync(file, 'utf8')).toBe('replacement is not a ZIP')
       } finally { fs.rmSync(dir, { recursive: true, force: true }) }
     })
   }

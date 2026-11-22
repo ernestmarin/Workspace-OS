@@ -5,6 +5,7 @@ import fs from 'fs'
 import path from 'path'
 import { BROWSER_PARTITION } from '../security'
 import { getWorkspaceRoot } from '../workspace-root'
+import { uniquePath } from '../util/unique-path'
 import { assertMainWindowFrame } from '../main-window'
 
 /**
@@ -51,24 +52,10 @@ export function downloadDir(): string {
   return dir
 }
 
-/**
- * Picks a non-colliding path: `report.pdf`, then `report (2).pdf`.
- *
- * Overwriting silently is the one outcome to avoid — a download that destroys
- * a file of the same name is indistinguishable from data loss, and the user
- * had no chance to see it coming.
- */
-export function uniquePath(dir: string, filename: string): string {
-  const ext = path.extname(filename)
-  const stem = path.basename(filename, ext)
-  let candidate = path.join(dir, filename)
-  let n = 2
-  while (fs.existsSync(candidate)) {
-    candidate = path.join(dir, `${stem} (${n})${ext}`)
-    n += 1
-  }
-  return candidate
-}
+// Shared with the Drive fetch, which had the same collision available and did
+// not resolve it (IPC-DRIVE-03). Re-exported so every existing caller and test
+// keeps importing it from here.
+export { uniquePath }
 
 /**
  * Strips anything that could escape the download folder.
