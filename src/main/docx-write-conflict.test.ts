@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import JSZip from 'jszip'
 import { cardsEndName, cardsStartName, setDocCards, type CardTemplate } from './docx-cards-writer'
+import { MAX_OOXML_ENTRIES } from './zip-directory'
 
 /**
  * IPC-DOC-WRITE-02 — the docx/pptx writers had the same blind spot as the xlsx
@@ -73,5 +74,29 @@ describe('a .docx that changed under the writer', () => {
     const zip = await JSZip.loadAsync(fs.readFileSync(file))
     const xml = await zip.file('word/document.xml')!.async('string')
     expect(xml).toContain('Ada Lovelace')
+  })
+})
+
+describe('a .docx that declares too many parts (IPC-ZIP-INDEX-02)', () => {
+  it('is refused before the library indexes it, and left untouched', async () => {
+    const zip = new JSZip()
+    zip.file('word/document.xml', `<w:document>${cardsXml()}</w:document>`)
+    for (let i = 0; i < MAX_OOXML_ENTRIES + 1; i += 1) zip.file(`word/extra${i}.xml`, '<x/>')
+    fs.writeFileSync(file, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+    const before = fs.readFileSync(file)
+
+    expect(await setDocCards(file, TAG, RECORDS, TEMPLATE)).toEqual({
+      ok: false,
+      reason: 'document-too-large',
+    })
+    expect(fs.readFileSync(file).equals(before)).toBe(true)
+  })
+
+  it('still accepts a package just under the ceiling', async () => {
+    const zip = new JSZip()
+    zip.file('word/document.xml', `<w:document>${cardsXml()}</w:document>`)
+    for (let i = 0; i < MAX_OOXML_ENTRIES - 2; i += 1) zip.file(`word/extra${i}.xml`, '<x/>')
+    fs.writeFileSync(file, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+    expect(await setDocCards(file, TAG, RECORDS, TEMPLATE)).toEqual({ ok: true })
   })
 })

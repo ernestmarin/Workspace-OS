@@ -1,6 +1,41 @@
 # Handoff
 
-## Vigente — IPC-DRIVE-03 · IPC-UPLOAD-01 · IPC-DOC-WRITE-01 · IPC-DOC-WRITE-02 · 2026-11-21
+## Vigente — IPC-DIALOG-PARENT-01 · 2026-11-21
+
+Ver [ipc-dialog-parent-01-checkpoint-2026-11-21.md](ipc-dialog-parent-01-checkpoint-2026-11-21.md). Rama `arena/a1399b23-workspace-os`, base `826081c` (merge de PR #23).
+
+- **WATCH-02 y OFFICE-02 no eran hipótesis: eran el mismo defecto.** `registerWatcherHandlers(ipcMain, win)` y `registerOfficeHandlers(ipcMain, win)` guardaban la ventana del registro y parentaban sus diálogos nativos a ella para siempre. Tras un reemplazo de ventana (macOS `activate` → `createWindow()`), el padre está destruido, Electron lanza "Object has been destroyed" y el selector que el usuario pidió nunca aparece. La app ya había resuelto esto para los **envíos** (`main-window.ts` resuelve la ventana viva en el momento del envío y documenta exactamente este fallo); los diálogos se quedaron atrás — un arreglo aplicado a una forma de llamada y no a su hermana.
+- **Dos módulos más tenían la misma forma:** `lok.ts` (tres selectores de imagen con `showOpenDialog(win, …)`) y `apps.ts` (cuatro diálogos, con una resolución manual `getFocusedWindow() ?? getAllWindows()[0]` que era correcta pero una segunda regla no escrita). Los cuatro módulos pasan ahora por `dialogParent()` de `main-window.ts`.
+- **Cuando no hay ventana viva, el guard rechaza antes de abrir nada**: la autorización no hereda el fallback de entrega, así que la rama sin padre es defensiva, no alcanzable por IPC. Lo escribí al revés en el primer test y el guard me corrigió — queda registrado.
+- **El control es mecánico, no recordado:** `dialog-parent-wiring.test.ts` barre cada `dialog.show(Open|Save)Dialog(` de `src/main` y falla si el primer argumento es un identificador capturado; comprueba también que ve ≥10 sitios y que el helper nunca devuelve una ventana destruida. M67 (un sitio capturado nuevo en `lok.ts`, módulo sin test de comportamiento de diálogo) lo caza.
+- Evidencia: RED 3/3 en watcher (dos por el padre capturado, uno por mi expectativa errónea), GREEN 3/3 y 2/2; M66 (reintroducir el código original en office), M67 y M68 (revertir watcher) detectadas; 66 tests entre los ficheros tocados; suite completa **380 archivos + 3 omitidos, 5043 tests + 26 omitidos**; tsc 0 (nodo y renderer); ESLint 0 sobre 1033 ficheros; build 0.
+- **Gap honesto:** el diálogo está mockeado y la ventana es un objeto simulado — se prueba el argumento (que es lo que Electron rechaza cuando está destruido), no que el sistema muestre un sheet bien colocado. **NIVEL 2**, sin NIVEL 3.
+- Pendiente: **WORKSPACE-03** (decisión de capacidad, requiere llamada explícita), el resto del roadmap de voz (A2c/A3a, requiere decisión de producto), **revisión independiente** y **NIVEL 3**.
+
+## Anterior — IPC-SEARCH-02 · 2026-11-21
+
+Ver [ipc-search-02-checkpoint-2026-11-21.md](ipc-search-02-checkpoint-2026-11-21.md). Rama `arena/a1399b23-workspace-os`, base `826081c` (merge de PR #23).
+
+- **SEARCH-02 se cierra sin defecto, con evidencia.** La nota de IPC-SEARCH-01 decía que la apertura perezosa de `search-index.db` era inocua "porque el guard corre antes". Verificado contra el código: los **trece** canales de `search.ts` llaman a `assertMainWindowFrame(event)` como primera sentencia, antes de `ensureIndex()`, `getWorkspaceRoot()`, `validateFilePath()` o cualquier llamada al sistema de ficheros. No hay camino no autenticado a la base de datos, así que no hay nada que arreglar y la apertura perezosa se queda.
+- **Lo que la nota no vio: había escrito el control en prosa.** "El guard corre antes" es una afirmación de **orden**, y los tests de IPC-SEARCH-01 afirman **presencia**: siguen verdes si alguien baja el guard una línea, porque un llamador legítimo no nota nada. Es el mismo punto ciego que dejó pasar IPC-ZIP-INDEX-01 esa misma noche.
+- Por eso el producto del lote es `search.guard-order.test.ts` (4 tests): el guard es la primera sentencia de cada handler, precede a todo efecto lateral (`ensureIndex(`, `getWorkspaceRoot(`, `fs.`/`fsSync.`, `validateFilePath(`), y el parser comprueba que de verdad ha casado ≥13 bloques. **M64 (bajar el guard una línea) rompe sólo este test**: los 13 escenarios de comportamiento y los controles del owner siguen verdes.
+- Es un invariante **de fuente y lo dice**: prueba el orden en el bloque de registro, no el comportamiento en ejecución. El comportamiento sigue en `search.authorization.test.ts` (58 tests entre los dos ficheros).
+- Registrado también el primer intento fallido (13 "infractores" que eran un error de mi parser, no del producto): la diferencia entre "13 handlers roto" y "mi parser roto" decide si un lote reporta un defecto o un error propio.
+- Evidencia: GREEN 4/4 y 58/58, M64/M65 detectadas; suite completa **377 archivos + 3 omitidos, 5034 tests + 26 omitidos**; tsc 0 (nodo y renderer); ESLint 0 sobre 1030 ficheros; build 0.
+- Pendiente: **WORKSPACE-03** (decisión de capacidad, requiere llamada explícita), los ciclos de vida `WATCH-02`/`OFFICE-02`, **revisión independiente** y **NIVEL 3**.
+
+## Anterior — IPC-ZIP-INDEX-01/02 · 2026-11-21
+
+Ver [ipc-zip-index-checkpoint-2026-11-21.md](ipc-zip-index-checkpoint-2026-11-21.md). Rama `arena/a1399b23-workspace-os`, base `826081c` (merge de PR #23).
+
+- **El riesgo del índice ZIP era una cuestión de orden, no de umbral.** `loadValidatedXlsx` llamaba a `JSZip.loadAsync` y **después** comparaba `entries.length`: la librería ya había construido un objeto por registro, así que el recuento se comprobaba cuando ya no prevenía nada. El presupuesto acotaba la inflación y dejaba libre la indexación. Nuevo `src/main/zip-directory.ts` (`readZipDirectory`): lee el End Of Central Directory antes de entregar los bytes a ninguna librería, localiza el registro por la regla de la longitud de comentario (no por "la última firma", que un comentario puede falsificar), resuelve los contadores saturados por el registro ZIP64 y rechaza multi-disco en vez de adivinar.
+- **El test que lo demuestra discrimina la razón, no el rechazo:** unos cientos de bytes que declaran 60 000 entradas responden `not-valid-xlsx` si la librería corre primero y `sheet-too-large` si el chequeo va antes. Un test que sólo afirme "se rechaza" pasa en los dos órdenes — así sobrevivió el defecto a la revisión anterior.
+- **La misma falta en docx/pptx, esta vez sin umbral ninguno:** los cinco writers entregaban el paquete a `JSZip.loadAsync` sin límite de entradas (60 000 registros son ~3 MB, dentro de todas las puertas existentes). Ahora comprueban `MAX_OOXML_ENTRIES` (4096) antes de cargar, con `document-too-large` / `slide-too-large` y el fichero intacto.
+- Evidencia: RED en el discriminador y en el caso docx; GREEN 10/10 y 41/41 en los ficheros tocados; M59/M60/M61 (orden, ZIP64, regla del comentario) y M62/M63 (quitar el tope en docx-cards y el pre-check en pptx-table) detectadas; suite completa **376 archivos + 3 omitidos, 5030 tests + 26 omitidos**; tsc 0 (nodo y renderer); ESLint 0 sobre 1029 ficheros; build 0; `npm audit` 40 moderadas / 0 altas / 0 críticas.
+- **Gap honesto de este lote:** el orden se prueba por la razón de rechazo, no midiendo heap (NIVEL 2). Un archivo que mienta a la baja (declare 3, contenga 60 000) sigue llegando a la librería y lo caza el chequeo posterior, ya después de la reserva: cerrarlo exige un lector en streaming, no un parche.
+- Pendiente, por orden: **revisión independiente** de la serie, **NIVEL 3**, **WORKSPACE-03** (decisión de capacidad, no defecto) y los ciclos de vida `WATCH-02`/`OFFICE-02`.
+
+## Anterior — IPC-DRIVE-03 · IPC-UPLOAD-01 · IPC-DOC-WRITE-01 · IPC-DOC-WRITE-02 · 2026-11-21
 
 Ver [ipc-drive-03-checkpoint-2026-11-21.md](ipc-drive-03-checkpoint-2026-11-21.md), [ipc-upload-01-checkpoint-2026-11-21.md](ipc-upload-01-checkpoint-2026-11-21.md) e [ipc-doc-write-01-checkpoint-2026-11-21.md](ipc-doc-write-01-checkpoint-2026-11-21.md). Plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/f72b6745-workspace-os`, base `19441e0` (merge de PR #22).
 
@@ -15,7 +50,7 @@ Tres lotes del backlog de datos/recursos, cada uno con su RED, su GREEN y sus mu
 - **DOC-WRITE-04 CERRADO** con IPC-DOC-WRITE-02; ver [ipc-doc-write-02-checkpoint-2026-11-21.md](ipc-doc-write-02-checkpoint-2026-11-21.md).
 - Pendiente, por orden: **revisión independiente** de la serie, **NIVEL 3** (sigue sin haber ni un Electron real, micrófono, LibreOffice ni cuenta de Drive), **WORKSPACE-03** (decisión de capacidad, no defecto), SEARCH-02 y el orden del índice ZIP.
 
-## Vigente — IPC-SPEECH-02 · 2026-11-21
+## Anterior — IPC-SPEECH-02 · 2026-11-21
 
 Ver [ipc-speech-02-checkpoint-2026-11-21.md](ipc-speech-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `653cd0f` (IPC-BROWSER-02).
 

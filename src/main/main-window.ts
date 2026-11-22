@@ -50,6 +50,19 @@ export function mainWindow(): BrowserWindow | null {
   return current
 }
 
+/**
+ * Parent for a native dialog: the live window, or null.
+ *
+ * Same reasoning as `mainWindow()` itself, applied to `dialog.showOpenDialog` /
+ * `showSaveDialog`. A module that keeps the window it was registered with and
+ * parents dialogs to it forever breaks on the next `createWindow()` — Electron
+ * throws "Object has been destroyed" and the picker never appears. Resolved at
+ * call time instead (IPC-DIALOG-PARENT-01).
+ */
+export function dialogParent(): BrowserWindow | null {
+  return mainWindow()
+}
+
 /** Send an IPC message to the live window; a no-op when there is none. */
 export function sendToWindow(channel: string, ...args: unknown[]): void {
   const win = mainWindow()

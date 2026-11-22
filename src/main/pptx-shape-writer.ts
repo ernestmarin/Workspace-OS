@@ -3,6 +3,7 @@ import path from 'path'
 import JSZip from 'jszip'
 import { archiveWithinBudget, readEntryBounded } from './docx-zip'
 import { commitTemp, readWithIdentity, type FileIdentity } from './doc-identity'
+import { MAX_OOXML_ENTRIES, readZipDirectory } from './zip-directory'
 
 /**
  * Engine-free .pptx shape-text writer — the "closed-file" half of PowerPoint
@@ -155,6 +156,12 @@ export async function setShapeText(
     if (!loaded) return skip('not-valid-pptx')
     identity = loaded.identity
     const buf = loaded.bytes
+    // Declared entry count before the library indexes the archive
+    // (IPC-ZIP-INDEX-02): a package claiming thousands of parts must be refused
+    // before one JS object per record exists.
+    const directory = readZipDirectory(buf)
+    if (!directory.ok) return skip('not-valid-pptx')
+    if (directory.entries > MAX_OOXML_ENTRIES) return skip('slide-too-large')
     zip = await JSZip.loadAsync(buf)
     const parts = Object.keys(zip.files).filter(isSlidePart)
     for (const name of parts) {

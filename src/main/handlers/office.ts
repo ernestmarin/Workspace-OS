@@ -7,7 +7,7 @@ import { IpcValidationError, validateFilePath } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import { resolveSoffice, isLibreOfficeAvailable, convertTo, discardConverted } from '../office/libreoffice'
 import { IPC } from '../ipc-channels'
-import { assertMainWindowFrame } from '../main-window'
+import { assertMainWindowFrame, dialogParent } from '../main-window'
 
 function cacheDir(): string {
   return path.join(app.getPath('userData'), 'office-cache')
@@ -105,7 +105,10 @@ async function toPdfCached(srcPath: string): Promise<Uint8Array> {
  * who is asking, so every handler starts by requiring the registered main
  * window's current main frame.
  */
-export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): void {
+export function registerOfficeHandlers(ipcMain: IpcMain, _win?: BrowserWindow): void {
+  // `_win` is kept for the registration call shape only. The window is NOT
+  // captured: dialogs parent to whatever is live when they open
+  // (IPC-DIALOG-PARENT-01), because a replacement window makes this one dead.
   ipcHandle(ipcMain, IPC.OFFICE_AVAILABLE, (event) => {
     assertMainWindowFrame(event)
     return isLibreOfficeAvailable()
@@ -147,10 +150,14 @@ export function registerOfficeHandlers(ipcMain: IpcMain, win: BrowserWindow): vo
 
     const producedPdf = await convertTo(resolved, 'pdf')
     const base = path.basename(resolved, path.extname(resolved))
-    const save = await dialog.showSaveDialog(win, {
+    const parent = dialogParent()
+    const saveOptions = {
       defaultPath: path.join(path.dirname(resolved), `${base}.pdf`),
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    })
+    }
+    const save = parent
+      ? await dialog.showSaveDialog(parent, saveOptions)
+      : await dialog.showSaveDialog(saveOptions)
     try {
       if (save.canceled || !save.filePath) return null
       await fs.copyFile(producedPdf, save.filePath)
