@@ -6,6 +6,7 @@ import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
 import { IPC } from '../ipc-channels'
+import { assertMainWindowFrame } from '../main-window'
 
 /**
  * Chat's two needs from the main process:
@@ -59,7 +60,9 @@ export function writeUpload(root: string, name: string, bytes: Uint8Array, now =
 }
 
 export function registerChatHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.CHAT_UPLOAD, (_e, name: unknown, data: unknown) => {
+  ipcHandle(ipcMain, IPC.CHAT_UPLOAD, (event, name: unknown, data: unknown) => {
+    // IPC-SESSION-02: writes dropped bytes into the workspace.
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) throw new IpcValidationError('Open a workspace folder first')
     if (typeof name !== 'string' || !name.trim()) throw new IpcValidationError('Which file?')
@@ -71,7 +74,9 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
   // Saved only into a workspace the app opened in this run (the one just left
   // still gets its last words), and always into the one named, never the open one by default.
   const opened = new Set<string>()
-  ipcHandle(ipcMain, IPC.SESSIONS_LOAD, () => {
+  ipcHandle(ipcMain, IPC.SESSIONS_LOAD, (event) => {
+    // IPC-SESSION-02: returns the whole conversation transcript of the workspace.
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) return null
     opened.add(root)
@@ -81,7 +86,11 @@ export function registerChatHandlers(ipcMain: IpcMain): void {
       return { root, json: null }
     }
   })
-  ipcHandle(ipcMain, IPC.SESSIONS_SAVE, (_e, forRoot: unknown, json: unknown) => {
+  ipcHandle(ipcMain, IPC.SESSIONS_SAVE, (event, forRoot: unknown, json: unknown) => {
+    // `opened` bounds WHICH workspace may be written; the guard bounds WHO may ask.
+    // It runs first so a refusal is never reported as the `{ ok: false }` that a
+    // not-opened root returns.
+    assertMainWindowFrame(event)
     if (typeof forRoot !== 'string' || !opened.has(forRoot)) return { ok: false }
     const root = forRoot
     if (typeof json !== 'string' || json.length > MAX_SESSIONS_BYTES) throw new IpcValidationError('Sessions too large to save')

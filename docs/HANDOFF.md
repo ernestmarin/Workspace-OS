@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — IPC-DRIVE-02 · 2026-11-21
+## Vigente — IPC-SESSION-02 · 2026-11-21
+
+Ver [ipc-session-02-checkpoint-2026-11-21.md](ipc-session-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `68396d2` (IPC-DRIVE-02).
+
+- `sessions:load` devuelve **la transcripción entera** de la conversación del workspace, `sessions:save` escribe hasta 40 MB y `chat:upload` escribe los bytes de un archivo soltado en `.workspace-os/uploads/`. Ninguno miraba el evento: un frame ajeno podía leer todas las conversaciones o llenar el disco. RED 12/12; ahora los tres verifican el frame.
+- `sessions:save` ya tenía un control real — sólo acepta una raíz abierta en esta ejecución — pero acota **qué workspace**, no **quién pregunta**. El guard va **antes**, para que un rechazo no se confunda con el `{ ok: false }` de raíz no abierta.
+- Inventario: **473 = 289 + 132 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **58**. `EXPLICITLY_NO_GUARD` 153 → 132; quedan **111 canales verdict-A**.
+- Evidencia: RED 12/2; GREEN 14/14; M26 detectada; suite completo **362 archivos + 3 omitidos, 4448 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-DRIVE-02 · 2026-11-21
 
 Ver [ipc-drive-02-checkpoint-2026-11-21.md](ipc-drive-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `fdf3241` (IPC-WORKSPACE-02).
 

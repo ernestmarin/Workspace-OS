@@ -411,6 +411,9 @@ const MUST_HAVE_GUARD = new Set<string>([
   'drive:list',
   'drive:open',
   'drive:search',
+  'chat:upload',
+  'sessions:load',
+  'sessions:save',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -508,7 +511,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'bug:list',
   'bug:setRepo',
   'bug:status',
-  'chat:upload',
   'checkpoint:diff',
   'checkpoint:list',
   'checkpoint:rollback',
@@ -570,8 +572,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'rangeLink:forFile',
   'rangeLink:previewSyncAll',
   'rangeLink:remove',
-  'sessions:load',
-  'sessions:save',
   'skills:list',
   'snapshot:delete',
   'snapshot:list',
@@ -661,6 +661,9 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'drive:list',
   'drive:open',
   'drive:search',
+  'chat:upload',
+  'sessions:load',
+  'sessions:save',
   'canvas:export-pptx',
   'office:available',
   'office:export-pdf',
