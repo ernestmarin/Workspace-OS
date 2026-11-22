@@ -1,6 +1,68 @@
 # Handoff
 
-## Vigente — IPC-STORE-01 · 2026-11-21
+## Vigente — IPC-SPEECH-02 · 2026-11-21
+
+Ver [ipc-speech-02-checkpoint-2026-11-21.md](ipc-speech-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `653cd0f` (IPC-BROWSER-02).
+
+- **El hallazgo del lote es que no había nada que arreglar:** los veintisiete handlers `speech:*` ya verificaban el emisor con el `assertOwner(event)` del propio módulo, que es `documentFor(assertWorkspace(event))` y, por dentro, `assertMainFrame` + identidad de sender y frame con `mainWindow()`. El triage los daba como verdict A porque el inventario conocía `assertWorkspace(` pero no el nombre del wrapper, y porque su patrón exigía que el parámetro se llamara `ipcMain` — `speech/handlers.ts` registra con `ipcHandle(ipc, …)` y no tenía snippet. **Dos puntos ciegos, un número: los verdict-A restantes nunca fueron 23, eran 0.**
+- Lo que sí faltaba era la **evidencia**: 137 tests nuevos (27 × 4 formas de llamador no autorizado, 27 controles del owner, y tres invariantes de fuente que fijan que `assertOwner` es de verdad el mecanismo y no un nombre). M45 (quitar `assertOwner` de `speech:set-key`) rompe 7 tests; M46 (volver al `ipcMain` literal) rompe 3.
+- Inventario: **473 = 405 + 16 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **174**. Los 16 que quedan en `EXPLICITLY_NO_GUARD` son la lista B.
+- Barrido mecánico añadido: los canales que el escáner no ve tienen que ser **exactamente** `PUSH_CHANNELS`; M47 (estrechar el patrón) rompe 4 tests. Ya no hace falta descubrir el siguiente punto ciego a mano.
+- Evidencia: GREEN 137/137; M45/M46/M47 detectadas; suite completo **369 archivos + 3 omitidos, 4978 tests + 26 omitidos**; ESLint 0 sobre 1018 ficheros; build 0.
+- Pendiente, por orden: **revisión independiente** de la serie, y **NIVEL 3** — el hueco honesto más grande: doce lotes aceptados en NIVEL 2, ninguno con Electron real, micrófono real, LibreOffice real ni una cuenta de Drive real.
+
+## Anterior — IPC-BROWSER-02 · 2026-11-21
+
+Ver [ipc-browser-02-checkpoint-2026-11-21.md](ipc-browser-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `b1dca61` (IPC-HIST-01).
+
+- Diecinueve handlers del drive del navegador invitado no miraban el evento: cualquier frame podía `navigate` la pestaña visible, `click` dentro de la **sesión autenticada del usuario**, `type` en inputs, leer la página (`current`/`map`/`extract`/`deep-read`), `screenshot` al workspace y listar `downloads`. RED 77/78.
+- La suite conduce el **registro real** de guests con un fake que graba cada acceso y cada llamada (Proxy): un rechazo deja el grabador vacío — ni siquiera el `isDestroyed()` que hace el registro al entrar. Eso convierte "no se ejecutó" en una medida, no en una deducción del mensaje de error.
+- Los dos controles que ya existían siguen detrás del guard: `requireHttpUrl` (un `navigate` a `file:///etc/passwd` falla) y la confinación de capturas por `realPathSafe`. Acotan *qué*, no *quién*.
+- Inventario: **473 = 378 + 43 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **147**. De los 43, 20 son B: quedan **23 canales verdict-A**, todos `speech:*`.
+- Evidencia: RED 77/1; GREEN 78/78; M42–M44 detectadas (6 fallos cada una, dos módulos); suite completo **368 archivos + 3 omitidos, 4840 tests + 26 omitidos**; ESLint 0 sobre 1017 ficheros; build 0; audit 40 moderadas.
+
+## Anterior — IPC-HIST-01 · 2026-11-21
+
+Ver [ipc-hist-01-checkpoint-2026-11-21.md](ipc-hist-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `00dc7b6` (IPC-MEM-01).
+
+- Doce handlers de `history.ts` no miraban el evento: `history:search` es **full-text sobre el contenido de las páginas**, `recent`/`bookmarks`/`suggest`/`is-starred` son el registro de todo lo leído, `forget`/`forget-since`/`clear` **borran de verdad** (el índice elimina también las filas FTS) y `browser:clear-cache` vacía la caché HTTP. RED 49/50.
+- **HIST-02 — el hallazgo grande:** `history.ts` registra con `ipcMain.handle(IPC.X, …)`, no con el registro `ipcHandle`, y el inventario sólo escaneaba la segunda forma. Los doce canales **nunca se examinaron**: su entrada en `EXPLICITLY_NO_GUARD` pasaba porque no había snippet que fallara. El escáner ya lee ambas formas, corta cada snippet en el siguiente registro de cualquiera de las dos, y un test nuevo exige que el fichero se escanee y que **todo** `MUST_HAVE_GUARD` tenga snippet. M39 (quitar la forma del escáner) hace fallar 3 tests.
+- Apertura perezosa del índice fijada desde los dos lados: un rechazo nunca lo abre, el primer uso del owner lo abre exactamente una vez.
+- Inventario: **473 = 359 + 62 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **128**. De los 62, 20 son B: quedan **42 canales verdict-A** (`speech:*` 23, `browser:*` 19).
+- Evidencia: RED 49/1; GREEN 50/50; M39–M41 detectadas; suite completo **367 archivos + 3 omitidos, 4762 tests + 26 omitidos**; ESLint 0 sobre 1016 ficheros; build 0.
+
+## Anterior — IPC-MEM-01 · 2026-11-21
+
+Ver [ipc-mem-01-checkpoint-2026-11-21.md](ipc-mem-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `efc1118` (IPC-BUG-01).
+
+- Quince de los dieciséis canales `memory:*` no miraban el evento. El lado de escritura (`remember`, `correct`, `confirm`, `forget`) **muta el store de memoria personal** — `forget` borra sin deshacer y `correct` guarda la versión anterior como historial; el lado de lectura devuelve todo lo que la app sabe del usuario (incluido el DB de insights Pulse del workspace); y `propose` **lee un digest de sesión y llama al modelo de la persona**. RED 60/62 (15 × 4).
+- El store ya estaba **acotado al workspace activo** (derivado en main, nunca nombrado por el llamador): eso responde *qué* es alcanzable, no *quién* puede alcanzarlo. El mock registra **qué** operación se toca, así que "protegido" no se confunde con "devolvió `[]` porque el workspace estaba vacío".
+- `memory:status` sigue en `EXPLICITLY_NO_GUARD` (verdict B, estado del DB Pulse) y el test de inventario **sigue exigiendo que no tenga guard**: la decisión B queda visible, no supuesta.
+- Inventario: **473 = 347 + 74 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **116**. De los 74, 20 son B: quedan **54 canales verdict-A** (`speech:*` 23, `browser:*` 20, `history:*` 11).
+- Evidencia: RED 60/2; GREEN 62/62; M36–M38 detectadas (6 fallos cada una); suite completo **366 archivos + 3 omitidos, 4711 tests + 26 omitidos**; ESLint 0 sobre 1015 ficheros; build 0.
+
+## Anterior — IPC-BUG-01 · 2026-11-21
+
+Ver [ipc-bug-01-checkpoint-2026-11-21.md](ipc-bug-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `86f3c2f` (IPC-DIAG-01).
+
+- Los seis canales del bug reporter no miraban el evento: `bug:file` **añade un informe a `docs/BUGS.md` del repo de desarrollo**, `bug:analyze` gasta una llamada al modelo y manda el contexto vivo y la cola de errores, `bug:setRepo` **re-apunta dónde caen los informes** y `status`/`context`/`list` devuelven la ruta absoluta del repo, el commit, el contexto vivo y los últimos errores del log. RED 24/26 (6 × 4).
+- **`bug:status` estaba triado B** (“poller status, no user content”) y devuelve ruta + log + número de informes: pasa a A, como `drive:connection`. Verdict A 123 → **124**, B 21 → **20**.
+- `bug:setRepo` ya validaba que el destino fuera este repo (`package.json` con `name: workspace-os`): acota **dónde**, no **quién**. El guard va delante y la validación se queda; el test la ejerce con una carpeta que no es el repo.
+- Inventario: **473 = 332 + 89 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **101**. De los 89, 20 son B: quedan **69 canales verdict-A** (`memory:*` 15, `speech:*` 23, `history:*` 11, `browser:*` 20).
+- Evidencia: RED 24/2; GREEN 26/26; M34/M35 detectadas (6 fallos cada una); suite completo **365 archivos + 3 omitidos, 4649 tests + 26 omitidos**; ESLint 0 sobre 1014 ficheros; build 0.
+
+## Anterior — IPC-DIAG-01 · 2026-11-21
+
+Ver [ipc-diag-01-checkpoint-2026-11-21.md](ipc-diag-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/c34cb1fb-workspace-os`, base `c6c75af` (merge de IPC-STORE-01).
+
+- Doce canales de cuatro subsistemas no miraban el evento: `print:document` **abre una ventana oculta e imprime**, `agents:write/delete` **escriben y borran los ficheros de definición de agentes** (los prompts que ejecuta el runtime) en workspace y en el state dir, `checkpoint:rollback` **restaura ficheros desde el historial de git**, `snapshot:save/delete` escribe y borra snapshots del workspace y `agents:build` gasta una llamada al modelo. RED 48/50 (12 × 4).
+- La aserción de rechazo mira tres cosas: las llamadas al store (`new-window`, `loadURL`, `snapshots.create`, `checkpoints.rollbackTo`), el callback de impresión y los dos directorios temporales — **ningún fichero escrito**.
+- `print:document` ya usaba `event.sender.id` para **suprimir re-entradas**; eso no es autorización y no se confunde: el guard va antes y el test comprueba que `print` no llegó a ejecutarse.
+- Hueco del triage corregido (**DIAG-02**): la tabla de clusters sumaba 117 de los 123 verdict-A; **`checkpoint:*` y `snapshot:*` (6) no tenían fila**. Ahora son el cluster 12.
+- Inventario: **473 = 326 + 95 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **95**. `EXPLICITLY_NO_GUARD` 107 → 95; quedan **74 canales verdict-A**.
+- Evidencia: RED 48/2; GREEN 50/50; M30–M33 detectadas (6 fallos cada una: 4 conductuales + 2 de inventario); suite completo **364 archivos + 3 omitidos, 4623 tests + 26 omitidos**; ESLint 0 sobre 1013 ficheros; build 0; audit 40 moderadas, 0 altas.
+
+## Anterior — IPC-STORE-01 · 2026-11-21
 
 Ver [ipc-store-01-checkpoint-2026-11-21.md](ipc-store-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `451c97b` (IPC-SESSION-02).
 

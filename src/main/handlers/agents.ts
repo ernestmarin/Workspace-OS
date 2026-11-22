@@ -6,6 +6,7 @@ import { IPC } from '../ipc-channels'
 import { ipcHandle } from '../ipc-registry'
 import { IpcValidationError } from '../ipc-validator'
 import { getWorkspaceRoot } from '../workspace-root'
+import { assertMainWindowFrame } from '../main-window'
 import { CAPABILITY_CATALOG } from '../agent/capabilityCatalog'
 import { buildAgentSpec } from '../agent/foundry'
 import { foreignFrontmatter, parseAgentMd, serializeAgentMd } from '../agent/agentFormat'
@@ -83,7 +84,8 @@ function agentPath(name: string, scope: 'global' | 'project'): string {
 }
 
 export function registerAgentsHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.AGENTS_LIST, () => {
+  ipcHandle(ipcMain, IPC.AGENTS_LIST, (event) => {
+    assertMainWindowFrame(event)
     const global = listDir(globalDir(), 'global')
     const pd = projectDir()
     const project = pd ? listDir(pd, 'project') : []
@@ -92,14 +94,16 @@ export function registerAgentsHandlers(ipcMain: IpcMain): void {
     return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
   })
 
-  ipcHandle(ipcMain, IPC.AGENTS_READ, (_e, name: unknown, scope: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENTS_READ, (event, name: unknown, scope: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof name !== 'string') throw new IpcValidationError('Invalid agent name')
     const sc: 'global' | 'project' = scope === 'project' ? 'project' : 'global'
     const p = agentPath(name, sc)
     return parseAgent(fs.readFileSync(p, 'utf-8'), name, sc)
   })
 
-  ipcHandle(ipcMain, IPC.AGENTS_WRITE, (_e, payload: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENTS_WRITE, (event, payload: unknown) => {
+    assertMainWindowFrame(event)
     const a = payload as Partial<AgentFile> & { scope?: 'global' | 'project' }
     if (!a || typeof a.name !== 'string' || !a.name.trim()) throw new IpcValidationError('Agent name is required')
     const scope: 'global' | 'project' = a.scope === 'project' ? 'project' : 'global'
@@ -117,7 +121,8 @@ export function registerAgentsHandlers(ipcMain: IpcMain): void {
     return { name: a.name, path: p, scope }
   })
 
-  ipcHandle(ipcMain, IPC.AGENTS_DELETE, (_e, name: unknown, scope: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENTS_DELETE, (event, name: unknown, scope: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof name !== 'string') throw new IpcValidationError('Invalid agent name')
     const sc: 'global' | 'project' = scope === 'project' ? 'project' : 'global'
     fs.rmSync(agentPath(name, sc), { force: true })
@@ -141,7 +146,8 @@ export function registerAgentsHandlers(ipcMain: IpcMain): void {
   // agent-spec PROPOSAL (name/description/persona/capabilities/surface/mode).
   // Returns the proposal only — the UI previews it and the user approves before
   // calling AGENTS_WRITE. Never writes to disk here.
-  ipcHandle(ipcMain, IPC.AGENTS_BUILD, async (_e, description: unknown) => {
+  ipcHandle(ipcMain, IPC.AGENTS_BUILD, async (event, description: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof description !== 'string' || !description.trim()) {
       throw new IpcValidationError('A description is required to build an agent')
     }

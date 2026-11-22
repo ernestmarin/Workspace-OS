@@ -19,15 +19,17 @@ along. That is the finding, and it is worth more than any single guard.
 
 `skills:list` was A by the flags and B on reading it: it returns the skill
 catalog (names + descriptions shipped with the app), not user content. Counted
-in B. Final: **123 A / 21 B**. One entry was later corrected the other way —
-`drive:connection` (B → A) — see §4.
+in B. Final: **123 A / 21 B**. Two entries were later corrected the other way —
+`drive:connection` (B → A, IPC-DRIVE-02) and `bug:status` (B → A, IPC-BUG-01):
+both returned user paths the "no user content" reason did not account for.
+Current: **124 A / 20 B**, and the 20 remaining B channels are the ones listed
+table below, after `bug:status` left it.
 
-## 1. Verdict B — kept unguarded (21), with reasons
+## 1. Verdict B — kept unguarded (20 after the `bug:status` correction), with reasons
 
 | Channel | Reason |
 | --- | --- |
 | `agents:capabilities` | static capability list |
-| `bug:status` | poller status, no user content |
 | `drive:local-name` | pure string transform (name + mime → filename) |
 | `memory:status` | store size / timestamps |
 | `menu:office-commands` | static command list for a doc type |
@@ -55,14 +57,15 @@ inventory → mutation → gates → checkpoint).
 | 1 | **workspace root** ✅ *done — IPC-WORKSPACE-02* | 3 | `workspace:open-recent`, `workspace:close`, `workspace:recents` | `open-recent` calls `openWorkspacePath(dir)` with an **unvalidated string** — it reassigns the authoritative workspace root, exactly what `fs:open-folder-dialog` does and what IPC-WATCH-01 guarded. `recents` returns the user's recent folder paths. |
 | 2 | **drive** ✅ *done — IPC-DRIVE-02* | 6 | `drive:connect`, `drive:disconnect`, `drive:list`, `drive:open`, `drive:search`, **`drive:connection`** | network + OAuth secrets + `drive:open` writes a remote file into the workspace |
 | 3 | **chat sessions** ✅ *done — IPC-SESSION-02* | 3 | `sessions:load`, `sessions:save`, `chat:upload` | conversation transcripts and uploaded attachments on disk |
-| 4 | **printing** | 1 | `print:document` | builds a hidden window and prints; `event.sender` is used only for re-entrancy, not authorization |
-| 5 | **bug reports** | 5 | `bug:analyze`, `bug:context`, `bug:file`, `bug:list`, `bug:setRepo` | `bug:file` writes a report to disk; `analyze` calls a model; `context`/`list` read repo state |
-| 6 | **agents** | 5 | `agents:build`, `agents:delete`, `agents:list`, `agents:read`, `agents:write` | agent definitions (prompts) are user content; build/write/delete touch the filesystem |
+| 4 | **printing** ✅ *done — IPC-DIAG-01* | 1 | `print:document` | builds a hidden window and prints; `event.sender` is used only for re-entrancy, not authorization |
+| 5 | **bug reports** ✅ *done — IPC-BUG-01* | 6 | `bug:status`, `bug:analyze`, `bug:context`, `bug:file`, `bug:list`, `bug:setRepo` | `bug:file` **writes a report into the development repo**; `analyze` calls a model; `setRepo` re-points where reports land; `status`/`context`/`list` return the repo path, the commit, the live context and the main-process error tail |
+| 6 | **agents** ✅ *done — IPC-DIAG-01* | 5 | `agents:build`, `agents:delete`, `agents:list`, `agents:read`, `agents:write` | agent definitions (prompts) are user content; build/write/delete touch the filesystem |
 | 7 | **derived-state stores** ✅ *done — IPC-STORE-01* | 25 | `collection:*` 2, `collectionLink:*` 4, `components:*` 2, `metric:*` 2, `range:*` 3, `rangeLink:*` 4, `transclusion:*` 4, `wiki:*` 4 (`changes`, `check`, `sources`, `undo`) | deletes, bulk refreshes, syncs and `wiki:undo` (**rewrites pages**); the read-only members list user-authored links and paths |
-| 8 | **memory** | 15 | `memory:*` (all but `status`) | the personal memory store: remember / forget / correct / query / propose (model) |
-| 9 | **speech** | 23 | `speech:*` (all but four status channels) | `read-clipboard` (**clipboard**), `set-key` (**secret**), `stt-transcribe` (audio to a provider), `kokoro-install` (installs binaries), `speak` |
-| 10 | **history** | 11 | `history:*` | the user's browsing history: recent, search, star, forget, clear |
-| 11 | **browser control** | 20 | `browser:*` | a foreign frame driving the user's guest browser: navigate, click, type, screenshot, deep-read (page content), downloads |
+| 8 | **memory** ✅ *done — IPC-MEM-01* | 15 | `memory:*` (all but `status`) | the personal memory store: remember / forget / correct / query / propose (model) |
+| 9 | **speech** ✅ *done — IPC-SPEECH-02 (already guarded; the inventory could not see it)* | 23 | `speech:*` (all but four status channels) | `read-clipboard` (**clipboard**), `set-key` (**secret**), `stt-transcribe` (audio to a provider), `kokoro-install` (installs binaries), `speak` |
+| 10 | **history** ✅ *done — IPC-HIST-01* | 11 | `history:*` | the user's browsing history: recent, search, star, forget, clear |
+| 11 | **browser control** ✅ *done — IPC-BROWSER-02* | 20 | `browser:*` | a foreign frame driving the user's guest browser: navigate, click, type, screenshot, deep-read (page content), downloads |
+| 12 | **checkpoints & snapshots** ✅ *done — IPC-DIAG-01* | 6 | `checkpoint:list`, `checkpoint:diff`, `checkpoint:rollback`, `snapshot:list`, `snapshot:save`, `snapshot:delete` | `rollback` **restores files** from git history; snapshots persist and delete saved workspace state. *Added to this table late: these six were counted in the 123 verdict-A total but had no cluster row (see IPC-DIAG-01, finding DIAG-02).* |
 
 ## 3. Method and its limits
 
@@ -96,10 +99,46 @@ two commits (metrics/collections + wiki).
 | IPC-DRIVE-02 | drive | 6 | [ipc-drive-02-checkpoint-2026-11-21.md](ipc-drive-02-checkpoint-2026-11-21.md) |
 | IPC-SESSION-02 | chat sessions | 3 | [ipc-session-02-checkpoint-2026-11-21.md](ipc-session-02-checkpoint-2026-11-21.md) |
 | IPC-STORE-01 | derived-state stores | 25 | [ipc-store-01-checkpoint-2026-11-21.md](ipc-store-01-checkpoint-2026-11-21.md) |
+| IPC-DIAG-01 | printing, agents, checkpoints & snapshots | 12 | [ipc-diag-01-checkpoint-2026-11-21.md](ipc-diag-01-checkpoint-2026-11-21.md) |
+| IPC-BUG-01 | bug reports | 6 | [ipc-bug-01-checkpoint-2026-11-21.md](ipc-bug-01-checkpoint-2026-11-21.md) |
+| IPC-MEM-01 | memory | 15 | [ipc-mem-01-checkpoint-2026-11-21.md](ipc-mem-01-checkpoint-2026-11-21.md) |
+| IPC-HIST-01 | history (+ scanner repair) | 12 | [ipc-hist-01-checkpoint-2026-11-21.md](ipc-hist-01-checkpoint-2026-11-21.md) |
+| IPC-BROWSER-02 | browser control & downloads | 19 | [ipc-browser-02-checkpoint-2026-11-21.md](ipc-browser-02-checkpoint-2026-11-21.md) |
+| IPC-SPEECH-02 | speech (already guarded) + scanner repair | 27 | [ipc-speech-02-checkpoint-2026-11-21.md](ipc-speech-02-checkpoint-2026-11-21.md) |
 
-**Correction made while doing it:** `drive:connection` had been triaged B ("whether
+**Corrections made while doing it:** `drive:connection` had been triaged B ("whether
 an account is linked"). It returns the whole connection object, **email included**.
 Moved to A and guarded in IPC-DRIVE-02 — the triage's stated limit, in one
-concrete instance.
+concrete instance. `bug:status` had been triaged B ("poller status, no user
+content"); it returns the absolute repository path, the log path and the number of
+filed reports, so it moved to A and was guarded in IPC-BUG-01. The B table's
+"no user content" reason is the one to distrust.
 
-**Remaining: 86 verdict-A channels.**
+**Remaining: 0 verdict-A channels.** 405 of the 473 declared channels are guarded;
+the other 68 are 16 verdict-B, 22 `GRANT_CHECKED` (data operations authorized by
+an explicit grant) and 30 `PUSH_CHANNELS` (main → renderer).
+
+**Correction made while doing the last batch (SPEECH-01/02):** the twenty-seven
+`speech:*` handlers were *already* guarded by the module's own `assertOwner(event)`
+(= `documentFor(assertWorkspace(event))`, and `assertWorkspace` = `assertMainFrame`
++ sender/frame identity with `mainWindow()`). The triage called them verdict A
+because the inventory recognised `assertWorkspace(` but not the wrapper name the
+handlers call, and because its registry pattern required the parameter to be
+named `ipcMain` — `speech/handlers.ts` uses `ipcHandle(ipc, …)` and had no snippet
+at all. Two blind spots, one number: the remaining-A count was never 23, it was 0.
+The scanner now accepts any parameter name, accepts `assertOwner(` **only with a
+test that pins its definition**, and asserts positively that each registration
+file is visible — plus a mechanical sweep that the channels the scanner cannot see
+are *exactly* `PUSH_CHANNELS`, so a future form fails loudly instead of becoming
+silent debt. The sixteen channels left in `EXPLICITLY_NO_GUARD` are the
+verdict-B list.
+
+**Tooling repair made while doing it (HIST-02):** `handlers/history.ts` registers
+with `ipcMain.handle(IPC.X, …)` instead of the `ipcHandle` registry, and the
+inventory only scanned the registry form. Its twelve channels were never
+examined — their `EXPLICITLY_NO_GUARD` entry passed because no snippet existed to
+fail. The scanner now reads both forms, bounds each snippet at the next
+registration of either kind, and a test asserts that the file is scanned and that
+every `MUST_HAVE_GUARD` channel has a snippet. Any earlier count is only as good
+as this scan; the channel *list* was always right (`ipc-channels.ts` is parsed
+separately), the *examination* was not.

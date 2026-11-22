@@ -3,6 +3,7 @@ import { IPC } from '../ipc-channels'
 import { ipcHandle, registerCleanup } from '../ipc-registry'
 import { app } from 'electron'
 import { IpcValidationError } from '../ipc-validator'
+import { assertMainWindowFrame } from '../main-window'
 import { getWorkspaceRoot } from '../workspace-root'
 import path from 'path'
 import * as mem from '../memory/memory-service'
@@ -50,13 +51,15 @@ function buildQuery(root: string, raw: unknown): MemoryQuery {
 }
 
 export function registerMemoryHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.MEMORY_QUERY, (_event, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_QUERY, (event, opts: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) return []
     return ensureMemory().query(buildQuery(root, opts))
   })
 
-  ipcHandle(ipcMain, IPC.MEMORY_RECENT, (_event, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_RECENT, (event, limit: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root) return []
     const n = typeof limit === 'number' ? limit : 50
@@ -90,7 +93,8 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     return id
   }
 
-  ipcHandle(ipcMain, IPC.MEMORY_REMEMBER, (_e, input: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_REMEMBER, (event, input: unknown) => {
+    assertMainWindowFrame(event)
     const i = (input ?? {}) as Record<string, unknown>
     const kind: Kind = KINDS.includes(i.kind as Kind) ? (i.kind as Kind) : 'fact'
     return embedSoon(mem.remember(ctx(), {
@@ -104,27 +108,42 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
   })
 
   // Correct (the old version stays as history), keep (confirm), what it said before, and what is already known.
-  ipcHandle(ipcMain, IPC.MEMORY_CORRECT, (_e, id: unknown, text: unknown, author: unknown, source: unknown) =>
-    embedSoon(mem.correct(ctx(), memoryId(id), memoryText(text), authorOf(author), typeof source === 'string' ? source.slice(0, 300) : undefined)),
-  )
-  ipcHandle(ipcMain, IPC.MEMORY_CONFIRM, (_e, id: unknown) => ({ ok: mem.confirm(ctx(), memoryId(id)) }))
-  ipcHandle(ipcMain, IPC.MEMORY_HISTORY, (_e, id: unknown) => mem.history(ctx(), memoryId(id)))
-  ipcHandle(ipcMain, IPC.MEMORY_SIMILAR, (_e, text: unknown, scope: unknown) => mem.similar(ctx(), memoryText(text), scope === 'global' ? 'global' : 'workspace'))
+  ipcHandle(ipcMain, IPC.MEMORY_CORRECT, (event, id: unknown, text: unknown, author: unknown, source: unknown) => {
+    assertMainWindowFrame(event)
+    return embedSoon(mem.correct(ctx(), memoryId(id), memoryText(text), authorOf(author), typeof source === 'string' ? source.slice(0, 300) : undefined))
+  })
+  ipcHandle(ipcMain, IPC.MEMORY_CONFIRM, (event, id: unknown) => {
+    assertMainWindowFrame(event)
+    return { ok: mem.confirm(ctx(), memoryId(id)) }
+  })
+  ipcHandle(ipcMain, IPC.MEMORY_HISTORY, (event, id: unknown) => {
+    assertMainWindowFrame(event)
+    return mem.history(ctx(), memoryId(id))
+  })
+  ipcHandle(ipcMain, IPC.MEMORY_SIMILAR, (event, text: unknown, scope: unknown) => {
+    assertMainWindowFrame(event)
+    return mem.similar(ctx(), memoryText(text), scope === 'global' ? 'global' : 'workspace')
+  })
 
-  ipcHandle(ipcMain, IPC.MEMORY_SEARCH, (_e, query: unknown, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_SEARCH, (event, query: unknown, limit: unknown) => {
+    assertMainWindowFrame(event)
     const q = typeof query === 'string' ? query : ''
     const n = typeof limit === 'number' && Number.isFinite(limit) ? Math.min(50, Math.max(1, limit)) : 10
     // A question finds by words and meaning; no words at all lists the newest.
     return mem.toMatchQuery(q) ? mem.recallMeaning(ctx(), q, n) : mem.search(ctx(), q, n)
   })
 
-  ipcHandle(ipcMain, IPC.MEMORY_MEANING, () => ({ status: mem.embedderStatus() }))
+  ipcHandle(ipcMain, IPC.MEMORY_MEANING, (event) => {
+    assertMainWindowFrame(event)
+    return { status: mem.embedderStatus() }
+  })
 
   // ── memory that fills and tidies itself ──
   // A quiet session, read once by the person's light model: what is worth
   // remembering goes to the Inbox, unconfirmed. The model is the person's
   // setting passed through, never a name in source.
-  ipcHandle(ipcMain, IPC.MEMORY_PROPOSE, async (_e, digest: unknown, model: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_PROPOSE, async (event, digest: unknown, model: unknown) => {
+    assertMainWindowFrame(event)
     const d = (digest ?? {}) as Record<string, unknown>
     const str = (v: unknown, n: number): string => (typeof v === 'string' ? v.slice(0, n) : '')
     const turns: SessionTurn[] = (Array.isArray(d.turns) ? d.turns : [])
@@ -158,8 +177,14 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     if (!c.root) return null
     return tidy(c, { outside: pulseDecisions(c.root) })
   }
-  ipcHandle(ipcMain, IPC.MEMORY_TIDY, () => runTidy())
-  ipcHandle(ipcMain, IPC.MEMORY_LASTTIDY, () => lastTidy(ctx()))
+  ipcHandle(ipcMain, IPC.MEMORY_TIDY, (event) => {
+    assertMainWindowFrame(event)
+    return runTidy()
+  })
+  ipcHandle(ipcMain, IPC.MEMORY_LASTTIDY, (event) => {
+    assertMainWindowFrame(event)
+    return lastTidy(ctx())
+  })
   // Once a day, checked hourly (and soon after start): no model, nothing the person would not do.
   const tidyIfDue = (): void => {
     try {
@@ -173,7 +198,8 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     setInterval(tidyIfDue, 60 * 60_000).unref()
   }
 
-  ipcHandle(ipcMain, IPC.MEMORY_LIST, (_e, opts: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_LIST, (event, opts: unknown) => {
+    assertMainWindowFrame(event)
     const o = (opts ?? {}) as { kind?: unknown; limit?: unknown; unconfirmed?: unknown }
     return mem.list(ctx(), {
       ...(typeof o.kind === 'string' ? { kind: o.kind as 'fact' } : {}),
@@ -182,12 +208,16 @@ export function registerMemoryHandlers(ipcMain: IpcMain): void {
     })
   })
 
-  ipcHandle(ipcMain, IPC.MEMORY_FORGET, (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.MEMORY_FORGET, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof id !== 'string' || !id) throw new IpcValidationError('Which memory?')
     return { ok: mem.forget(ctx(), id) }
   })
 
-  ipcHandle(ipcMain, IPC.MEMORY_STATS, () => mem.stats(ctx()))
+  ipcHandle(ipcMain, IPC.MEMORY_STATS, (event) => {
+    assertMainWindowFrame(event)
+    return mem.stats(ctx())
+  })
 
   ipcHandle(ipcMain, IPC.MEMORY_STATUS, () => {
     return { status: ensureMemory().status() }

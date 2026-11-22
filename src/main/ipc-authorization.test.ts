@@ -44,7 +44,17 @@ function mainSources(dir: string): string[] {
     return [full]
   })
 }
-const re = /ipcHandle\s*\(\s*ipcMain\s*,\s*IPC\.([A-Z_0-9]+)/g
+// Two registration forms reach ipcMain: the `ipcHandle` registry (nearly every
+// module) and a bare `ipcMain.handle(IPC.X, …)`. IPC-HIST-01 found `history.ts`
+// using the second one for twelve channels, which the first version of this
+// scanner never saw — so those channels sat in EXPLICITLY_NO_GUARD and their
+// "no guard" was an artefact of the scan, not a decision.
+const registrars: RegExp[] = [
+  // The registry form, whatever the parameter is called (`ipcMain`, `ipc`, …).
+  /ipcHandle\s*\(\s*[A-Za-z_$][\w$]*\s*,\s*IPC\.([A-Z_0-9]+)/g,
+  // A bare `ipcMain.handle(IPC.X, …)`.
+  /ipcMain\.handle\(\s*\n?\s*IPC\.([A-Z_0-9]+)/g,
+]
 const channelGuard = new Map<string, boolean>() // channel -> hasGuard in its snippet
 // IPC-FS-01: path confinement (`sanitize`, `validateFilePath`) is not an origin
 // check, so a channel can be "guarded" and still accept a caller it should have
@@ -54,40 +64,53 @@ const channelFiles = new Map<string, string[]>()
 for (const file of mainSources(path.join(root, 'src/main'))) {
   if (file.endsWith('ipc-surface.test.ts') || file.endsWith('ipc-authorization.test.ts')) continue
   const content = fs.readFileSync(file, 'utf8')
-  let m: RegExpExecArray | null
-  while ((m = re.exec(content)) !== null) {
-    const chName = m[1]
-    const channel = byName.get(chName) ?? `UNKNOWN:${chName}`
-    const start = m.index
-    const nextIdx = content.indexOf('ipcHandle', start + 10)
-    const snippet = content.slice(start, nextIdx > 0 ? nextIdx : start + 5000)
-    const hasGuard =
-      snippet.includes('assertMainFrame') ||
-      snippet.includes('assertLokSender') ||
-      snippet.includes('assertUpdaterSender') ||
-      snippet.includes('assertMainWindowFrame') ||
-      snippet.includes('assertWorkspace') ||
-      snippet.includes('validateFilePath') ||
-      snippet.includes('validateOpenPath') ||
-      snippet.includes('sanitize(') ||
-      snippet.includes('sanitizeRead') ||
-      snippet.includes('realPathSafe') ||
-      snippet.includes('validateSearchQuery') // search scoping counts as guard
-    const hasOriginGuard =
-      snippet.includes('assertMainWindowFrame') ||
-      snippet.includes('assertMainFrame(') ||
-      snippet.includes('assertLokSender') ||
-      snippet.includes('assertUpdaterSender') ||
-      snippet.includes('assertOwner(')
-    const prev = channelGuard.get(channel)
-    if (prev === undefined) channelGuard.set(channel, hasGuard)
-    else channelGuard.set(channel, prev || hasGuard)
-    const prevOrigin = channelOriginGuard.get(channel)
-    if (prevOrigin === undefined) channelOriginGuard.set(channel, hasOriginGuard)
-    else channelOriginGuard.set(channel, prevOrigin || hasOriginGuard)
-    const arr = channelFiles.get(channel) ?? []
-    arr.push(path.relative(root, file))
-    channelFiles.set(channel, arr)
+  for (const re of registrars) {
+    re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(content)) !== null) {
+      const chName = m[1]
+      const channel = byName.get(chName) ?? `UNKNOWN:${chName}`
+      const start = m.index
+      // The snippet ends at the next registration of either form, so one guarded
+      // handler cannot make its neighbours look guarded.
+      const bounds = [content.indexOf('ipcHandle', start + 10), content.indexOf('ipcMain.handle', start + 10)].filter(
+        (i) => i > 0,
+      )
+      const nextIdx = bounds.length ? Math.min(...bounds) : -1
+      const snippet = content.slice(start, nextIdx > 0 ? nextIdx : start + 5000)
+      const hasGuard =
+        snippet.includes('assertMainFrame') ||
+        snippet.includes('assertLokSender') ||
+        snippet.includes('assertUpdaterSender') ||
+        snippet.includes('assertMainWindowFrame') ||
+        snippet.includes('assertWorkspace') ||
+        // IPC-SPEECH-02: the speech module's own wrapper. A name is not a guard by
+        // itself: `speech/handlers.authorization.test.ts` pins it to
+        // `documentFor(assertWorkspace(event))`, and `assertWorkspace` to
+        // `assertMainFrame(event)` plus sender/frame identity with `mainWindow()`.
+        snippet.includes('assertOwner(') ||
+        snippet.includes('validateFilePath') ||
+        snippet.includes('validateOpenPath') ||
+        snippet.includes('sanitize(') ||
+        snippet.includes('sanitizeRead') ||
+        snippet.includes('realPathSafe') ||
+        snippet.includes('validateSearchQuery') // search scoping counts as guard
+      const hasOriginGuard =
+        snippet.includes('assertMainWindowFrame') ||
+        snippet.includes('assertMainFrame(') ||
+        snippet.includes('assertLokSender') ||
+        snippet.includes('assertUpdaterSender') ||
+        snippet.includes('assertOwner(')
+      const prev = channelGuard.get(channel)
+      if (prev === undefined) channelGuard.set(channel, hasGuard)
+      else channelGuard.set(channel, prev || hasGuard)
+      const prevOrigin = channelOriginGuard.get(channel)
+      if (prevOrigin === undefined) channelOriginGuard.set(channel, hasOriginGuard)
+      else channelOriginGuard.set(channel, prevOrigin || hasOriginGuard)
+      const arr = channelFiles.get(channel) ?? []
+      arr.push(path.relative(root, file))
+      channelFiles.set(channel, arr)
+    }
   }
 }
 // Push channels nunca se registran con ipcHandle (main → renderer)
@@ -439,6 +462,104 @@ const MUST_HAVE_GUARD = new Set<string>([
   'wiki:check',
   'wiki:sources',
   'wiki:undo',
+  // Lote IPC-DIAG-01 — impresión, agentes, checkpoints y snapshots
+  'print:document',
+  'agents:build',
+  'agents:delete',
+  'agents:list',
+  'agents:read',
+  'agents:write',
+  'checkpoint:diff',
+  'checkpoint:list',
+  'checkpoint:rollback',
+  'snapshot:delete',
+  'snapshot:list',
+  'snapshot:save',
+  // Lote IPC-BUG-01 — el reporter de bugs lee y escribe el repo de desarrollo
+  'bug:analyze',
+  'bug:context',
+  'bug:file',
+  'bug:list',
+  'bug:setRepo',
+  'bug:status',
+  // Lote IPC-MEM-01 — el store de memoria personal del workspace
+  'memory:confirm',
+  'memory:correct',
+  'memory:forget',
+  'memory:history',
+  'memory:lastTidy',
+  'memory:list',
+  'memory:meaning',
+  'memory:propose',
+  'memory:query',
+  'memory:recent',
+  'memory:remember',
+  'memory:search',
+  'memory:similar',
+  'memory:stats',
+  'memory:tidy',
+  // Lote IPC-HIST-01 — historial de navegación, marcadores y caché
+  'browser:clear-cache',
+  'history:record',
+  'history:search',
+  'history:suggest',
+  'history:recent',
+  'history:star',
+  'history:unstar',
+  'history:is-starred',
+  'history:bookmarks',
+  'history:forget',
+  'history:forget-since',
+  'history:clear',
+  // Lote IPC-BROWSER-02 — drive del navegador invitado y descargas
+  'browser:back',
+  'browser:clear-consent',
+  'browser:click',
+  'browser:current',
+  'browser:deep-read',
+  'browser:dismiss-cookies',
+  'browser:downloads',
+  'browser:extract',
+  'browser:forward',
+  'browser:map',
+  'browser:navigate',
+  'browser:register-tab',
+  'browser:screenshot',
+  'browser:scroll',
+  'browser:set-active-guest',
+  'browser:thumbnail',
+  'browser:type',
+  'browser:unregister-tab',
+  'browser:wait-for',
+  // Lote IPC-SPEECH-02 — voz, micrófono, STT y secretos. Ya estaban protegidos
+  // por assertOwner; este lote lo mide y lo vuelve exigible.
+  'speech:cancel-reading',
+  'speech:config',
+  'speech:key-status',
+  'speech:kokoro-install',
+  'speech:kokoro-install-cancel',
+  'speech:kokoro-install-status',
+  'speech:kokoro-prepare',
+  'speech:kokoro-status',
+  'speech:microphone-authorize',
+  'speech:microphone-revoke',
+  'speech:model-diagnostics',
+  'speech:playback-done',
+  'speech:read-clipboard',
+  'speech:reply-close',
+  'speech:reply-finish',
+  'speech:reply-open',
+  'speech:reply-reserve',
+  'speech:select-engine',
+  'speech:set-hotkey',
+  'speech:set-key',
+  'speech:set-lookahead',
+  'speech:speak',
+  'speech:status',
+  'speech:stt-cancel',
+  'speech:stt-status',
+  'speech:stt-transcribe',
+  'speech:stop',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -509,69 +630,14 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
 
   // app surfaces — sin guard hoy, deuda P1 (añadir assertMainFrame en lote N+1b)
   // browser
-  'browser:back',
-  'browser:clear-cache',
-  'browser:clear-consent',
-  'browser:click',
-  'browser:current',
-  'browser:deep-read',
-  'browser:dismiss-cookies',
-  'browser:downloads',
-  'browser:extract',
-  'browser:forward',
-  'browser:map',
-  'browser:navigate',
-  'browser:register-tab',
-  'browser:screenshot',
-  'browser:scroll',
-  'browser:set-active-guest',
-  'browser:thumbnail',
-  'browser:type',
-  'browser:unregister-tab',
-  'browser:wait-for',
   // bugs / calendar / cases / chat / checkpoint
-  'bug:analyze',
-  'bug:context',
-  'bug:file',
-  'bug:list',
-  'bug:setRepo',
-  'bug:status',
-  'checkpoint:diff',
-  'checkpoint:list',
-  'checkpoint:rollback',
   // collections / components / drive (parte)
   'drive:local-name',
   // fs (parte no sensible hoy: list/reveal/watch)
   // history / knowledge-links / lok (resto)
-  'history:bookmarks',
-  'history:clear',
-  'history:forget',
-  'history:forget-since',
-  'history:is-starred',
-  'history:recent',
-  'history:record',
-  'history:search',
-  'history:star',
-  'history:suggest',
-  'history:unstar',
   // mail — más de 50 canales, todos sin guard hoy (deuda P0, lote N+1b)
   // memory / menu / metric (parte) / office / pdf / projects / range / search...
-  'memory:confirm',
-  'memory:correct',
-  'memory:forget',
-  'memory:history',
-  'memory:lastTidy',
-  'memory:list',
-  'memory:meaning',
-  'memory:propose',
-  'memory:query',
-  'memory:recent',
-  'memory:remember',
-  'memory:search',
-  'memory:similar',
-  'memory:stats',
   'memory:status',
-  'memory:tidy',
   'menu:office-commands',
   'menu:run-action',
   'menu:set-actions',
@@ -579,50 +645,14 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'menu:set-browser-context',
   'menu:set-office-context',
   'menu:set-office-state',
-  'print:document',
   'skills:list',
-  'snapshot:delete',
-  'snapshot:list',
-  'snapshot:save',
-  'speech:cancel-reading',
-  'speech:config',
-  'speech:key-status',
-  'speech:kokoro-install',
-  'speech:kokoro-install-cancel',
-  'speech:kokoro-install-status',
-  'speech:kokoro-prepare',
-  'speech:kokoro-status',
-  'speech:microphone-authorize',
-  'speech:microphone-revoke',
-  'speech:model-diagnostics',
-  'speech:playback-done',
-  'speech:read-clipboard',
-  'speech:reply-close',
-  'speech:reply-finish',
-  'speech:reply-open',
-  'speech:reply-reserve',
-  'speech:select-engine',
-  'speech:set-hotkey',
-  'speech:set-key',
-  'speech:set-lookahead',
-  'speech:speak',
-  'speech:status',
-  'speech:stop',
-  'speech:stt-cancel',
-  'speech:stt-status',
-  'speech:stt-transcribe',
   'system:status',
   'wiki:status',
   'window:close',
   'window:maximize',
   'window:minimize',
   // agents / misc
-  'agents:build',
   'agents:capabilities',
-  'agents:delete',
-  'agents:list',
-  'agents:read',
-  'agents:write',
 ])
 
 // IPC-FS-01 — the workspace filesystem surface (src/main/handlers/fs.ts).
@@ -710,6 +740,104 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'workspace:content-root',
   'workspace:get-root',
   'workspace:write-agent-note',
+  // Lote IPC-DIAG-01 — impresión, agentes, checkpoints y snapshots
+  'print:document',
+  'agents:build',
+  'agents:delete',
+  'agents:list',
+  'agents:read',
+  'agents:write',
+  'checkpoint:diff',
+  'checkpoint:list',
+  'checkpoint:rollback',
+  'snapshot:delete',
+  'snapshot:list',
+  'snapshot:save',
+  // Lote IPC-BUG-01 — el reporter de bugs lee y escribe el repo de desarrollo
+  'bug:analyze',
+  'bug:context',
+  'bug:file',
+  'bug:list',
+  'bug:setRepo',
+  'bug:status',
+  // Lote IPC-MEM-01 — el store de memoria personal del workspace
+  'memory:confirm',
+  'memory:correct',
+  'memory:forget',
+  'memory:history',
+  'memory:lastTidy',
+  'memory:list',
+  'memory:meaning',
+  'memory:propose',
+  'memory:query',
+  'memory:recent',
+  'memory:remember',
+  'memory:search',
+  'memory:similar',
+  'memory:stats',
+  'memory:tidy',
+  // Lote IPC-HIST-01 — historial de navegación, marcadores y caché
+  'browser:clear-cache',
+  'history:record',
+  'history:search',
+  'history:suggest',
+  'history:recent',
+  'history:star',
+  'history:unstar',
+  'history:is-starred',
+  'history:bookmarks',
+  'history:forget',
+  'history:forget-since',
+  'history:clear',
+  // Lote IPC-BROWSER-02 — drive del navegador invitado y descargas
+  'browser:back',
+  'browser:clear-consent',
+  'browser:click',
+  'browser:current',
+  'browser:deep-read',
+  'browser:dismiss-cookies',
+  'browser:downloads',
+  'browser:extract',
+  'browser:forward',
+  'browser:map',
+  'browser:navigate',
+  'browser:register-tab',
+  'browser:screenshot',
+  'browser:scroll',
+  'browser:set-active-guest',
+  'browser:thumbnail',
+  'browser:type',
+  'browser:unregister-tab',
+  'browser:wait-for',
+  // Lote IPC-SPEECH-02 — voz, micrófono, STT y secretos. Ya estaban protegidos
+  // por assertOwner; este lote lo mide y lo vuelve exigible.
+  'speech:cancel-reading',
+  'speech:config',
+  'speech:key-status',
+  'speech:kokoro-install',
+  'speech:kokoro-install-cancel',
+  'speech:kokoro-install-status',
+  'speech:kokoro-prepare',
+  'speech:kokoro-status',
+  'speech:microphone-authorize',
+  'speech:microphone-revoke',
+  'speech:model-diagnostics',
+  'speech:playback-done',
+  'speech:read-clipboard',
+  'speech:reply-close',
+  'speech:reply-finish',
+  'speech:reply-open',
+  'speech:reply-reserve',
+  'speech:select-engine',
+  'speech:set-hotkey',
+  'speech:set-key',
+  'speech:set-lookahead',
+  'speech:speak',
+  'speech:status',
+  'speech:stt-cancel',
+  'speech:stt-status',
+  'speech:stt-transcribe',
+  'speech:stop',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
@@ -781,6 +909,36 @@ describe('N+1 IPC authorization — exhaustividad y guard', () => {
 
   it('PUSH_CHANNELS no tienen handler ipcHandle (son main→renderer)', () => {
     for (const ch of PUSH_CHANNELS) expect(channelGuard.get(ch)).toBe(false)
+  })
+
+  it('ningún canal declarado escapa al escáner (barrido mecánico)', () => {
+    // The two blind spots (HIST-02, SPEECH-02) were found by hand. This is the
+    // mechanical version: a declared channel is either seen by the scanner or is
+    // a push channel (main → renderer, never invokable). Any third outcome is a
+    // registration form the inventory does not understand — exactly the shape of
+    // both historical blind spots.
+    const invisible = [...declared.keys()].filter((c) => !channelFiles.has(c))
+    expect(invisible.sort(), `sin snippet: ${invisible.join(', ')}`).toEqual([...PUSH_CHANNELS].sort())
+    const unknown = invisible.filter((c) => !PUSH_CHANNELS.has(c))
+    expect(unknown, `canales en ninguna forma conocida: ${unknown.join(', ')}`).toEqual([])
+  })
+
+  it('el escáner ve las dos formas de registro de ipcMain', () => {
+    // IPC-HIST-01: `handlers/history.ts` registers with `ipcMain.handle(IPC.X, …)`
+    // instead of the `ipcHandle` registry. Until the scanner knew that form, its
+    // twelve channels were invisible here and looked unguarded because nobody
+    // looked — the difference between a decision and a blind spot.
+    for (const ch of ['browser:clear-cache', 'history:clear', 'history:record', 'history:search']) {
+      expect(channelFiles.get(ch) ?? [], `${ch} no fue escaneado`).toContain('src/main/handlers/history.ts')
+    }
+    // And the registry form with a parameter that is not called `ipcMain`
+    // (`ipcHandle(ipc, IPC.SPEECH_X, …)` in speech/handlers.ts).
+    for (const ch of ['speech:set-key', 'speech:read-clipboard', 'speech:stop']) {
+      expect(channelFiles.get(ch) ?? [], `${ch} no fue escaneado`).toContain('src/main/speech/handlers.ts')
+    }
+    // And every channel that claims a guard must have been seen by the scanner.
+    const unseen = [...MUST_HAVE_GUARD].filter((c) => !channelFiles.has(c))
+    expect(unseen, `MUST_HAVE_GUARD sin snippet: ${unseen.join(', ')}`).toEqual([])
   })
 
   it('EXPLICITLY_NO_GUARD no tiene guard — es decisión explícita, no olvido', () => {
