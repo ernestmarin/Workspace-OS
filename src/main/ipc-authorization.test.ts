@@ -50,7 +50,9 @@ function mainSources(dir: string): string[] {
 // scanner never saw — so those channels sat in EXPLICITLY_NO_GUARD and their
 // "no guard" was an artefact of the scan, not a decision.
 const registrars: RegExp[] = [
-  /ipcHandle\s*\(\s*ipcMain\s*,\s*IPC\.([A-Z_0-9]+)/g,
+  // The registry form, whatever the parameter is called (`ipcMain`, `ipc`, …).
+  /ipcHandle\s*\(\s*[A-Za-z_$][\w$]*\s*,\s*IPC\.([A-Z_0-9]+)/g,
+  // A bare `ipcMain.handle(IPC.X, …)`.
   /ipcMain\.handle\(\s*\n?\s*IPC\.([A-Z_0-9]+)/g,
 ]
 const channelGuard = new Map<string, boolean>() // channel -> hasGuard in its snippet
@@ -82,6 +84,11 @@ for (const file of mainSources(path.join(root, 'src/main'))) {
         snippet.includes('assertUpdaterSender') ||
         snippet.includes('assertMainWindowFrame') ||
         snippet.includes('assertWorkspace') ||
+        // IPC-SPEECH-02: the speech module's own wrapper. A name is not a guard by
+        // itself: `speech/handlers.authorization.test.ts` pins it to
+        // `documentFor(assertWorkspace(event))`, and `assertWorkspace` to
+        // `assertMainFrame(event)` plus sender/frame identity with `mainWindow()`.
+        snippet.includes('assertOwner(') ||
         snippet.includes('validateFilePath') ||
         snippet.includes('validateOpenPath') ||
         snippet.includes('sanitize(') ||
@@ -524,6 +531,35 @@ const MUST_HAVE_GUARD = new Set<string>([
   'browser:type',
   'browser:unregister-tab',
   'browser:wait-for',
+  // Lote IPC-SPEECH-02 — voz, micrófono, STT y secretos. Ya estaban protegidos
+  // por assertOwner; este lote lo mide y lo vuelve exigible.
+  'speech:cancel-reading',
+  'speech:config',
+  'speech:key-status',
+  'speech:kokoro-install',
+  'speech:kokoro-install-cancel',
+  'speech:kokoro-install-status',
+  'speech:kokoro-prepare',
+  'speech:kokoro-status',
+  'speech:microphone-authorize',
+  'speech:microphone-revoke',
+  'speech:model-diagnostics',
+  'speech:playback-done',
+  'speech:read-clipboard',
+  'speech:reply-close',
+  'speech:reply-finish',
+  'speech:reply-open',
+  'speech:reply-reserve',
+  'speech:select-engine',
+  'speech:set-hotkey',
+  'speech:set-key',
+  'speech:set-lookahead',
+  'speech:speak',
+  'speech:status',
+  'speech:stt-cancel',
+  'speech:stt-status',
+  'speech:stt-transcribe',
+  'speech:stop',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -610,33 +646,6 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'menu:set-office-context',
   'menu:set-office-state',
   'skills:list',
-  'speech:cancel-reading',
-  'speech:config',
-  'speech:key-status',
-  'speech:kokoro-install',
-  'speech:kokoro-install-cancel',
-  'speech:kokoro-install-status',
-  'speech:kokoro-prepare',
-  'speech:kokoro-status',
-  'speech:microphone-authorize',
-  'speech:microphone-revoke',
-  'speech:model-diagnostics',
-  'speech:playback-done',
-  'speech:read-clipboard',
-  'speech:reply-close',
-  'speech:reply-finish',
-  'speech:reply-open',
-  'speech:reply-reserve',
-  'speech:select-engine',
-  'speech:set-hotkey',
-  'speech:set-key',
-  'speech:set-lookahead',
-  'speech:speak',
-  'speech:status',
-  'speech:stop',
-  'speech:stt-cancel',
-  'speech:stt-status',
-  'speech:stt-transcribe',
   'system:status',
   'wiki:status',
   'window:close',
@@ -800,6 +809,35 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'browser:type',
   'browser:unregister-tab',
   'browser:wait-for',
+  // Lote IPC-SPEECH-02 — voz, micrófono, STT y secretos. Ya estaban protegidos
+  // por assertOwner; este lote lo mide y lo vuelve exigible.
+  'speech:cancel-reading',
+  'speech:config',
+  'speech:key-status',
+  'speech:kokoro-install',
+  'speech:kokoro-install-cancel',
+  'speech:kokoro-install-status',
+  'speech:kokoro-prepare',
+  'speech:kokoro-status',
+  'speech:microphone-authorize',
+  'speech:microphone-revoke',
+  'speech:model-diagnostics',
+  'speech:playback-done',
+  'speech:read-clipboard',
+  'speech:reply-close',
+  'speech:reply-finish',
+  'speech:reply-open',
+  'speech:reply-reserve',
+  'speech:select-engine',
+  'speech:set-hotkey',
+  'speech:set-key',
+  'speech:set-lookahead',
+  'speech:speak',
+  'speech:status',
+  'speech:stt-cancel',
+  'speech:stt-status',
+  'speech:stt-transcribe',
+  'speech:stop',
 ])
 
 describe('N+1 IPC authorization — exhaustividad y guard', () => {
@@ -880,6 +918,11 @@ describe('N+1 IPC authorization — exhaustividad y guard', () => {
     // looked — the difference between a decision and a blind spot.
     for (const ch of ['browser:clear-cache', 'history:clear', 'history:record', 'history:search']) {
       expect(channelFiles.get(ch) ?? [], `${ch} no fue escaneado`).toContain('src/main/handlers/history.ts')
+    }
+    // And the registry form with a parameter that is not called `ipcMain`
+    // (`ipcHandle(ipc, IPC.SPEECH_X, …)` in speech/handlers.ts).
+    for (const ch of ['speech:set-key', 'speech:read-clipboard', 'speech:stop']) {
+      expect(channelFiles.get(ch) ?? [], `${ch} no fue escaneado`).toContain('src/main/speech/handlers.ts')
     }
     // And every channel that claims a guard must have been seen by the scanner.
     const unseen = [...MUST_HAVE_GUARD].filter((c) => !channelFiles.has(c))

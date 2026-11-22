@@ -62,7 +62,7 @@ inventory → mutation → gates → checkpoint).
 | 6 | **agents** ✅ *done — IPC-DIAG-01* | 5 | `agents:build`, `agents:delete`, `agents:list`, `agents:read`, `agents:write` | agent definitions (prompts) are user content; build/write/delete touch the filesystem |
 | 7 | **derived-state stores** ✅ *done — IPC-STORE-01* | 25 | `collection:*` 2, `collectionLink:*` 4, `components:*` 2, `metric:*` 2, `range:*` 3, `rangeLink:*` 4, `transclusion:*` 4, `wiki:*` 4 (`changes`, `check`, `sources`, `undo`) | deletes, bulk refreshes, syncs and `wiki:undo` (**rewrites pages**); the read-only members list user-authored links and paths |
 | 8 | **memory** ✅ *done — IPC-MEM-01* | 15 | `memory:*` (all but `status`) | the personal memory store: remember / forget / correct / query / propose (model) |
-| 9 | **speech** | 23 | `speech:*` (all but four status channels) | `read-clipboard` (**clipboard**), `set-key` (**secret**), `stt-transcribe` (audio to a provider), `kokoro-install` (installs binaries), `speak` |
+| 9 | **speech** ✅ *done — IPC-SPEECH-02 (already guarded; the inventory could not see it)* | 23 | `speech:*` (all but four status channels) | `read-clipboard` (**clipboard**), `set-key` (**secret**), `stt-transcribe` (audio to a provider), `kokoro-install` (installs binaries), `speak` |
 | 10 | **history** ✅ *done — IPC-HIST-01* | 11 | `history:*` | the user's browsing history: recent, search, star, forget, clear |
 | 11 | **browser control** ✅ *done — IPC-BROWSER-02* | 20 | `browser:*` | a foreign frame driving the user's guest browser: navigate, click, type, screenshot, deep-read (page content), downloads |
 | 12 | **checkpoints & snapshots** ✅ *done — IPC-DIAG-01* | 6 | `checkpoint:list`, `checkpoint:diff`, `checkpoint:rollback`, `snapshot:list`, `snapshot:save`, `snapshot:delete` | `rollback` **restores files** from git history; snapshots persist and delete saved workspace state. *Added to this table late: these six were counted in the 123 verdict-A total but had no cluster row (see IPC-DIAG-01, finding DIAG-02).* |
@@ -104,6 +104,7 @@ two commits (metrics/collections + wiki).
 | IPC-MEM-01 | memory | 15 | [ipc-mem-01-checkpoint-2026-11-21.md](ipc-mem-01-checkpoint-2026-11-21.md) |
 | IPC-HIST-01 | history (+ scanner repair) | 12 | [ipc-hist-01-checkpoint-2026-11-21.md](ipc-hist-01-checkpoint-2026-11-21.md) |
 | IPC-BROWSER-02 | browser control & downloads | 19 | [ipc-browser-02-checkpoint-2026-11-21.md](ipc-browser-02-checkpoint-2026-11-21.md) |
+| IPC-SPEECH-02 | speech (already guarded) + scanner repair | 27 | [ipc-speech-02-checkpoint-2026-11-21.md](ipc-speech-02-checkpoint-2026-11-21.md) |
 
 **Corrections made while doing it:** `drive:connection` had been triaged B ("whether
 an account is linked"). It returns the whole connection object, **email included**.
@@ -113,9 +114,22 @@ content"); it returns the absolute repository path, the log path and the number 
 filed reports, so it moved to A and was guarded in IPC-BUG-01. The B table's
 "no user content" reason is the one to distrust.
 
-**Remaining: 23 verdict-A channels** — `speech:*` only. 378 of the 473 declared
-channels are guarded; the last cluster (speech, including `read-clipboard` and
-`set-key`) closes the verdict-A list.
+**Remaining: 0 verdict-A channels.** 405 of the 473 declared channels are guarded;
+the other 68 are 16 verdict-B, 22 `GRANT_CHECKED` (data operations authorized by
+an explicit grant) and 30 `PUSH_CHANNELS` (main → renderer).
+
+**Correction made while doing the last batch (SPEECH-01/02):** the twenty-seven
+`speech:*` handlers were *already* guarded by the module's own `assertOwner(event)`
+(= `documentFor(assertWorkspace(event))`, and `assertWorkspace` = `assertMainFrame`
++ sender/frame identity with `mainWindow()`). The triage called them verdict A
+because the inventory recognised `assertWorkspace(` but not the wrapper name the
+handlers call, and because its registry pattern required the parameter to be
+named `ipcMain` — `speech/handlers.ts` uses `ipcHandle(ipc, …)` and had no snippet
+at all. Two blind spots, one number: the remaining-A count was never 23, it was 0.
+The scanner now accepts any parameter name, accepts `assertOwner(` **only with a
+test that pins its definition**, and asserts positively that each registration
+file is visible. The sixteen channels left in `EXPLICITLY_NO_GUARD` are the
+verdict-B list.
 
 **Tooling repair made while doing it (HIST-02):** `handlers/history.ts` registers
 with `ipcMain.handle(IPC.X, …)` instead of the `ipcHandle` registry, and the
