@@ -4,7 +4,7 @@ import os from 'os'
 import ExcelJS from 'exceljs'
 import { parseA1 } from './transclusions'
 import { loadValidatedXlsx } from './docx-zip'
-import { changedSince } from './doc-identity'
+import { commitTemp } from './doc-identity'
 
 /**
  * Engine-free .xlsx cell writer — the "closed-file" half of sync-all.
@@ -101,18 +101,10 @@ export async function setCellValue(
     const verify = new ExcelJS.Workbook()
     await verify.xlsx.readFile(tmp)
     // Anything that wrote to this path since we read it would be destroyed by
-    // the rename — refuse instead, and leave the temp file out of the way
-    // (IPC-DOC-WRITE-01). The window is now the check-to-rename gap, not the
-    // whole exceljs round-trip.
-    if (changedSince(snapshot.identity, filePath)) {
-      try {
-        if (fs.existsSync(tmp)) fs.unlinkSync(tmp)
-      } catch {
-        /* best-effort cleanup */
-      }
-      return skip('changed-on-disk')
-    }
-    fs.renameSync(tmp, filePath) // atomic within the same filesystem
+    // the rename — `commitTemp` refuses instead (IPC-DOC-WRITE-01). The window
+    // is the check-to-rename gap, not the whole exceljs round-trip.
+    const commit = commitTemp(tmp, filePath, snapshot.identity)
+    if (!commit.ok) return skip(commit.reason)
     return { ok: true }
   } catch {
     try {

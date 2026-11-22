@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import JSZip from 'jszip'
 import { readEntryBounded } from './docx-zip'
+import { commitTemp, readWithIdentity, type FileIdentity } from './doc-identity'
 
 /**
  * Engine-free .docx content-control writer — the "closed-file" half of Word
@@ -136,10 +137,16 @@ export async function setContentControlText(
   }
   if (!stat.isFile()) return skip('not-a-file')
 
+  let identity: FileIdentity
   let zip: JSZip
   let docXml: string
   try {
-    const buf = fs.readFileSync(filePath)
+    // Bytes and identity from the same descriptor: the identity must belong to
+    // the bytes we parse, and it is what `commitTemp` re-checks later.
+    const loaded = readWithIdentity(filePath)
+    if (!loaded) return skip('not-valid-docx')
+    identity = loaded.identity
+    const buf = loaded.bytes
     zip = await JSZip.loadAsync(buf)
     const entry = zip.file('word/document.xml')
     if (!entry) return skip('no-document-xml')
@@ -175,7 +182,10 @@ export async function setContentControlText(
     if (!vXml.includes(`w:val="${tag}"`) || !vXml.includes(`>${escapeXml(String(value))}<`)) {
       throw new Error('verify: value not present')
     }
-    fs.renameSync(tmp, filePath) // atomic within the same filesystem
+    // Refuses when the file changed under us, and cleans the temp file either
+    // way — the single primitive every engine-free writer uses (IPC-DOC-WRITE-02).
+    const commit = commitTemp(tmp, filePath, identity)
+    if (!commit.ok) return skip(commit.reason) // atomic within the same filesystem
     return { ok: true }
   } catch {
     try {

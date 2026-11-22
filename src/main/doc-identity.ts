@@ -57,3 +57,79 @@ export function sameIdentity(a: FileIdentity, b: FileIdentity | null): boolean {
 export function changedSince(identity: FileIdentity, filePath: string): boolean {
   return !sameIdentity(identity, fileIdentity(filePath))
 }
+
+/**
+ * Bytes and identity from ONE descriptor.
+ *
+ * `readFileSync(path)` + `statSync(path)` are two lookups of the same name: a
+ * file replaced between them gives us the identity of one file and the bytes of
+ * another, which would make the guard compare the wrong thing. Opening once and
+ * using `fstat` on the open descriptor ties the identity to the bytes actually
+ * parsed. Bounded by size, like every other whole-file read in this tree.
+ */
+export function readWithIdentity(
+  filePath: string,
+  maxBytes = 64 * 1024 * 1024,
+): { bytes: Buffer; identity: FileIdentity } | null {
+  let fd: number | undefined
+  try {
+    fd = fs.openSync(filePath, 'r')
+    const stat = fs.fstatSync(fd)
+    if (!stat.isFile() || stat.size > maxBytes) return null
+    const storage = Buffer.alloc(stat.size + 1)
+    let total = 0
+    while (total < storage.length) {
+      const count = fs.readSync(fd, storage, total, storage.length - total, null)
+      if (count === 0) break
+      total += count
+    }
+    // Grew past what we were told: somebody else is writing. Refusing is the
+    // honest answer; a partial read is not a snapshot.
+    if (total > stat.size) return null
+    return {
+      bytes: storage.subarray(0, total),
+      identity: { dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs },
+    }
+  } catch {
+    return null
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
+  }
+}
+
+export type CommitResult = { ok: true } | { ok: false; reason: 'changed-on-disk' | 'write-failed' }
+
+/**
+ * Put a verified temp file in place of `filePath` — or refuse.
+ *
+ * The single place where every engine-free writer (xlsx, docx, pptx) replaces a
+ * document, so the conflict check cannot be forgotten in one of them:
+ *
+ *  - the file changed since it was read → remove the temp file, say so, and
+ *    leave whatever is on disk alone;
+ *  - the rename fails → remove the temp file and report `write-failed`.
+ *
+ * Returns the reason instead of throwing because every caller answers with
+ * `{ ok: false, reason }` and none of them may corrupt a document to report an
+ * error.
+ */
+export function commitTemp(tmp: string, filePath: string, identity: FileIdentity): CommitResult {
+  const discard = (): void => {
+    try {
+      if (fs.existsSync(tmp)) fs.unlinkSync(tmp)
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
+  if (changedSince(identity, filePath)) {
+    discard()
+    return { ok: false, reason: 'changed-on-disk' }
+  }
+  try {
+    fs.renameSync(tmp, filePath)
+    return { ok: true }
+  } catch {
+    discard()
+    return { ok: false, reason: 'write-failed' }
+  }
+}

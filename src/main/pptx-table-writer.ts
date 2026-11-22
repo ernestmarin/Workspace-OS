@@ -4,6 +4,7 @@ import JSZip from 'jszip'
 import { coerceGrid, type RangeGrid } from './ranges'
 import { cellText } from './docx-table-writer'
 import { archiveWithinBudget, readEntryBounded } from './docx-zip'
+import { commitTemp, readWithIdentity, type FileIdentity } from './doc-identity'
 
 /**
  * Engine-free .pptx TABLE writer — the "closed-file" half of PowerPoint live
@@ -226,10 +227,16 @@ export async function setSlideTableCells(
   if (!stat.isFile()) return skip('not-a-file')
   if (!archiveWithinBudget(filePath)) return skip('slide-too-large')
 
+  let identity: FileIdentity
   let zip: JSZip
   const slides: { name: string; xml: string }[] = []
   try {
-    const buf = fs.readFileSync(filePath)
+    // Bytes and identity from the same descriptor: the identity must belong to
+    // the bytes we parse, and it is what `commitTemp` re-checks later.
+    const loaded = readWithIdentity(filePath)
+    if (!loaded) return skip('not-valid-pptx')
+    identity = loaded.identity
+    const buf = loaded.bytes
     zip = await JSZip.loadAsync(buf)
     const parts = Object.keys(zip.files).filter(isSlidePart)
     for (const name of parts) {
@@ -269,7 +276,10 @@ export async function setSlideTableCells(
     if (!vXml.includes(`name="${tag}"`)) throw new Error('verify: tag lost')
     const first = escapeXml(cellText(g[0][0]))
     if (first && !vXml.includes(`<a:t>${first}</a:t>`)) throw new Error('verify: value not present')
-    fs.renameSync(tmp, filePath)
+    // Refuses when the file changed under us, and cleans the temp file either
+    // way — the single primitive every engine-free writer uses (IPC-DOC-WRITE-02).
+    const commit = commitTemp(tmp, filePath, identity)
+    if (!commit.ok) return skip(commit.reason)
     return { ok: true }
   } catch {
     try {
