@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — IPC-SESSION-02 · 2026-11-21
+## Vigente — IPC-STORE-01 · 2026-11-21
+
+Ver [ipc-store-01-checkpoint-2026-11-21.md](ipc-store-01-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `451c97b` (IPC-SESSION-02).
+
+- Veinticinco canales de los stores derivados (metrics, collections, ranges, componentes, wiki) no miraban el evento: borrar métricas/colecciones/rangos/enlaces/componentes, refrescar **todo** de golpe, leer las tablas de enlaces y `wiki:undo`, que **reescribe páginas de la wiki y las reindexa**. RED 100/100 (25 × 4) con los 25 controles en verde.
+- Fixture nuevo con doble aserción por canal: rechazo **sin consultar el store** y admisión del owner **consultándolo**. Un guard que rechazara todo pasaría la primera mitad y fallaría la segunda — el mismo error de `links.test.ts` visto desde el otro lado.
+- Inventario: **473 = 314 + 107 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **83**. `EXPLICITLY_NO_GUARD` 153 → 107; quedan **86 canales verdict-A**.
+- Evidencia: RED 100/25; GREEN 125/125; M27–M29 detectadas; suite completo **363 archivos + 3 omitidos, 4573 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-SESSION-02 · 2026-11-21
 
 Ver [ipc-session-02-checkpoint-2026-11-21.md](ipc-session-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `68396d2` (IPC-DRIVE-02).
 

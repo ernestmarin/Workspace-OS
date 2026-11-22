@@ -161,15 +161,18 @@ export function registerWikiHandlers(ipcMain: IpcMain): void {
   })
 
   ipcHandle(ipcMain, IPC.WIKI_STATUS, () => ({ busy: current !== null, current, queued: queue.length, finished, failed }))
-  ipcHandle(ipcMain, IPC.WIKI_CHANGES, (_e, limit: unknown) => {
+  ipcHandle(ipcMain, IPC.WIKI_CHANGES, (event, limit: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     return root ? wiki.changes(root, typeof limit === 'number' ? Math.min(50, Math.max(1, limit)) : 10) : []
   })
-  ipcHandle(ipcMain, IPC.WIKI_SOURCES, () => {
+  ipcHandle(ipcMain, IPC.WIKI_SOURCES, (event) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     return root ? Object.keys(wiki.sources(root)) : []
   })
-  ipcHandle(ipcMain, IPC.WIKI_UNDO, async (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.WIKI_UNDO, async (event, id: unknown) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     if (!root || typeof id !== 'string' || !id) throw new IpcValidationError('Which change?')
     const pages = wiki.changePages(root, id)
@@ -178,7 +181,8 @@ export function registerWikiHandlers(ipcMain: IpcMain): void {
     broadcast()
     return r
   })
-  ipcHandle(ipcMain, IPC.WIKI_CHECK, () => {
+  ipcHandle(ipcMain, IPC.WIKI_CHECK, (event) => {
+    assertMainWindowFrame(event)
     const root = getWorkspaceRoot()
     return root ? wiki.check(root) : null
   })

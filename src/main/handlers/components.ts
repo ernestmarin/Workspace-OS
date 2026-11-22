@@ -85,7 +85,10 @@ function sanitize(input: unknown): Component {
 }
 
 export function registerComponentsHandlers(ipcMain: IpcMain): void {
-  ipcHandle(ipcMain, IPC.COMPONENTS_LIST, () => readAll())
+  ipcHandle(ipcMain, IPC.COMPONENTS_LIST, (event) => {
+    assertMainWindowFrame(event)
+    return readAll()
+  })
 
   ipcHandle(ipcMain, IPC.COMPONENTS_SAVE, (event, input: unknown) => {
     // IPC-WRITERS-01: this writes the shared component store; `sanitize` bounds
@@ -100,7 +103,8 @@ export function registerComponentsHandlers(ipcMain: IpcMain): void {
     return c
   })
 
-  ipcHandle(ipcMain, IPC.COMPONENTS_DELETE, (_e, id: unknown) => {
+  ipcHandle(ipcMain, IPC.COMPONENTS_DELETE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof id !== 'string') throw new IpcValidationError('Invalid component id')
     writeAll(readAll().filter((c) => c.id !== id))
   })

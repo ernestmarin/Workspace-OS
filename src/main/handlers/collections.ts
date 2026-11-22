@@ -159,7 +159,8 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
   })
 
   // Refresh EVERY sourced collection ("refresh all"). Literal ones are skipped.
-  ipcHandle(ipcMain, IPC.COLLECTION_REFRESHALL, async () => {
+  ipcHandle(ipcMain, IPC.COLLECTION_REFRESHALL, async (event) => {
+    assertMainWindowFrame(event)
     const out: CollectionRefreshResult[] = []
     for (const c of collections.list()) {
       if (!isSourcedCollection(c)) continue
@@ -188,12 +189,14 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
     return out
   })
 
-  ipcHandle(ipcMain, IPC.COLLECTION_DELETE, (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTION_DELETE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     collections.remove(readCollectionId(id))
   })
 
   // ---- collection links ----
-  ipcHandle(ipcMain, IPC.COLLECTIONLINK_FORFILE, (_event, filePath: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_FORFILE, (event, filePath: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof filePath !== 'string' || !filePath) throw new IpcValidationError('Invalid file path')
     return collectionLinks.forFile(filePath)
   })
@@ -202,7 +205,10 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
     return collectionLinks.forCollection(readCollectionId(collectionId))
   })
 
-  ipcHandle(ipcMain, IPC.COLLECTIONLINK_ALLLINKS, () => collectionLinks.allLinks())
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_ALLLINKS, (event) => {
+    assertMainWindowFrame(event)
+    return collectionLinks.allLinks()
+  })
 
   ipcHandle(ipcMain, IPC.COLLECTIONLINK_ADD, (_event, input: unknown) => {
     const i = (input ?? {}) as {
@@ -257,7 +263,8 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
     }
   })
 
-  ipcHandle(ipcMain, IPC.COLLECTIONLINK_REMOVE, (_event, id: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_REMOVE, (event, id: unknown) => {
+    assertMainWindowFrame(event)
     if (typeof id !== 'string' || !/^clink-[\w-]+$/.test(id)) {
       throw new IpcValidationError('Invalid collection link id')
     }
@@ -269,7 +276,8 @@ export function registerCollectionHandlers(ipcMain: IpcMain): void {
   // PREVIEW (no writes): report the impact so the UI can confirm first. The open
   // file is excluded (the engine owns it); in-sync links are counted; everything
   // else is a closed-file block that WOULD change.
-  ipcHandle(ipcMain, IPC.COLLECTIONLINK_PREVIEWSYNCALL, (_event, id: unknown, openFilePath: unknown) => {
+  ipcHandle(ipcMain, IPC.COLLECTIONLINK_PREVIEWSYNCALL, (event, id: unknown, openFilePath: unknown) => {
+    assertMainWindowFrame(event)
     const collectionId = readCollectionId(id)
     const open = typeof openFilePath === 'string' && openFilePath ? openFilePath : null
     const collection = collections.get(collectionId)
