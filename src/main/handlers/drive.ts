@@ -129,7 +129,8 @@ async function guard<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | 
 
 export function registerDriveHandlers(ipcMain: IpcMain): void {
   /** The connection, or null. Drives whether the UI offers connect or browse. */
-  ipcHandle(ipcMain, IPC.DRIVE_CONNECTION, async () => {
+  ipcHandle(ipcMain, IPC.DRIVE_CONNECTION, async (event) => {
+    assertMainWindowFrame(event)
     const c = await accounts().get()
     return { connection: c, canWrite: canWrite(c), clientIdConfigured: Boolean(resolveGoogleClientId(app.getPath('userData'))) }
   })
@@ -141,7 +142,10 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
    * what the UI may offer later. Read-only that shows a Save button is a
    * promise broken at the end of somebody's work rather than the start.
    */
-  ipcHandle(ipcMain, IPC.DRIVE_CONNECT, async (_e, access: unknown) => {
+  ipcHandle(ipcMain, IPC.DRIVE_CONNECT, async (event, access: unknown) => {
+    // IPC-DRIVE-02: runs the OAuth flow in the system browser and stores a
+    // refresh token — an effect on the person's Google account.
+    assertMainWindowFrame(event)
     const level: DriveAccess =
       access === 'full' || access === 'appFiles' || access === 'readOnly' ? access : 'readOnly'
     const clientId = resolveGoogleClientId(app.getPath('userData'))
@@ -180,25 +184,30 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
     return { ok: true as const, value: { connection, canWrite: canWrite(connection) } }
   })
 
-  ipcHandle(ipcMain, IPC.DRIVE_DISCONNECT, async () => {
+  ipcHandle(ipcMain, IPC.DRIVE_DISCONNECT, async (event) => {
+    assertMainWindowFrame(event)
     await accounts().disconnect()
     return { ok: true as const }
   })
 
-  ipcHandle(ipcMain, IPC.DRIVE_LIST, (_e, folderId: unknown, pageToken: unknown) =>
-    guard(async () =>
+  ipcHandle(ipcMain, IPC.DRIVE_LIST, (event, folderId: unknown, pageToken: unknown) => {
+    assertMainWindowFrame(event)
+    // The guard stays outside `guard()`: inside, a refusal would become an
+    // { ok: false } envelope, indistinguishable from a network failure.
+    return guard(async () =>
       listFolder(
         await accessToken(),
         typeof folderId === 'string' && folderId ? folderId.slice(0, 200) : 'root',
         typeof pageToken === 'string' && pageToken ? { pageToken } : {},
         nodeFetch,
       ),
-    ),
-  )
+    )
+  })
 
-  ipcHandle(ipcMain, IPC.DRIVE_SEARCH, (_e, query: unknown) =>
-    guard(async () => searchFiles(await accessToken(), asString(query, 200), {}, nodeFetch)),
-  )
+  ipcHandle(ipcMain, IPC.DRIVE_SEARCH, (event, query: unknown) => {
+    assertMainWindowFrame(event)
+    return guard(async () => searchFiles(await accessToken(), asString(query, 200), {}, nodeFetch))
+  })
 
   /**
    * Fetch a Drive file into the workspace and return its local path.
@@ -207,8 +216,9 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
    * canvas, the office engine, the agent — sees an ordinary file on disk and
    * needs to know nothing about Drive.
    */
-  ipcHandle(ipcMain, IPC.DRIVE_OPEN, (_e, fileId: unknown) =>
-    guard(async () => {
+  ipcHandle(ipcMain, IPC.DRIVE_OPEN, (event, fileId: unknown) => {
+    assertMainWindowFrame(event)
+    return guard(async () => {
       const root = getWorkspaceRoot()
       if (!root) throw new IpcValidationError('No workspace folder is open.')
       const token = await accessToken()
@@ -223,8 +233,8 @@ export function registerDriveHandlers(ipcMain: IpcMain): void {
       const target = path.join(dir, path.basename(filename))
       await fs.writeFile(target, bytes)
       return { path: target, name: path.basename(filename), fileId: meta.id, wasExported: meta.isGoogleDoc }
-    }),
-  )
+    })
+  })
 
   /**
    * Push a local file back to the Drive file it came from.

@@ -405,6 +405,12 @@ const MUST_HAVE_GUARD = new Set<string>([
   'workspace:close',
   'workspace:open-recent',
   'workspace:recents',
+  'drive:connect',
+  'drive:connection',
+  'drive:disconnect',
+  'drive:list',
+  'drive:open',
+  'drive:search',
 ])
 
 // WORKSPACE_DATA_OPERATIONS — handlers sin evento, cubiertos por bridge con grant
@@ -515,13 +521,7 @@ const EXPLICITLY_NO_GUARD = new Set<string>([
   'collectionLink:remove',
   'components:delete',
   'components:list',
-  'drive:connect',
-  'drive:connection',
-  'drive:disconnect',
-  'drive:list',
   'drive:local-name',
-  'drive:open',
-  'drive:search',
   // fs (parte no sensible hoy: list/reveal/watch)
   // history / knowledge-links / lok (resto)
   'history:bookmarks',
@@ -655,6 +655,12 @@ const MUST_HAVE_ORIGIN_GUARD = new Set<string>([
   'workspace:close',
   'workspace:open-recent',
   'workspace:recents',
+  'drive:connect',
+  'drive:connection',
+  'drive:disconnect',
+  'drive:list',
+  'drive:open',
+  'drive:search',
   'canvas:export-pptx',
   'office:available',
   'office:export-pdf',

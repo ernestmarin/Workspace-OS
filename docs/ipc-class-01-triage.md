@@ -19,7 +19,8 @@ along. That is the finding, and it is worth more than any single guard.
 
 `skills:list` was A by the flags and B on reading it: it returns the skill
 catalog (names + descriptions shipped with the app), not user content. Counted
-in B. Final: **123 A / 21 B**.
+in B. Final: **123 A / 21 B**. One entry was later corrected the other way —
+`drive:connection` (B → A) — see §4.
 
 ## 1. Verdict B — kept unguarded (21), with reasons
 
@@ -27,7 +28,6 @@ in B. Final: **123 A / 21 B**.
 | --- | --- |
 | `agents:capabilities` | static capability list |
 | `bug:status` | poller status, no user content |
-| `drive:connection` | whether an account is linked (boolean), no files |
 | `drive:local-name` | pure string transform (name + mime → filename) |
 | `memory:status` | store size / timestamps |
 | `menu:office-commands` | static command list for a doc type |
@@ -53,7 +53,7 @@ inventory → mutation → gates → checkpoint).
 | # | Cluster | n | Channels | Why it is A |
 | --- | --- | --- | --- | --- |
 | 1 | **workspace root** ✅ *done — IPC-WORKSPACE-02* | 3 | `workspace:open-recent`, `workspace:close`, `workspace:recents` | `open-recent` calls `openWorkspacePath(dir)` with an **unvalidated string** — it reassigns the authoritative workspace root, exactly what `fs:open-folder-dialog` does and what IPC-WATCH-01 guarded. `recents` returns the user's recent folder paths. |
-| 2 | **drive** | 5 | `drive:connect`, `drive:disconnect`, `drive:list`, `drive:open`, `drive:search` | network + OAuth secrets + `drive:open` writes a remote file into the workspace |
+| 2 | **drive** ✅ *done — IPC-DRIVE-02* | 6 | `drive:connect`, `drive:disconnect`, `drive:list`, `drive:open`, `drive:search`, **`drive:connection`** | network + OAuth secrets + `drive:open` writes a remote file into the workspace |
 | 3 | **chat sessions** | 3 | `sessions:load`, `sessions:save`, `chat:upload` | conversation transcripts and uploaded attachments on disk |
 | 4 | **printing** | 1 | `print:document` | builds a hidden window and prints; `event.sender` is used only for re-entrancy, not authorization |
 | 5 | **bug reports** | 5 | `bug:analyze`, `bug:context`, `bug:file`, `bug:list`, `bug:setRepo` | `bug:file` writes a report to disk; `analyze` calls a model; `context`/`list` read repo state |
@@ -93,5 +93,11 @@ two commits (metrics/collections + wiki).
 | --- | --- | --- | --- |
 | IPC-PDF-01 | pdf | 9 | [ipc-pdf-01-checkpoint-2026-11-21.md](ipc-pdf-01-checkpoint-2026-11-21.md) |
 | IPC-WORKSPACE-02 | workspace root | 3 | [ipc-workspace-02-checkpoint-2026-11-21.md](ipc-workspace-02-checkpoint-2026-11-21.md) |
+| IPC-DRIVE-02 | drive | 6 | [ipc-drive-02-checkpoint-2026-11-21.md](ipc-drive-02-checkpoint-2026-11-21.md) |
 
-**Remaining: 120 verdict-A channels.**
+**Correction made while doing it:** `drive:connection` had been triaged B ("whether
+an account is linked"). It returns the whole connection object, **email included**.
+Moved to A and guarded in IPC-DRIVE-02 — the triage's stated limit, in one
+concrete instance.
+
+**Remaining: 114 verdict-A channels.**

@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — IPC-WORKSPACE-02 · 2026-11-21
+## Vigente — IPC-DRIVE-02 · 2026-11-21
+
+Ver [ipc-drive-02-checkpoint-2026-11-21.md](ipc-drive-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `fdf3241` (IPC-WORKSPACE-02).
+
+- Los seis handlers de Drive que faltaban (`connection`, `connect`, `disconnect`, `list`, `search`, `open`) no miraban el evento: podían iniciar el flujo OAuth en el navegador del sistema y guardar un refresh token, cortar la conexión, enumerar el Drive y **descargar un archivo remoto dentro del workspace**. RED 24/24. Ahora los seis verifican el frame, con el guard **fuera** de `guard()` para que un rechazo no se convierta en `{ ok: false }`.
+- **Corrección del triage**: `drive:connection` estaba en B ("si hay cuenta vinculada") pero devuelve el objeto de conexión completo, **email incluido**. Pasa a A y se guarda aquí — el límite declarado del triage, en un caso concreto.
+- Inventario: **473 = 286 + 135 + 22 + 30**, `MUST_HAVE_ORIGIN_GUARD` = **55**. `EXPLICITLY_NO_GUARD` 153 → 135; quedan **114 canales verdict-A**.
+- Evidencia: RED 24/2; GREEN 26/26; M24/M25 detectadas; RT-07 (symlink de `drive:save`) sigue verde; suite completo **361 archivos + 3 omitidos, 4434 tests + 26 omitidos**; tsc 0; ESLint 0 en los archivos tocados; build 0.
+
+## Anterior — IPC-WORKSPACE-02 · 2026-11-21
 
 Ver [ipc-workspace-02-checkpoint-2026-11-21.md](ipc-workspace-02-checkpoint-2026-11-21.md) y el plan en [ipc-class-01-triage.md](ipc-class-01-triage.md). Rama `arena/9cd5feee-workspace-os`, base `7ed5297` (IPC-PDF-01).
 
