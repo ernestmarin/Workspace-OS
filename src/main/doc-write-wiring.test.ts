@@ -35,6 +35,14 @@ describe('document writers replace files only through commitTemp', () => {
     })
   }
 
+  it('every docx/pptx writer checks the declared part count before the library loads it', () => {
+    for (const name of WRITERS.filter((n) => !n.startsWith('xlsx-'))) {
+      const src = source(name)
+      expect(src).toContain('readZipDirectory(buf)')
+      expect(src).toContain('directory.entries > MAX_OOXML_ENTRIES')
+    }
+  })
+
   it('the writers on the docx/pptx path read bytes and identity from one descriptor', () => {
     for (const name of WRITERS.filter((n) => !n.startsWith('xlsx-'))) {
       expect(source(name)).toContain('readWithIdentity(')

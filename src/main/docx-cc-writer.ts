@@ -3,6 +3,7 @@ import path from 'path'
 import JSZip from 'jszip'
 import { readEntryBounded } from './docx-zip'
 import { commitTemp, readWithIdentity, type FileIdentity } from './doc-identity'
+import { MAX_OOXML_ENTRIES, readZipDirectory } from './zip-directory'
 
 /**
  * Engine-free .docx content-control writer — the "closed-file" half of Word
@@ -147,6 +148,12 @@ export async function setContentControlText(
     if (!loaded) return skip('not-valid-docx')
     identity = loaded.identity
     const buf = loaded.bytes
+    // Declared entry count before the library indexes the archive
+    // (IPC-ZIP-INDEX-02): a package claiming thousands of parts must be refused
+    // before one JS object per record exists.
+    const directory = readZipDirectory(buf)
+    if (!directory.ok) return skip('not-valid-docx')
+    if (directory.entries > MAX_OOXML_ENTRIES) return skip('document-too-large')
     zip = await JSZip.loadAsync(buf)
     const entry = zip.file('word/document.xml')
     if (!entry) return skip('no-document-xml')
