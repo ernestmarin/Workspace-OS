@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import * as ts from 'typescript'
 import { describe, it, expect } from 'vitest'
 
 /**
@@ -64,13 +65,106 @@ function mainSources(dir: string): string[] {
   })
 }
 
-const mainSourceText = mainSources(path.join(root, 'src/main'))
-  .map((file) => fs.readFileSync(file, 'utf8'))
-  .join('\n')
-const mainEmissions = new Set(
-  [...mainSourceText.matchAll(/(?:[A-Za-z_$][\w$.]*\.send|sendToWindow|send)\(\s*IPC\.([A-Z_0-9]+)[,)]/g)]
-    .map((match) => match[1]),
-)
+function ipcConstant(call: ts.CallExpression): string | undefined {
+  const arg = call.arguments[0]
+  return arg && ts.isPropertyAccessExpression(arg) && ts.isIdentifier(arg.expression) && arg.expression.text === 'IPC'
+    ? arg.name.text
+    : undefined
+}
+
+function visitCalls(node: ts.Node, visit: (call: ts.CallExpression) => void): void {
+  if (ts.isCallExpression(node)) visit(node)
+  ts.forEachChild(node, (child) => visitCalls(child, visit))
+}
+
+function isMainEmitter(call: ts.CallExpression, file: string): boolean {
+  const callee = call.expression
+  if (ts.isIdentifier(callee)) {
+    if (callee.text === 'sendToWindow') return true
+    if (callee.text === 'send') return file.replaceAll('\\', '/').endsWith('src/main/speech/handlers.ts')
+    return false
+  }
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== 'send') return false
+  const receiver = callee.expression.getText()
+  return receiver === 'contents' || receiver === 'senderContents' || receiver.endsWith('.webContents')
+}
+
+function isCall(call: ts.CallExpression, receiver: string, method: string): boolean {
+  const callee = call.expression
+  return ts.isPropertyAccessExpression(callee) && callee.expression.getText() === receiver && callee.name.text === method
+}
+
+function parse(source: string, file: string): ts.SourceFile {
+  return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+}
+
+function mainWiring(source: string, file = 'main.ts'): { emissions: Set<string>; listeners: Set<string> } {
+  const emissions = new Set<string>()
+  const listeners = new Set<string>()
+  visitCalls(parse(source, file), (call) => {
+    const name = ipcConstant(call)
+    if (!name) return
+    if (isMainEmitter(call, file)) emissions.add(name)
+    if (isCall(call, 'ipcMain', 'on')) listeners.add(name)
+  })
+  return { emissions, listeners }
+}
+
+function preloadWiring(source: string, file = 'preload.ts'): {
+  sends: Set<string>
+  subscriptions: Set<string>
+} {
+  const sourceFile = parse(source, file)
+  const sends = new Set<string>()
+  const subscriptions = new Set<string>()
+
+  visitCalls(sourceFile, (call) => {
+    const name = ipcConstant(call)
+    if (name && isCall(call, 'ipcRenderer', 'send')) sends.add(name)
+  })
+
+  const inspectFunction = (fn: ts.FunctionLikeDeclaration): void => {
+    const listeners: { channel: string; handler: string }[] = []
+    const cleanups: { channel: string; handler: string }[] = []
+    const walkBody = (node: ts.Node): void => {
+      if (node !== fn && ts.isFunctionLike(node)) return
+      if (ts.isCallExpression(node)) {
+        const channel = ipcConstant(node)
+        const handler = node.arguments[1]?.getText(sourceFile)
+        if (channel && handler && isCall(node, 'ipcRenderer', 'on')) listeners.push({ channel, handler })
+      }
+      if (ts.isReturnStatement(node) && node.expression) {
+        visitCalls(node.expression, (call) => {
+          const channel = ipcConstant(call)
+          const handler = call.arguments[1]?.getText(sourceFile)
+          if (channel && handler && isCall(call, 'ipcRenderer', 'removeListener')) cleanups.push({ channel, handler })
+        })
+      }
+      ts.forEachChild(node, walkBody)
+    }
+    if (fn.body) walkBody(fn.body)
+    for (const listener of listeners) {
+      if (cleanups.some((cleanup) => cleanup.channel === listener.channel && cleanup.handler === listener.handler)) {
+        subscriptions.add(listener.channel)
+      }
+    }
+  }
+
+  const walkFunctions = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) inspectFunction(node as ts.FunctionLikeDeclaration)
+    ts.forEachChild(node, walkFunctions)
+  }
+  walkFunctions(sourceFile)
+  return { sends, subscriptions }
+}
+
+const mainWire = { emissions: new Set<string>(), listeners: new Set<string>() }
+for (const file of mainSources(path.join(root, 'src/main'))) {
+  const wiring = mainWiring(fs.readFileSync(file, 'utf8'), file)
+  for (const channel of wiring.emissions) mainWire.emissions.add(channel)
+  for (const channel of wiring.listeners) mainWire.listeners.add(channel)
+}
+const preloadWire = preloadWiring(read('src/preload/index.ts'), 'src/preload/index.ts')
 
 /** Resolves `IPC.FOO` and `'literal:channel'` registrations, wherever registered. */
 function registeredHandlers(): { channel: string; file: string; literal: boolean }[] {
@@ -158,41 +252,46 @@ describe('RT-05 IPC surface completeness', () => {
     }
   })
 
-  it('wires every push channel to a main emitter and a removable preload listener', () => {
-    const preload = read('src/preload/index.ts')
+  it('ignores commented and unrelated send-like text when finding IPC wiring', () => {
+    const fakeMain = mainWiring(`
+      // win.webContents.send(IPC.AGENT_ACTION_INVOKE, payload)
+      fake.send(IPC.AGENT_ACTION_INVOKE, payload)
+    `)
+    const fakePreload = preloadWiring(`
+      // ipcRenderer.on(IPC.AGENT_ACTION_INVOKE, handler)
+      // return () => ipcRenderer.removeListener(IPC.AGENT_ACTION_INVOKE, handler)
+    `)
+    expect(fakeMain.emissions).toEqual(new Set())
+    expect(fakePreload.subscriptions).toEqual(new Set())
+  })
 
+  it('requires the returned cleanup to remove the same listener handler', () => {
+    const mismatched = preloadWiring(`
+      const subscribe = () => {
+        ipcRenderer.on(IPC.AGENT_ACTION_INVOKE, handler)
+        return () => ipcRenderer.removeListener(IPC.AGENT_ACTION_INVOKE, otherHandler)
+      }
+    `)
+    expect(mismatched.subscriptions).toEqual(new Set())
+  })
+
+  it('wires every push channel to a main emitter and a removable preload listener', () => {
     for (const channel of MAIN_PUSH_CHANNELS) {
       const name = declared.get(channel)
       expect(name, channel).toBeDefined()
-      // Known main emission forms: direct WebContents.send and the two scoped
-      // wrappers used by agent/speech handlers. A new wrapper is a visible
-      // contract change rather than silently making the inventory stale.
-      expect(mainEmissions.has(name ?? ''), `${channel} has no main emitter`).toBe(true)
-      expect(
-        new RegExp(`ipcRenderer\\.on\\(IPC\\.${name}[,)]`).test(preload),
-        `${channel} has no preload listener`,
-      ).toBe(true)
-      expect(
-        new RegExp(`ipcRenderer\\.removeListener\\(IPC\\.${name}[,)]`).test(preload),
-        `${channel} listener cannot be removed`,
-      ).toBe(true)
+      // Known main emission forms: WebContents.send and the scoped wrappers used
+      // by agent/speech handlers. A new wrapper is a visible contract change.
+      expect(mainWire.emissions.has(name ?? ''), `${channel} has no main emitter`).toBe(true)
+      expect(preloadWire.subscriptions.has(name ?? ''), `${channel} has no removable preload listener`).toBe(true)
     }
   })
 
   it('wires every fire-and-forget response at both ends', () => {
-    const preload = read('src/preload/index.ts')
-
     for (const channel of FIRE_AND_FORGET_RESPONSES) {
       const name = declared.get(channel)
       expect(name, channel).toBeDefined()
-      expect(
-        new RegExp(`ipcRenderer\\.send\\(IPC\\.${name}[,)]`).test(preload),
-        `${channel} has no preload sender`,
-      ).toBe(true)
-      expect(
-        new RegExp(`ipcMain\\.on\\(IPC\\.${name}[,)]`).test(mainSourceText),
-        `${channel} has no main listener`,
-      ).toBe(true)
+      expect(preloadWire.sends.has(name ?? ''), `${channel} has no preload sender`).toBe(true)
+      expect(mainWire.listeners.has(name ?? ''), `${channel} has no main listener`).toBe(true)
     }
   })
 
