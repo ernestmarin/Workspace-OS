@@ -47,14 +47,12 @@ const root = path.resolve(__dirname, '../..')
 const read = (p: string): string => fs.readFileSync(path.join(root, p), 'utf8')
 
 const ipcSource = read('src/main/ipc-channels.ts')
+const declarationEntries = [...ipcSource.matchAll(/^\s{2}([A-Z_0-9]+):\s*'([^']+)'/gm)]
+  .map((match) => ({ name: match[1], channel: match[2] }))
 /** const name → channel value. */
-const byName = new Map<string, string>()
+const byName = new Map(declarationEntries.map(({ name, channel }) => [name, channel]))
 /** channel value → const name. */
-const declared = new Map<string, string>()
-for (const m of ipcSource.matchAll(/^\s{2}([A-Z_0-9]+):\s*'([^']+)'/gm)) {
-  byName.set(m[1], m[2])
-  declared.set(m[2], m[1])
-}
+const declared = new Map(declarationEntries.map(({ name, channel }) => [channel, name]))
 
 /** Every `.ts` under src/main except its own tests. */
 function mainSources(dir: string): string[] {
@@ -65,6 +63,14 @@ function mainSources(dir: string): string[] {
     return [full]
   })
 }
+
+const mainSourceText = mainSources(path.join(root, 'src/main'))
+  .map((file) => fs.readFileSync(file, 'utf8'))
+  .join('\n')
+const mainEmissions = new Set(
+  [...mainSourceText.matchAll(/(?:[A-Za-z_$][\w$.]*\.send|sendToWindow|send)\(\s*IPC\.([A-Z_0-9]+)[,)]/g)]
+    .map((match) => match[1]),
+)
 
 /** Resolves `IPC.FOO` and `'literal:channel'` registrations, wherever registered. */
 function registeredHandlers(): { channel: string; file: string; literal: boolean }[] {
@@ -90,6 +96,13 @@ describe('RT-05 IPC surface completeness', () => {
     // assertion below vacuously pass.
     expect(declared.size).toBeGreaterThan(200)
     expect(handlers.length).toBeGreaterThan(200)
+  })
+
+  it('keeps registry constant names and channel values one-to-one', () => {
+    // Maps overwrite duplicate keys. Compare the raw extraction with both maps
+    // so neither a repeated constant name nor a repeated channel can disappear.
+    expect(byName.size).toBe(declarationEntries.length)
+    expect(declared.size).toBe(declarationEntries.length)
   })
 
   it('never registers a channel that is missing from the IPC registry', () => {
@@ -142,6 +155,44 @@ describe('RT-05 IPC surface completeness', () => {
     for (const channel of MAIN_PUSH_CHANNELS) {
       const name = declared.get(channel)
       expect(new RegExp(`ipcRenderer\\.invoke\\(IPC\\.${name}[,)]`).test(preload), channel).toBe(false)
+    }
+  })
+
+  it('wires every push channel to a main emitter and a removable preload listener', () => {
+    const preload = read('src/preload/index.ts')
+
+    for (const channel of MAIN_PUSH_CHANNELS) {
+      const name = declared.get(channel)
+      expect(name, channel).toBeDefined()
+      // Known main emission forms: direct WebContents.send and the two scoped
+      // wrappers used by agent/speech handlers. A new wrapper is a visible
+      // contract change rather than silently making the inventory stale.
+      expect(mainEmissions.has(name ?? ''), `${channel} has no main emitter`).toBe(true)
+      expect(
+        new RegExp(`ipcRenderer\\.on\\(IPC\\.${name}[,)]`).test(preload),
+        `${channel} has no preload listener`,
+      ).toBe(true)
+      expect(
+        new RegExp(`ipcRenderer\\.removeListener\\(IPC\\.${name}[,)]`).test(preload),
+        `${channel} listener cannot be removed`,
+      ).toBe(true)
+    }
+  })
+
+  it('wires every fire-and-forget response at both ends', () => {
+    const preload = read('src/preload/index.ts')
+
+    for (const channel of FIRE_AND_FORGET_RESPONSES) {
+      const name = declared.get(channel)
+      expect(name, channel).toBeDefined()
+      expect(
+        new RegExp(`ipcRenderer\\.send\\(IPC\\.${name}[,)]`).test(preload),
+        `${channel} has no preload sender`,
+      ).toBe(true)
+      expect(
+        new RegExp(`ipcMain\\.on\\(IPC\\.${name}[,)]`).test(mainSourceText),
+        `${channel} has no main listener`,
+      ).toBe(true)
     }
   })
 
