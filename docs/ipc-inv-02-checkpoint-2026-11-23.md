@@ -7,6 +7,8 @@
 - **Required / demonstrated acceptance:** NIVEL 1 / **NIVEL 1**; remote CI execution remains pending publication
 - **Review independence:** Red and Blue are a second pass by the same agent, not an independent review.
 
+> **Post-integration update — 2026-11-23:** PR #28 was published, its `Pull request checks / verify` job passed in 1m20s, and it merged as `b1137e029662daadc8da928316d8f2f93346b36c`. Statements below that remote execution or publication remained pending describe the pre-publication checkpoint, not current state. Follow-up reservations R-005…R-008 are handled in [ipc-inv-03-checkpoint-2026-11-23.md](ipc-inv-03-checkpoint-2026-11-23.md).
+
 ## 1. Remediation contract
 
 | Field | Contract |
