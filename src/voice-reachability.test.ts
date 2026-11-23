@@ -70,4 +70,22 @@ describe('renderer voice reachability (VOX-REACH-03)', () => {
     // Voice → interface: the one-shot confirmation controller.
     expect(reachable).toContain('components/AgentTerminal/interfaceCommandController.ts')
   })
+
+  /**
+   * VOX-REACH-04 — the other half of the conversation was still orphaned.
+   *
+   * `OwnedReplies` (the completed agent→user reply reader) was only ever
+   * instantiated by `AgentTerminal/useAgentSession.ts`, which only
+   * `AgentTerminal/TerminalSession.tsx` mounts, which only
+   * `AgentTerminal/AgentTerminal.tsx` renders — and that component has no
+   * importer at all. Its 100+ unit assertions passed while no user could turn
+   * the reader on. This asserts the reader and the provenance consumer that
+   * feeds it are reachable from the entry point, not merely tested.
+   */
+  it('reaches the agent→user reply reader from App.tsx', () => {
+    const reachable = [...reachableFromEntry()].map(relative)
+    expect(reachable).toContain('components/AgentTerminal/ownedReplies.ts')
+    expect(reachable).toContain('components/AgentTerminal/spokenReplies.ts')
+    expect(reachable).toContain('components/AgentTerminal/responseConsumer.ts')
+  })
 })

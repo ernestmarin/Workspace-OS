@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { agentActionsHint } from './surfaceActions'
 import { RunTrace } from '../AgentTerminal/RunTrace'
+import { OwnedReplies, type ReplyReaderState } from '../AgentTerminal/ownedReplies'
 import { VoiceDictation, type FinalVoiceCommandCapture } from '../AgentTerminal/VoiceDictation'
 import { InterfaceCommandController, type PendingInterfaceCommand } from '../AgentTerminal/interfaceCommandController'
 import { PromptBar } from '../PromptBar/PromptBar'
@@ -149,6 +150,68 @@ export function TerminalAgentPane({ sessionId, context, agentName, active = true
     setPendingVoiceCommand(null)
   }, [])
 
+  /*
+   * VOX-REACH-04 — the other half of the conversation: the agent's completed
+   * reply, read back.
+   *
+   * It binds to the run lifecycle `lib/sessions` publishes instead of
+   * subscribing to agent IPC itself, so it can only ever see runs THIS tab asked
+   * for. It is opt-in per tab and consent stays native: turning it on asks main
+   * for a frozen engine/voice, and nothing is reserved or read before that
+   * consent resolves. Reading never touches agent execution — stopping it
+   * cancels this tab's reply audio and nothing else.
+   */
+  const [replyState, setReplyState] = useState<ReplyReaderState>({ enabled: false, pending: false, activeCount: 0, destination: null })
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const readerRef = useRef<OwnedReplies | null>(null)
+  const replyReader = useCallback((): OwnedReplies | null => {
+    const api = window.workspace?.speech
+    if (!api) return null
+    if (!readerRef.current) {
+      readerRef.current = new OwnedReplies(api, {
+        // The consent dialog is the only source of truth for "on": a cancel
+        // leaves the control off instead of showing a toggle that reads nothing.
+        onState: setReplyState,
+        onError: setReplyError,
+      })
+    }
+    return readerRef.current
+  }, [])
+
+  useEffect(() => {
+    const off = sessionStore.onReplyEvents((event) => {
+      if (event.sessionId !== id) return
+      const reader = readerRef.current
+      if (!reader) return // never opted in, so nothing was ever reserved
+      if (event.type === 'begin') reader.begin(event.runId)
+      else if (event.type === 'text') reader.append(event.runId, event.text)
+      else if (event.type === 'finish') reader.finish(event.runId, event.ok)
+      else reader.cancel(event.runId)
+    })
+    return off
+  }, [id])
+
+  const setSpeakReplies = useCallback((next: boolean) => {
+    const reader = replyReader()
+    if (!reader) return
+    if (next) { setReplyError(null); void reader.enable(id) } else reader.disable()
+  }, [id, replyReader])
+  const stopReplyAudio = useCallback(() => readerRef.current?.stop(), [])
+
+  // A hidden tab holds no reply lease: the person cannot see that it is reading.
+  useEffect(() => { if (!active) readerRef.current?.disable() }, [active])
+  useEffect(() => {
+    const hide = (): void => { readerRef.current?.disable() }
+    const visibility = (): void => { if (document.hidden) hide() }
+    window.addEventListener('pagehide', hide)
+    document.addEventListener('visibilitychange', visibility)
+    return () => {
+      window.removeEventListener('pagehide', hide)
+      document.removeEventListener('visibilitychange', visibility)
+      hide()
+    }
+  }, [])
+
   // Named: a complex expression in the dep array cannot be statically checked,
   // and "the last message grew" is the actual trigger (streaming text).
   const lastMessageLength = messages.length ? messages[messages.length - 1]?.text.length : -1
@@ -207,6 +270,33 @@ export function TerminalAgentPane({ sessionId, context, agentName, active = true
             <button type="button" onClick={dismissVoiceCommand}>
               {pendingVoiceCommand.proposal.language === 'es' ? 'Descartar' : 'Dismiss'}
             </button>
+          </div>
+        )}
+        {window.workspace?.speech && (
+          <div role="group" aria-label="Reply reading" className={styles.msgSystem}>
+            <button
+              type="button"
+              aria-pressed={replyState.enabled}
+              aria-busy={replyState.pending}
+              disabled={replyState.pending || !active}
+              onClick={() => setSpeakReplies(!replyState.enabled)}
+              title={replyState.destination
+                ? `Reply voice: ${replyState.destination.engine} · ${replyState.destination.voice}. Fixed until off/on. Click to stop this tab's replies; agent actions continue.`
+                : 'Ask permission to read completed agent replies with a fixed Voice engine; no microphone'}
+            >
+              {replyState.pending ? 'Reply permission…' : replyState.enabled ? '🔊 Replies on' : '🔇 Read replies'}
+            </button>{' '}
+            {replyState.enabled && (
+              <button
+                type="button"
+                onClick={stopReplyAudio}
+                disabled={replyState.activeCount === 0}
+                title="Stop only this tab's pending reply audio. Agent actions continue; future replies may still be read."
+              >
+                ■ Stop reply audio
+              </button>
+            )}
+            {replyError && <span> {replyError}</span>}
           </div>
         )}
         <VoiceDictation active={active} onTranscript={acceptDictation} onFinalCommand={handleFinalVoiceCommand} />

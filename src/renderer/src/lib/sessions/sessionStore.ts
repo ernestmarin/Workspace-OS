@@ -11,6 +11,7 @@
 import { reviewStore } from '../../components/Review/reviewStore'
 import { activityStore } from '../../components/Review/activityStore'
 import { appendStep, type TraceStep } from '../../components/AgentTerminal/runTraceModel'
+import { ResponseStreamConsumer } from '../../components/AgentTerminal/responseConsumer'
 import { loadSettings } from '../../hooks/useSettings'
 import { afterTurn, briefFirst, type AutoTurn, type HarnessDeps } from './appHarness'
 import { runIdFor, caseOnFirstAsk, sessionDigest, shouldSuggestCase, titleFromPrompt, trimMessages, turnNotes, wantsReflection, type Session, type SessionMsg } from './sessionModel'
@@ -29,6 +30,65 @@ const live = new Map<string, SessionLive>()
 const runs = new Map<string, { sessionId: string; ask: string; out: string; auto?: AutoTurn }>()
 const listeners = new Set<() => void>()
 let version = 0
+
+/*
+ * ── The reply lifecycle of every run this store starts (VOX-REACH-04) ──
+ *
+ * The agent→user reader (`components/AgentTerminal/ownedReplies.ts`) must know
+ * which reply belongs to which session, and it must not re-subscribe to agent
+ * IPC per component: main broadcasts run events to every tab. This store already
+ * owns runId → session attribution, so it publishes the lifecycle and each
+ * surface that wants its replies read filters by its own session id.
+ *
+ * `structuredRuns` carries the one-source rule. Main sends a claude reply on
+ * BOTH channels — launchRun.ts feeds `sink.assistantText` and
+ * `sink.assistantResponse` from the same parsed line — so a run whose
+ * `responseOwner` main acknowledged is read from that provenance-checked stream
+ * alone and its flattened copy is ignored. Reading both would speak every reply
+ * twice.
+ */
+export type ReplyEvent =
+  | { type: 'begin'; sessionId: string; runId: string }
+  | { type: 'text'; sessionId: string; runId: string; text: string }
+  | { type: 'finish'; sessionId: string; runId: string; ok: boolean }
+  | { type: 'cancel'; sessionId: string; runId: string }
+/** runId → the session that asked; deleted with the run's terminal event. */
+const replyRuns = new Map<string, string>()
+const structuredRuns = new Set<string>()
+const replyListeners = new Set<(event: ReplyEvent) => void>()
+
+function replyEvent(event: ReplyEvent): void {
+  for (const l of replyListeners) {
+    try { l(event) } catch { /* a listener must never break a run */ }
+  }
+}
+/**
+ * The run's terminal reply event. A repeat is a no-op: one reply is read once.
+ *
+ * This deliberately does NOT clear `structuredRuns`. `run-end` closes the reply,
+ * not the run: main keeps flattening the same text on the legacy channel until
+ * the process exits, so the one-source rule has to outlive the reply and is
+ * cleared when the run itself ends.
+ */
+function endReply(runId: string, type: 'finish' | 'cancel', ok = false): void {
+  const sessionId = replyRuns.get(runId)
+  if (!sessionId) return
+  replyRuns.delete(runId)
+  replyEvent(type === 'finish' ? { type, sessionId, runId, ok } : { type, sessionId, runId })
+}
+const responses = new ResponseStreamConsumer({
+  onText: (runId, text) => {
+    const sessionId = replyRuns.get(runId)
+    if (sessionId) replyEvent({ type: 'text', sessionId, runId, text })
+  },
+  onFinish: (runId, ok) => endReply(runId, 'finish', ok),
+  onCancel: (runId) => endReply(runId, 'cancel'),
+})
+/** Drop a structured claim and report the cancellation exactly once. */
+function cancelReply(runId: string): void {
+  responses.discard(runId) // reports through onCancel when there was a claim
+  endReply(runId, 'cancel') // …and still owes its event on the flattened path
+}
 
 const key = (r: string): string => `wos:sessions:${r}`
 const emit = (): void => {
@@ -164,6 +224,14 @@ function start(): void {
     r.out += chunk
     pushMsg(r.sessionId, { role: 'agent', text: chunk }, true)
   })
+  ag.onAssistantText((runId, text) => {
+    const r = runs.get(runId)
+    // A provenance-checked stream is its run's only reply source: main also
+    // flattens the same text onto this legacy channel.
+    if (!r || structuredRuns.has(runId)) return
+    replyEvent({ type: 'text', sessionId: r.sessionId, runId, text })
+  })
+  ag.onAssistantResponse?.((event) => responses.push(event))
   ag.onActivity((runId, act) => {
     const r = runs.get(runId)
     if (!r) return
@@ -194,6 +262,13 @@ function start(): void {
     const r = runs.get(runId)
     if (!r) return
     runs.delete(runId)
+    // The reply reader's terminal event. A structured run that closed cleanly
+    // already reported on `run-end` and dropped out of `structuredRuns`, so the
+    // flattened branch below is a no-op for it. A stream still open here never
+    // produced a verified run-end: it is cancelled, never invented.
+    if (structuredRuns.has(runId)) cancelReply(runId)
+    else endReply(runId, 'finish', code === 0)
+    structuredRuns.delete(runId) // the run is over: the one-source rule ends with it
     activityStore.clear(runId)
     reviewStore.patchRun(runId, { status: code === 0 ? 'pending' : 'error', code, checkpointId: checkpointId ?? null })
     if (code !== 0) pushMsg(r.sessionId, { role: 'system', text: `[the agent stopped with code ${code}]` })
@@ -274,6 +349,18 @@ export const sessionStore = {
   get: (id: string | null | undefined): Session | undefined => (id ? sessions.find((s) => s.id === id) : undefined),
   live: (id: string | null | undefined): SessionLive => (id && live.get(id)) || { running: false, steps: [] },
 
+  /**
+   * The reply lifecycle of the runs this store starts (VOX-REACH-04). One reply
+   * source per run: a run whose provenance main acknowledged reports from the
+   * structured stream alone, every other run from the flattened one. Events are
+   * broadcast, so a subscriber filters by its own session id.
+   */
+  onReplyEvents(handler: (event: ReplyEvent) => void): () => void {
+    start()
+    replyListeners.add(handler)
+    return () => { replyListeners.delete(handler) }
+  },
+
   /** A new session, optionally as an agent and/or inside a case. */
   create(o: { agentName?: string | null; caseId?: string | null; id?: string; title?: string; kind?: 'chat'; app?: string } = {}): Session {
     start()
@@ -317,6 +404,14 @@ export const sessionStore = {
     }
     const runId = runIdFor(id)
     runs.set(runId, { sessionId: id, ask, out: '', auto: ctx.auto })
+    replyRuns.set(runId, id)
+    replyEvent({ type: 'begin', sessionId: id, runId })
+    // Claim the provenance-checked stream before the run exists: its early
+    // events are buffered until main acknowledges the owner in the run result.
+    if (typeof window.workspace.agent.onAssistantResponse === 'function') {
+      structuredRuns.add(runId)
+      responses.claim(runId, conversationOf(id))
+    }
     if (!ctx.auto) pushMsg(id, { role: 'user', text: ask, ...(attached.length ? { files: attached } : {}) })
     const firstAsk = s.turns === 0
     patch(id, (x) => ({ turns: x.turns + 1, lastAt: Date.now(), lastRunId: runId }))
@@ -334,9 +429,19 @@ export const sessionStore = {
     if (ctx.preamble) prompt = `${ctx.preamble}\n\n${prompt}`
     prompt += brief
     try {
-      await window.workspace.agent.run(runId, prompt, [...mentions, ...attached], ctx.openFile ?? null, loadSettings().agentMode, agentName, conversationOf(id), ctx.model ?? null, undefined, s.app ? 'app' : chat ? 'chat' : 'work', s.app)
+      const result = await window.workspace.agent.run(runId, prompt, [...mentions, ...attached], ctx.openFile ?? null, loadSettings().agentMode, agentName, conversationOf(id), ctx.model ?? null, undefined, s.app ? 'app' : chat ? 'chat' : 'work', s.app)
+      if (structuredRuns.has(runId)) {
+        if (result?.responseOwner) responses.acknowledge(runId, result.responseOwner)
+        else {
+          // No provenance from main: fall back cleanly to the flattened channel.
+          structuredRuns.delete(runId)
+          responses.releaseClaim(runId)
+        }
+      }
     } catch (err) {
       runs.delete(runId)
+      cancelReply(runId)
+      structuredRuns.delete(runId)
       pushMsg(id, { role: 'system', text: `[error] ${(err as Error).message}` })
       reviewStore.patchRun(runId, { status: 'error', code: null })
       setLive(id, { running: false })
