@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — IPC-INV-01 · 2026-11-23
+## Vigente — IPC-INV-02 · 2026-11-23
+
+Ver [ipc-inv-02-checkpoint-2026-11-23.md](ipc-inv-02-checkpoint-2026-11-23.md). Rama `arena/266560cc-workspace-os`, base `731ba9d` (= merge de PR #27).
+
+- La auditoría Red/Blue posterior dejó R-001…R-004. Los cuatro quedan remediados localmente: historial completo y delta original reconciliado; gates reproducidos; unicidad cruda del registro; y ambos extremos + cleanup de los 29 push fijados mecánicamente.
+- `npm run lint` configura la pila necesaria para analizar `lokMacros.ts` sin excluirlo ni relajar reglas: 1038 ficheros, 0 errores y 0 warnings. Suite completa: 385+3 ficheros, **5080+26 tests**.
+- Nuevo workflow `pull_request`: Node 22, instalación sin scripts, rebuild Node, dos `tsc`, baseline typecheck, lint y Vitest completo. Permisos `contents: read`; la ejecución remota queda pendiente de publicación/PR.
+- Aceptación local NIVEL 1. No se ejecutó Electron ni se afirma NIVEL 3. Las 35/40 moderate siguen como deuda aceptada bajo el umbral vigente de 0 high/critical.
+
+## Anterior — IPC-INV-01 · 2026-11-23
 
 Ver [ipc-inv-01-checkpoint-2026-11-23.md](ipc-inv-01-checkpoint-2026-11-23.md). Rama `arena/0b84f054-workspace-os`, base `a74ce24` (= `origin/master`; checkout **shallow**, 1 commit visible al entrar).
 
