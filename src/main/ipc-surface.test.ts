@@ -9,10 +9,11 @@ import { describe, it, expect } from 'vitest'
  * reading files is a snapshot, not a guarantee: nothing today stops the next
  * commit from pointing preload at a channel nobody registers (a renderer promise
  * that never settles, with no error anywhere) or from declaring a channel and
- * forgetting to wire it. Two invariants make the map falsifiable:
+ * forgetting to wire it. Three invariants make the map falsifiable:
  *
- *   1. every channel main registers is declared in the IPC registry, and
- *   2. every channel preload can invoke is registered by main.
+ *   1. every channel main registers is declared in the IPC registry,
+ *   2. every channel preload can invoke is registered by main, and
+ *   3. every declared channel is accounted for as invoke, push, or response.
  *
  * Push channels are the documented exception and are listed by hand below: those
  * flow main → renderer, so "no invoke handler" is correct, and the list is short
@@ -24,8 +25,8 @@ import { describe, it, expect } from 'vitest'
  */
 
 const MAIN_PUSH_CHANNELS = new Set([
-  'agent:activity', 'agent:artifact', 'agent:artifacts', 'agent:assistant-response',
-  'agent:assistant-text', 'agent:done', 'agent:output', 'agent:pty-exit',
+  'agent:action-invoke', 'agent:activity', 'agent:artifact', 'agent:artifacts',
+  'agent:assistant-response', 'agent:assistant-text', 'agent:done', 'agent:output', 'agent:pty-exit',
   'agent:pty-output', 'agent:run-meta', 'browser:download', 'fs:watch-event',
   'mail:new-mail', 'notify:open', 'routines:updated', 'runs:updated',
   'shell:output', 'speech:event', 'speech:playback', 'terminal:data', 'terminal:exit',
@@ -118,6 +119,18 @@ describe('RT-05 IPC surface completeness', () => {
       (c) => !handlerChannels.has(c) && !MAIN_PUSH_CHANNELS.has(c) && !FIRE_AND_FORGET_RESPONSES.has(c),
     )
     expect(orphans).toEqual([])
+  })
+
+  it('accounts for every declared channel in exactly one IPC direction', () => {
+    const wronglyAccounted = [...declared.keys()].filter((channel) => {
+      const classifications = [
+        handlerChannels.has(channel),
+        MAIN_PUSH_CHANNELS.has(channel),
+        FIRE_AND_FORGET_RESPONSES.has(channel),
+      ]
+      return classifications.filter(Boolean).length !== 1
+    })
+    expect(wronglyAccounted).toEqual([])
   })
 
   it('keeps every push channel out of the invoke surface', () => {
