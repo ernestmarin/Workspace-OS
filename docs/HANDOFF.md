@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — IPC-INV-02 · 2026-11-23
+## Vigente — IPC-INV-03 · 2026-11-23
+
+Ver [ipc-inv-03-checkpoint-2026-11-23.md](ipc-inv-03-checkpoint-2026-11-23.md). Rama `arena/f714c4a4-workspace-os`, base `b1137e0` (= merge de PR #28).
+
+- R-005…R-008 quedan remediados localmente. El control de wiring usa AST TypeScript: ignora comentarios y `.send` ajenos, y exige que `on` y el cleanup devuelto compartan canal y handler. M7/M8 detectan comentario en lugar de emisor y cleanup con handler distinto.
+- CI de PR: `ubuntu-24.04`, Node `22.22.3`, actions v4 fijadas por SHA, permisos `contents: read`; añade `check:macros` y build a los dos `tsc`, baseline, lint y Vitest existentes.
+- Gates locales: 1038 lint 0/0; 385+3 ficheros y **5082+26 tests**; build y macro registry verdes; NUL=1. Auditorías sin cambio: 35/40 moderate, 0 high/critical.
+- Aceptación local NIVEL 1. Publicación, PR y ejecución remota de este nuevo delta quedan como postcondición operacional; sin Electron ni NIVEL 3.
+
+## Anterior — IPC-INV-02 · 2026-11-23
 
 Ver [ipc-inv-02-checkpoint-2026-11-23.md](ipc-inv-02-checkpoint-2026-11-23.md). Rama `arena/266560cc-workspace-os`, base `731ba9d` (= merge de PR #27).
 
