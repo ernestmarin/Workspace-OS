@@ -1,6 +1,15 @@
 # Handoff
 
-## Vigente — VOX-REACH-04 · 2026-11-22
+## Vigente — IPC-INV-01 · 2026-11-23
+
+Ver [ipc-inv-01-checkpoint-2026-11-23.md](ipc-inv-01-checkpoint-2026-11-23.md). Rama `arena/0b84f054-workspace-os`, base `a74ce24` (= `origin/master`; checkout **shallow**, 1 commit visible al entrar).
+
+- El inventario IPC ya es bidireccionalmente falsable: cada uno de los **473** canales declarados debe estar clasificado exactamente una vez como 443 invoke, **29 push** o 1 respuesta fire-and-forget.
+- RED confirmó que `agent:action-invoke` era el único hueco; GREEN y M1 prueban que el nuevo control lo detecta. Suite completa: 385+3 ficheros, **5077+26 tests**.
+- Aceptación NIVEL 1 para inventario estático. No se auditó runtime IPC. La cifra heredada de 178 canales sin guard está obsoleta: el código vigente fija **405 guarded + 16 no-guard deliberados + 22 grants + 30 push = 473**, y los 16 tienen decisión B documentada; A3 no tiene hoy un módulo pendiente demostrado.
+- Sin autorización para push/PR/merge/release ni para `.github/`; A4 sigue bloqueado. B1 sigue bloqueado por la decisión de modo por defecto. El siguiente lote debe seleccionarse entre B3/B4 o A6 tras contrato propio.
+
+## Anterior — VOX-REACH-04 · 2026-11-22
 
 Ver [voice-reach-04-checkpoint-2026-11-22.md](voice-reach-04-checkpoint-2026-11-22.md). Rama `arena/bb4b35b3-workspace-os`, base `9ace1f5` (merge de PR #25; checkout **shallow**, 1 commit visible).
 
